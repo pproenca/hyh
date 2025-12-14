@@ -137,6 +137,7 @@ class StateManager:
     def save(self, state: WorkflowState) -> None:
         """Save state to disk atomically (thread-safe)."""
         with self._lock:
+            state.validate_dag()  # Reject cycles before persisting
             self._state = state
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
 

@@ -693,3 +693,37 @@ def test_validate_dag_empty_tasks():
     state = WorkflowState(tasks={})
     # Should not raise
     state.validate_dag()
+
+
+# ============================================================================
+# TestStateManagerValidatesDAG: save validates DAG (Amendment C - Part 2)
+# ============================================================================
+
+
+def test_state_manager_save_validates_dag(tmp_path):
+    """StateManager.save should validate DAG before saving."""
+    manager = StateManager(tmp_path)
+
+    # Create state with cycle
+    state = WorkflowState(
+        tasks={
+            "task-a": Task(
+                id="task-a",
+                description="Task A",
+                status=TaskStatus.PENDING,
+                dependencies=["task-b"],
+            ),
+            "task-b": Task(
+                id="task-b",
+                description="Task B",
+                status=TaskStatus.PENDING,
+                dependencies=["task-a"],
+            ),
+        }
+    )
+
+    with pytest.raises(ValueError, match="[Cc]ycle"):
+        manager.save(state)
+
+    # File should not exist (save was rejected)
+    assert not manager.state_file.exists()
