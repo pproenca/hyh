@@ -24,6 +24,9 @@ from .git import safe_git_exec
 from .trajectory import TrajectoryLogger
 from .runtime import create_runtime, decode_signal
 
+# Truncation limit for trajectory logs - agents need enough context to debug
+TRUNCATE_LIMIT = 4096
+
 
 class HarnessHandler(socketserver.StreamRequestHandler):
     """
@@ -227,8 +230,8 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                     "args": args,
                     "returncode": result.returncode,
                     "signal_name": signal_name,
-                    "stdout": result.stdout[:200] if result.stdout else "",  # Truncate for log
-                    "stderr": result.stderr[:200] if result.stderr else "",
+                    "stdout": result.stdout[:TRUNCATE_LIMIT] if result.stdout else "",
+                    "stderr": result.stderr[:TRUNCATE_LIMIT] if result.stderr else "",
                     "duration_ms": duration_ms,
                 }
             )

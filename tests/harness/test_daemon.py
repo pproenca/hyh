@@ -602,3 +602,42 @@ def test_daemon_fails_fast_on_capability_check_failure(socket_path, worktree):
 
         with pytest.raises(RuntimeError, match="git not found"):
             HarnessDaemon(socket_path, str(worktree))
+
+
+def test_exec_trajectory_log_truncation_limit(daemon_with_state, socket_path, worktree):
+    """Trajectory log should capture enough output for debugging (4KB, not 200 chars).
+
+    Bug: Truncating to 200 chars leaves agents unable to debug failures.
+    The error summary is often at the bottom of long stack traces.
+    """
+    daemon, worktree_path = daemon_with_state
+
+    # Generate output > 200 chars but < 4096 chars
+    # This simulates a test failure with a meaningful stack trace
+    char_count = 500
+    response = send_command(
+        socket_path,
+        {
+            "command": "exec",
+            "args": ["python", "-c", f"print('x' * {char_count})"],
+        },
+    )
+
+    assert response["status"] == "ok"
+    # Response to client should have full output
+    assert len(response["data"]["stdout"]) >= char_count
+
+    # Verify trajectory log captures enough context (not truncated to 200)
+    import json
+    trajectory_file = worktree_path / ".claude" / "trajectory.jsonl"
+    with open(trajectory_file, "r") as f:
+        lines = f.readlines()
+        exec_events = [json.loads(line) for line in lines if '"exec"' in line]
+        assert len(exec_events) >= 1
+        event = exec_events[-1]
+        # This assertion will FAIL with 200-char limit
+        # The logged stdout should be > 200 chars (proving fix works)
+        assert len(event["stdout"]) > 200, (
+            f"Trajectory log truncated to {len(event['stdout'])} chars. "
+            f"Agents need 4KB for debugging."
+        )
