@@ -19,8 +19,51 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+
+def get_worker_id() -> str:
+    """Get stable worker ID, persisting across CLI invocations using Atomic Write."""
+    # Use XDG_RUNTIME_DIR if available (more secure), fallback to /tmp
+    runtime_dir = os.getenv("XDG_RUNTIME_DIR", "/tmp")
+    username = os.getenv("USER", "default")
+    worker_id_file = Path(f"{runtime_dir}/harness-worker-{username}.id")
+
+    # Try to read existing worker ID
+    if worker_id_file.exists():
+        try:
+            worker_id = worker_id_file.read_text().strip()
+            # Basic validation to prevent using corrupt data
+            # Format: "worker-" (7) + 12 hex chars = 19 total
+            if worker_id.startswith("worker-") and len(worker_id) == 19:
+                return worker_id
+        except OSError:
+            pass  # Fall through to regenerate
+
+    # Generate new ID
+    worker_id = f"worker-{uuid.uuid4().hex[:12]}"
+
+    # ATOMIC WRITE PATTERN (Council Requirement)
+    tmp_file = worker_id_file.with_suffix(".tmp")
+    try:
+        # Create with 600 permissions (User Read/Write ONLY)
+        # Using open with low-level flags to ensure permissions from creation
+        fd = os.open(str(tmp_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(worker_id)
+            f.flush()
+            os.fsync(f.fileno())  # Durability
+
+        # Atomic rename
+        tmp_file.rename(worker_id_file)
+    except OSError:
+        # If persistence fails (e.g. read-only FS), return ephemeral ID
+        # This keeps the client usable even if stateful restart is broken
+        pass
+
+    return worker_id
+
+
 # Generate stable WORKER_ID on module load (Council Fix: Lost Ack)
-WORKER_ID = f"worker-{uuid.uuid4().hex[:12]}"
+WORKER_ID = get_worker_id()
 
 
 # Default socket path - /tmp is the standard Unix socket location

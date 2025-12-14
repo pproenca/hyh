@@ -576,3 +576,20 @@ def test_json_state_persistence(workflow_with_tasks):
     assert data["tasks"]["task-1"]["claimed_by"] == "worker-1"
     assert "started_at" in data["tasks"]["task-1"]
     assert "completed_at" in data["tasks"]["task-1"]
+
+
+def test_task_claim_idempotency(workflow_with_tasks):
+    """Same worker claiming twice returns same task with is_retry=True."""
+    send_command = workflow_with_tasks["send_command"]
+
+    # First claim
+    resp1 = send_command({"command": "task_claim", "worker_id": "worker-1"})
+    assert resp1["status"] == "ok"
+    assert resp1["data"]["task"]["id"] == "task-1"
+    assert resp1["data"]["is_retry"] is False
+
+    # Second claim by same worker - should return same task
+    resp2 = send_command({"command": "task_claim", "worker_id": "worker-1"})
+    assert resp2["status"] == "ok"
+    assert resp2["data"]["task"]["id"] == "task-1"  # Same task
+    assert resp2["data"]["is_retry"] is True  # Flagged as retry
