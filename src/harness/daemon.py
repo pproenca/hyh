@@ -405,6 +405,7 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     def server_close(self) -> None:
         """Clean up on shutdown."""
         super().server_close()
+        self.acp_emitter.close()
         socket_path = Path(self.socket_path)
         if socket_path.exists():
             socket_path.unlink()
