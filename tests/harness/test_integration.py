@@ -841,3 +841,39 @@ def test_parallel_workers_get_unique_tasks(workflow_with_parallel_tasks):
     assert len(claimed_tasks) == 3
     # All tasks should be unique
     assert len(set(claimed_tasks)) == 3
+
+
+def test_cli_task_claim_and_complete(workflow_with_tasks):
+    """Test task claim and complete via CLI subprocess."""
+    import sys
+
+    worktree = workflow_with_tasks["worktree"]
+    socket_path = workflow_with_tasks["socket"]
+
+    env = {
+        "HARNESS_SOCKET": socket_path,
+        "HARNESS_WORKTREE": str(worktree),
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
+    }
+
+    # Claim task via CLI
+    result = subprocess.run(
+        [sys.executable, "-m", "harness", "task", "claim"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 0, f"task claim failed: {result.stderr}"
+    output = json.loads(result.stdout)
+    assert output["task"]["id"] == "task-1"
+
+    # Complete task via CLI
+    result = subprocess.run(
+        [sys.executable, "-m", "harness", "task", "complete", "--id", "task-1"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 0, f"task complete failed: {result.stderr}"
+    assert "Task task-1 completed" in result.stdout
