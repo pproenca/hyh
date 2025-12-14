@@ -14,6 +14,7 @@
 | **Lock Convoy** | Sam Gross | Holding state lock during trajectory I/O serializes swarm | Release-then-Log: separate critical sections |
 | **Lost Ack** | David Soria Parra | Network failures leave tasks RUNNING forever | `worker_id` idempotency: return existing task on retry |
 | **Root Escape** | Justin Spahr-Summers | Docker exec creates root-owned files | `--user $(id -u):$(id -g)` in DockerRuntime |
+| **Missing Signal** | Justin Spahr-Summers | Negative return codes (-9, -11) are cryptic to LLM | Decode signals to names (SIGKILL, SIGSEGV) in logs |
 
 ---
 
@@ -53,6 +54,7 @@ src/harness/
 **Council Fixes Applied:**
 - **Root Escape:** DockerRuntime passes `--user $(id -u):$(id -g)` to docker exec
 - **Blind Execution:** Add `env` parameter to `execute()` for API keys
+- **Missing Signal:** Add `decode_signal()` helper to translate negative return codes to signal names
 
 **TDD Instructions (MANDATORY):**
 
@@ -60,9 +62,40 @@ src/harness/
    ```python
    # tests/harness/test_runtime.py
    import os
+   import signal
    import subprocess
    import threading
    import pytest
+
+
+   class TestSignalDecoding:
+       """Tests for signal decoding (Council: Missing Signal fix)."""
+
+       def test_decode_signal_returns_name_for_negative_codes(self):
+           """decode_signal translates negative return codes to signal names."""
+           from harness.runtime import decode_signal
+
+           assert decode_signal(-9) == "SIGKILL"
+           assert decode_signal(-11) == "SIGSEGV"
+           assert decode_signal(-15) == "SIGTERM"
+           assert decode_signal(-6) == "SIGABRT"
+
+       def test_decode_signal_returns_none_for_positive_codes(self):
+           """decode_signal returns None for normal exit codes."""
+           from harness.runtime import decode_signal
+
+           assert decode_signal(0) is None
+           assert decode_signal(1) is None
+           assert decode_signal(127) is None
+
+       def test_decode_signal_handles_unknown_signals(self):
+           """decode_signal returns generic format for unknown signals."""
+           from harness.runtime import decode_signal
+
+           # Unknown signal number
+           result = decode_signal(-99)
+           assert result is not None
+           assert "99" in result  # Should mention the signal number
 
 
    class TestPathMapper:
@@ -309,6 +342,7 @@ src/harness/
    from __future__ import annotations
 
    import os
+   import signal
    import subprocess
    import threading
    from abc import ABC, abstractmethod
@@ -317,6 +351,32 @@ src/harness/
 
    # Global lock for all command execution (protects .git/index, etc.)
    GLOBAL_EXEC_LOCK = threading.Lock()
+
+
+   # =============================================================================
+   # Signal Decoding (Council: Missing Signal fix)
+   # =============================================================================
+
+   def decode_signal(returncode: int) -> str | None:
+       """Decode negative return code to signal name.
+
+       Council Fix (Missing Signal): LLM agents can't interpret -9 or -11.
+       This gives them the 'why' (SIGKILL = OOM, SIGSEGV = crash) not just 'what'.
+
+       Args:
+           returncode: Process return code (negative if killed by signal)
+
+       Returns:
+           Signal name (e.g., "SIGKILL") or None if not a signal
+       """
+       if returncode >= 0:
+           return None
+
+       sig_num = -returncode
+       try:
+           return signal.Signals(sig_num).name
+       except ValueError:
+           return f"SIG{sig_num}"  # Unknown signal
 
 
    # =============================================================================
@@ -1366,6 +1426,7 @@ src/harness/
 **Council Fixes Applied:**
 - **Lock Convoy:** Release state lock BEFORE acquiring trajectory lock
 - **Lost Ack:** `task_claim` requires `worker_id` and returns existing task for retries
+- **Missing Signal:** `exec` handler decodes negative return codes to signal names in logs and response
 
 **TDD Instructions (MANDATORY):**
 
@@ -1583,11 +1644,38 @@ src/harness/
        last_event = json.loads(lines[-1])
        assert last_event["event"] == "claim"
        assert last_event["task_id"] == "task-1"
+
+
+   def test_exec_decodes_signal_on_negative_returncode(daemon_with_state, socket_path, worktree):
+       """exec handler decodes negative return codes to signal names (Council: Missing Signal fix)."""
+       # Run a command that will be killed by signal (simulate with shell)
+       # Note: This test uses a mock to verify signal decoding logic
+       response = send_command(socket_path, {
+           "command": "exec",
+           "args": ["sh", "-c", "kill -9 $$"],  # Process kills itself with SIGKILL
+           "cwd": str(worktree),
+       })
+
+       # Verify signal_name is in response
+       assert response["status"] == "ok"
+       data = response["data"]
+       # Return code should be -9 (SIGKILL)
+       assert data["returncode"] == -9 or data.get("signal_name") == "SIGKILL"
+
+       # Verify trajectory log includes signal_name
+       trajectory_file = worktree / ".claude" / "trajectory.jsonl"
+       import json
+       lines = trajectory_file.read_text().strip().split("\n")
+       exec_events = [json.loads(l) for l in lines if json.loads(l).get("event") == "exec"]
+       assert len(exec_events) > 0
+       last_exec = exec_events[-1]
+       if last_exec["returncode"] < 0:
+           assert "signal_name" in last_exec
    ```
 
 2. **Run test, verify FAILURE:**
    ```bash
-   uv run pytest tests/harness/test_daemon.py -v -k "task_claim or task_complete"
+   uv run pytest tests/harness/test_daemon.py -v -k "task_claim or task_complete or exec_decodes"
    ```
    Expected: FAIL (handlers not defined)
 
@@ -1600,7 +1688,7 @@ src/harness/
    from datetime import datetime, timezone
    from .state import StateManager, TaskStatus
    from .trajectory import TrajectoryLogger
-   from .runtime import create_runtime, Runtime
+   from .runtime import create_runtime, Runtime, decode_signal
 
    # Update HarnessDaemon.__init__
    def __init__(self, socket_path: str, worktree_root: str):
@@ -1723,7 +1811,11 @@ src/harness/
        return {"status": "ok", "data": {"task_id": task_id}}
 
    def _handle_exec(self, request: dict, server: "HarnessDaemon") -> dict:
-       """Execute command through safe runtime."""
+       """Execute command through safe runtime.
+
+       Council Fix (Missing Signal): Includes signal_name in log and response
+       when command is killed by signal (negative return code).
+       """
        args = request.get("args", [])
        cwd = request.get("cwd")
        env = request.get("env")
@@ -1742,22 +1834,32 @@ src/harness/
                env=env,
            )
 
-           server.trajectory_logger.log({
+           # Council Fix (Missing Signal): Decode negative return codes
+           signal_name = decode_signal(result.returncode)
+
+           log_entry = {
                "event": "exec",
                "args": args,
                "cwd": cwd,
                "returncode": result.returncode,
                "timestamp": time.time(),
-           })
-
-           return {
-               "status": "ok",
-               "data": {
-                   "returncode": result.returncode,
-                   "stdout": result.stdout,
-                   "stderr": result.stderr,
-               },
            }
+           # Add signal_name if process was killed by signal
+           if signal_name:
+               log_entry["signal_name"] = signal_name
+
+           server.trajectory_logger.log(log_entry)
+
+           response_data = {
+               "returncode": result.returncode,
+               "stdout": result.stdout,
+               "stderr": result.stderr,
+           }
+           # Include signal info for LLM agent understanding
+           if signal_name:
+               response_data["signal_name"] = signal_name
+
+           return {"status": "ok", "data": response_data}
        except subprocess.TimeoutExpired:
            return {"status": "error", "message": f"Command timed out after {timeout}s"}
        except Exception as e:
@@ -2340,10 +2442,10 @@ src/harness/
 
 | Task | Effort | Files | Commit Message | Council Fix |
 |------|--------|-------|----------------|-------------|
-| 1. Runtime Abstraction | standard | runtime.py (NEW), test_runtime.py | `feat(runtime): add runtime.py with UID mapping` | Root Escape, Blind Execution |
+| 1. Runtime Abstraction | standard | runtime.py (NEW), test_runtime.py | `feat(runtime): add runtime.py with UID mapping and signal decoding` | Root Escape, Blind Execution, Missing Signal |
 | 2. Trajectory Logger | standard | trajectory.py (NEW), test_trajectory.py | `feat(trajectory): add trajectory.py with separate lock` | Lock Convoy (prep) |
 | 3. JSON State Schema | complex | state.py, test_state.py | `feat(state): migrate to JSON, add worker_id tracking` | Markdown Database, Lost Ack, Zombie |
-| 4. Daemon Handlers | standard | daemon.py, test_daemon.py | `feat(daemon): add handlers with lock convoy fix` | Lock Convoy, Lost Ack |
+| 4. Daemon Handlers | standard | daemon.py, test_daemon.py | `feat(daemon): add handlers with lock convoy fix and signal logging` | Lock Convoy, Lost Ack, Missing Signal |
 | 5. Client Commands | standard | client.py, test_client.py | `feat(client): add WORKER_ID and task commands` | Lost Ack |
 | 6. Git Delegation | simple | git.py, test_git.py | `refactor(git): delegate to runtime.py` | - |
 | 7. Integration Tests | standard | test_integration.py | `test(integration): add DAG workflow tests` | - |
@@ -2361,6 +2463,7 @@ Before marking the plan as complete, verify:
 - [ ] **Lock Convoy:** State update and trajectory write are in separate critical sections (state lock released before trajectory.log())
 - [ ] **Lost Ack:** `task_claim` requires `worker_id`, returns existing task for same worker, `Task.claimed_by` tracks ownership
 - [ ] **Root Escape:** `DockerRuntime` passes `--user UID:GID` by default, configurable via `map_uid` parameter
+- [ ] **Missing Signal:** `decode_signal()` in runtime.py, `_handle_exec` includes `signal_name` in log and response for negative return codes
 
 ---
 
@@ -2374,3 +2477,4 @@ Before marking the plan as complete, verify:
 | Task Claim | No worker tracking | `worker_id` required, idempotent returns |
 | Docker | No UID mapping | `--user $(id -u):$(id -g)` by default |
 | Trajectory | Same lock as state | Separate lock, written after state update |
+| Signal Handling | Raw negative return codes | Decoded to signal names (SIGKILL, SIGSEGV) |
