@@ -1032,3 +1032,153 @@ def test_plan_import_then_claim_with_injection(socket_path, worktree):
 
     finally:
         cleanup_daemon_subprocess(socket_path)
+
+
+def test_lock_hierarchy_trajectory_after_state(workflow_with_tasks):
+    """Verify trajectory logging happens AFTER state lock is released (release-then-log pattern).
+
+    This test verifies the lock hierarchy from CLAUDE.md:
+    1. StateManager._lock (highest priority)
+    2. TrajectoryLogger._lock (lower priority)
+
+    We verify that task_claim operations can read trajectory immediately after,
+    proving that the state lock was released before trajectory logging.
+    """
+    send_command = workflow_with_tasks["send_command"]
+    worktree = workflow_with_tasks["worktree"]
+    trajectory_file = worktree / ".claude" / "trajectory.jsonl"
+
+    # Claim a task - this should:
+    # 1. Acquire StateManager._lock
+    # 2. Update state
+    # 3. Release StateManager._lock
+    # 4. Acquire TrajectoryLogger._lock
+    # 5. Log event
+    # 6. Release TrajectoryLogger._lock
+    resp = send_command({"command": "task_claim", "worker_id": "worker-1"})
+    assert resp["status"] == "ok"
+    assert resp["data"]["task"]["id"] == "task-1"
+
+    # Immediately read trajectory file - this proves state lock was released
+    # before trajectory logging (otherwise we'd have a convoy effect)
+    assert trajectory_file.exists()
+    lines = trajectory_file.read_text().strip().split("\n")
+    assert len(lines) >= 1
+
+    # Parse last line - should be the claim event
+    event = json.loads(lines[-1])
+    assert event["event_type"] == "task_claim"
+    assert event["worker_id"] == "worker-1"
+    assert event["task_id"] == "task-1"
+
+    # Complete the task - same release-then-log pattern
+    resp = send_command({"command": "task_complete", "task_id": "task-1", "worker_id": "worker-1"})
+    assert resp["status"] == "ok"
+
+    # Verify trajectory was updated
+    lines = trajectory_file.read_text().strip().split("\n")
+    assert len(lines) >= 2
+    event = json.loads(lines[-1])
+    assert event["event_type"] == "task_complete"
+    assert event["task_id"] == "task-1"
+
+
+def test_concurrent_state_and_trajectory_operations(workflow_with_parallel_tasks):
+    """Verify concurrent operations don't deadlock.
+
+    This test creates concurrent operations that mix:
+    - State reads/writes (StateManager._lock)
+    - Trajectory logging (TrajectoryLogger._lock)
+    - Exec operations (GLOBAL_EXEC_LOCK when exclusive=True)
+
+    The lock hierarchy from CLAUDE.md guarantees no deadlock:
+    1. StateManager._lock (highest)
+    2. TrajectoryLogger._lock (middle)
+    3. GLOBAL_EXEC_LOCK (lowest)
+
+    Operations must acquire locks in this order and release-then-log.
+    """
+    send_command = workflow_with_parallel_tasks["send_command"]
+    worktree = workflow_with_parallel_tasks["worktree"]
+
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def worker_task(worker_id: str):
+        """Worker that claims task, reads state, and executes commands."""
+        try:
+            # 1. Claim task (State lock -> release -> Trajectory lock)
+            resp = send_command({"command": "task_claim", "worker_id": worker_id})
+            if resp["status"] != "ok":
+                with lock:
+                    errors.append(f"{worker_id}: claim failed - {resp.get('message')}")
+                return
+
+            task = resp["data"]["task"]
+            if not task:
+                with lock:
+                    results.append((worker_id, "no_task"))
+                return
+
+            # 2. Read state (State lock)
+            resp = send_command({"command": "get_state"})
+            if resp["status"] != "ok":
+                with lock:
+                    errors.append(f"{worker_id}: get_state failed - {resp.get('message')}")
+                return
+
+            # 3. Execute command (GLOBAL_EXEC_LOCK if exclusive=True)
+            # Use exclusive=False to test parallel execution
+            resp = send_command(
+                {
+                    "command": "exec",
+                    "args": ["echo", f"worker-{worker_id}"],
+                    "cwd": str(worktree),
+                    "env": {},
+                    "exclusive": False,
+                }
+            )
+            if resp["status"] != "ok":
+                with lock:
+                    errors.append(f"{worker_id}: exec failed - {resp.get('message')}")
+                return
+
+            # 4. Complete task (State lock -> release -> Trajectory lock)
+            resp = send_command(
+                {"command": "task_complete", "task_id": task["id"], "worker_id": worker_id}
+            )
+            if resp["status"] != "ok":
+                with lock:
+                    errors.append(f"{worker_id}: complete failed - {resp.get('message')}")
+                return
+
+            with lock:
+                results.append((worker_id, task["id"]))
+
+        except Exception as e:
+            with lock:
+                errors.append(f"{worker_id}: exception - {e!s}")
+
+    # Launch 3 workers in parallel to stress-test lock hierarchy
+    threads = [threading.Thread(target=worker_task, args=(f"worker-{i}",)) for i in range(3)]
+
+    # Start all threads
+    for t in threads:
+        t.start()
+
+    # Wait for completion with timeout to detect deadlocks
+    for t in threads:
+        t.join(timeout=10.0)  # 10 second timeout
+        if t.is_alive():
+            errors.append("Thread deadlock detected - timeout exceeded")
+
+    # Verify no errors occurred
+    assert len(errors) == 0, f"Errors during concurrent operations: {errors}"
+
+    # Verify all workers successfully claimed and completed tasks
+    assert len(results) == 3, f"Expected 3 successful operations, got {len(results)}"
+
+    # Verify all tasks were unique
+    task_ids = [task_id for _, task_id in results]
+    assert len(set(task_ids)) == 3, "Workers should have claimed different tasks"

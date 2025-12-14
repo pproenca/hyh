@@ -8,6 +8,7 @@ It only uses stdlib: sys, json, socket, os, subprocess, time, argparse.
 
 import os
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -29,6 +30,75 @@ def test_client_has_no_heavy_imports():
     forbidden = {"pydantic", "harness.state"}
     violations = import_names & forbidden
     assert not violations, f"Client has forbidden imports: {violations}"
+
+
+def test_client_does_not_import_pydantic():
+    """Client module must not import pydantic (startup performance).
+
+    This is a critical constraint - pydantic adds ~20-30ms to import time.
+    The client must remain a dumb RPC wrapper with stdlib-only imports.
+    """
+    # Run in subprocess to test fresh import
+    script = """
+import sys
+import harness.client
+
+# Check if pydantic is in loaded modules
+pydantic_loaded = any('pydantic' in mod for mod in sys.modules)
+if pydantic_loaded:
+    print("FAIL: pydantic imported")
+    sys.exit(1)
+else:
+    print("OK: pydantic not imported")
+    sys.exit(0)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).parent.parent.parent,  # Project root
+    )
+
+    assert result.returncode == 0, (
+        f"Client imported pydantic! This violates the <50ms startup constraint.\n"
+        f"stdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+
+
+def test_client_startup_time():
+    """Client module imports in <50ms (allow 100ms for CI variance).
+
+    The client must be a fast, dumb RPC wrapper. Any validation/logic lives
+    in the daemon. This test ensures we don't accidentally add heavy imports.
+    """
+    # Run in subprocess to measure cold import time
+    script = """
+import sys
+import time
+
+start = time.monotonic()
+import harness.client
+elapsed_ms = (time.monotonic() - start) * 1000
+
+print(f"{elapsed_ms:.2f}")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).parent.parent.parent,  # Project root
+    )
+
+    assert result.returncode == 0, f"Import failed: {result.stderr}"
+
+    elapsed_ms = float(result.stdout.strip())
+
+    # Target: <50ms, but allow 100ms for CI variance (slow runners, cold cache)
+    assert elapsed_ms < 100, (
+        f"Client import took {elapsed_ms:.2f}ms (target: <50ms, max: <100ms)\n"
+        f"This suggests heavy imports were added. Client must use stdlib only."
+    )
 
 
 @pytest.fixture
