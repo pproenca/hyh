@@ -161,6 +161,7 @@ class StateManager:
         """Update specific fields atomically (thread-safe).
 
         Auto-loads state from disk if not already loaded.
+        Validates incoming data (Pydantic at the boundary).
         """
         with self._lock:
             if not self._state:
@@ -171,6 +172,16 @@ class StateManager:
                     self._state = WorkflowState(**data)
                 if not self._state:
                     raise ValueError("No state loaded and no state file exists")
+
+            # Convert raw dicts to Task objects (Pydantic validation at boundary)
+            if "tasks" in kwargs and isinstance(kwargs["tasks"], dict):
+                validated_tasks: dict[str, Task] = {}
+                for task_id, task_data in kwargs["tasks"].items():
+                    if isinstance(task_data, dict):
+                        validated_tasks[task_id] = Task(**task_data)
+                    else:
+                        validated_tasks[task_id] = task_data
+                kwargs["tasks"] = validated_tasks
 
             self._state = self._state.model_copy(update=kwargs)
             # Save without lock (we already hold it)
