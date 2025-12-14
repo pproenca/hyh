@@ -430,3 +430,21 @@ def test_plan_import_file_not_found():
     )
     assert r.returncode != 0
     assert "not found" in r.stderr.lower()
+
+
+def test_plan_template_outputs_schema(capsys):
+    """harness plan template prints valid JSON schema."""
+    import json
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "harness.client", "plan", "template"],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert "properties" in data
+    assert "goal" in data["properties"]

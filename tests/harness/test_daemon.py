@@ -915,3 +915,22 @@ def test_daemon_sigint_triggers_shutdown(tmp_path):
 
     assert proc.returncode == 0
     assert not Path(socket_path).exists()
+
+
+def test_plan_import_legacy_markdown_gives_helpful_error(daemon_manager):
+    """Legacy markdown plans get actionable error message."""
+    daemon, _ = daemon_manager
+    from tests.harness.conftest import send_command
+
+    legacy_content = """# My Plan
+
+## Task 1: Do something
+- [ ] Step one
+- [ ] Step two
+"""
+
+    result = send_command(daemon.socket_path, {"command": "plan_import", "content": legacy_content})
+
+    assert result["status"] == "error"
+    assert "No JSON plan block found" in result["message"]
+    assert "harness plan template" in result["message"]

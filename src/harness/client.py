@@ -313,6 +313,7 @@ def main() -> None:
     plan_sub = plan_parser.add_subparsers(dest="plan_command", required=True)
     plan_import_parser = plan_sub.add_parser("import", help="Import plan from file")
     plan_import_parser.add_argument("--file", required=True, help="Plan file path")
+    plan_sub.add_parser("template", help="Print JSON schema for plan format")
 
     # exec command
     exec_parser = subparsers.add_parser(
@@ -379,6 +380,8 @@ def main() -> None:
     elif args.command == "plan":
         if args.plan_command == "import":
             _cmd_plan_import(socket_path, worktree_root, args.file)
+        elif args.plan_command == "template":
+            _cmd_plan_template()
     elif args.command == "exec":
         # Strip leading -- separator if present
         command_args = args.command_args
@@ -654,6 +657,14 @@ def _cmd_plan_import(socket_path: str, worktree_root: str, file_path: str) -> No
         print(f"Error: {response.get('message')}", file=sys.stderr)
         sys.exit(1)
     print(f"Plan imported ({response['data']['task_count']} tasks)")
+
+
+def _cmd_plan_template() -> None:
+    """Print plan JSON schema for agent self-healing."""
+    # Lazy import to avoid loading pydantic on normal client operations
+    from harness.plan import get_plan_schema
+
+    print(get_plan_schema())
 
 
 if __name__ == "__main__":
