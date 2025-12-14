@@ -309,7 +309,7 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     state_manager: StateManager
     trajectory_logger: TrajectoryLogger
     runtime: Runtime
-    _lock_fd: TextIOWrapper[Any] | None
+    _lock_fd: TextIOWrapper | None
     _lock_path: str
 
     def __init__(self, socket_path: str, worktree_root: str) -> None:

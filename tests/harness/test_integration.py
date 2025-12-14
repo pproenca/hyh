@@ -879,35 +879,26 @@ def test_cli_task_claim_and_complete(workflow_with_tasks):
     assert "Task task-1 completed" in result.stdout
 
 
-def test_cli_exec_with_timeout_and_signal(workflow_with_tasks):
+def test_exec_timeout_and_signal_decoding(workflow_with_tasks):
     """Test exec command with timeout produces signal_name in response."""
-    import sys
-
+    send_command = workflow_with_tasks["send_command"]
     worktree = workflow_with_tasks["worktree"]
-    socket_path = workflow_with_tasks["socket"]
-
-    env = {
-        "HARNESS_SOCKET": socket_path,
-        "HARNESS_WORKTREE": str(worktree),
-        "PATH": os.environ.get("PATH", ""),
-        "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
-    }
 
     # Exec a command that exceeds timeout (sleep 10 with 1s timeout)
-    result = subprocess.run(
-        [sys.executable, "-m", "harness", "exec", "--timeout", "1", "--", "sleep", "10"],
-        capture_output=True,
-        text=True,
-        env=env,
+    resp = send_command(
+        {
+            "command": "exec",
+            "args": ["sleep", "10"],
+            "cwd": str(worktree),
+            "env": {},
+            "timeout": 1.0,
+        }
     )
-    # exec should return 0 (command ran, but inner process was killed)
-    assert result.returncode == 0, f"exec failed: {result.stderr}"
 
-    output = json.loads(result.stdout)
-    assert output["status"] == "ok"
+    assert resp["status"] == "ok"
     # Process was killed with SIGTERM (signal 15)
-    assert output["data"]["returncode"] < 0
-    assert output["data"]["signal_name"] == "SIGTERM"
+    assert resp["data"]["returncode"] < 0
+    assert resp["data"]["signal_name"] == "SIGTERM"
 
 
 def test_dag_cycle_rejection(integration_worktree):

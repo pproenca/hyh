@@ -540,8 +540,14 @@ def _cmd_exec(
         },
         worktree_root,
     )
-    # Output full JSON response (includes signal_name for debugging)
-    print(json.dumps(response))
+    if response["status"] != "ok":
+        print(f"Error: {response.get('message')}", file=sys.stderr)
+        sys.exit(1)
+    data = response["data"]
+    print(data["stdout"], end="")
+    if data["stderr"]:
+        print(data["stderr"], file=sys.stderr, end="")
+    sys.exit(data["returncode"])
 
 
 def _cmd_worker_id() -> None:
