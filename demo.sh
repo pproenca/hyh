@@ -1,0 +1,583 @@
+#!/usr/bin/env bash
+#
+# Harness Demo Script
+# An interactive tour for developers to understand the project
+#
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m' # No Color
+
+# Demo state directory (isolated from real workflows)
+DEMO_DIR=$(mktemp -d)
+DEMO_STATE_DIR="$DEMO_DIR/.claude"
+
+print_header() {
+    echo ""
+    echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${MAGENTA}  $1${NC}"
+    echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
+
+print_step() {
+    echo -e "${CYAN}▶ ${BOLD}$1${NC}"
+}
+
+print_info() {
+    echo -e "${DIM}  $1${NC}"
+}
+
+print_success() {
+    echo -e "${GREEN}✓ $1${NC}"
+}
+
+print_command() {
+    echo -e "${YELLOW}  \$ $1${NC}"
+}
+
+print_output() {
+    echo -e "${DIM}$1${NC}"
+}
+
+print_explanation() {
+    echo -e "${BLUE}  ℹ $1${NC}"
+}
+
+wait_for_user() {
+    echo ""
+    echo -e "${DIM}  Press Enter to continue...${NC}"
+    read -r
+}
+
+run_command() {
+    local cmd="$1"
+    print_command "$cmd"
+    echo ""
+    eval "$cmd" 2>&1 | sed 's/^/    /'
+    echo ""
+}
+
+cleanup() {
+    echo ""
+    print_step "Cleaning up demo environment..."
+
+    # Shutdown daemon if running
+    if harness ping >/dev/null 2>&1; then
+        harness shutdown >/dev/null 2>&1 || true
+    fi
+
+    # Remove demo directory
+    rm -rf "$DEMO_DIR"
+
+    print_success "Demo environment cleaned up"
+    echo ""
+}
+
+trap cleanup EXIT
+
+# Get the directory where this script lives (project root)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Ensure jq is installed
+if ! command -v jq &> /dev/null; then
+    echo -e "${RED}ERROR: jq is required but not installed.${NC}"
+    echo -e "${DIM}Install with: brew install jq (macOS) or apt install jq (Linux)${NC}"
+    exit 1
+fi
+
+# Ensure harness is installed
+if ! command -v harness &> /dev/null; then
+    echo -e "${CYAN}▶ ${BOLD}Installing harness...${NC}"
+    if command -v uv &> /dev/null; then
+        uv pip install -e "$SCRIPT_DIR" --quiet
+    else
+        pip install -e "$SCRIPT_DIR" --quiet
+    fi
+
+    # Add .venv/bin to PATH if it exists (uv installs there)
+    if [ -d "$SCRIPT_DIR/.venv/bin" ]; then
+        export PATH="$SCRIPT_DIR/.venv/bin:$PATH"
+    fi
+
+    if ! command -v harness &> /dev/null; then
+        echo -e "${RED}ERROR: Failed to install harness. Please run: uv pip install -e .${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ harness installed${NC}"
+fi
+
+# ============================================================================
+# INTRO
+# ============================================================================
+
+clear
+print_header "Welcome to Harness"
+
+echo -e "  ${BOLD}Harness${NC} is a thread-safe state management daemon for dev workflows."
+echo ""
+echo "  It solves three problems:"
+echo ""
+echo -e "    ${GREEN}1.${NC} ${BOLD}Task Coordination${NC} - Multiple workers claim/complete tasks from a DAG"
+echo -e "    ${GREEN}2.${NC} ${BOLD}Git Safety${NC} - Mutex prevents parallel git operations corrupting .git/index"
+echo -e "    ${GREEN}3.${NC} ${BOLD}Crash Recovery${NC} - Atomic writes ensure state survives power failures"
+echo ""
+echo -e "  ${DIM}Architecture: Dumb client (stdlib only) + Smart daemon (Pydantic validation)${NC}"
+echo -e "  ${DIM}Runtime: Python 3.13t free-threaded (true parallelism, no GIL)${NC}"
+
+wait_for_user
+
+# ============================================================================
+# SETUP
+# ============================================================================
+
+print_header "Step 1: Setting Up the Demo Environment"
+
+print_step "Creating isolated demo directory"
+print_info "We'll use a temporary directory so we don't touch your real workflows"
+echo ""
+
+mkdir -p "$DEMO_STATE_DIR"
+cd "$DEMO_DIR"
+git init --quiet
+echo "# Demo" > README.md
+git add README.md
+git commit -m "Initial commit" --quiet
+
+print_success "Created demo git repo at: $DEMO_DIR"
+echo ""
+
+print_step "Creating a sample workflow with task dependencies"
+print_info "This creates a DAG (Directed Acyclic Graph) of tasks"
+echo ""
+
+cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
+{
+  "tasks": {
+    "setup": {
+      "id": "setup",
+      "description": "Set up project scaffolding",
+      "status": "pending",
+      "dependencies": [],
+      "started_at": null,
+      "completed_at": null,
+      "claimed_by": null,
+      "timeout_seconds": 600
+    },
+    "backend": {
+      "id": "backend",
+      "description": "Implement backend API",
+      "status": "pending",
+      "dependencies": ["setup"],
+      "started_at": null,
+      "completed_at": null,
+      "claimed_by": null,
+      "timeout_seconds": 600
+    },
+    "frontend": {
+      "id": "frontend",
+      "description": "Implement frontend UI",
+      "status": "pending",
+      "dependencies": ["setup"],
+      "started_at": null,
+      "completed_at": null,
+      "claimed_by": null,
+      "timeout_seconds": 600
+    },
+    "integration": {
+      "id": "integration",
+      "description": "Integration testing",
+      "status": "pending",
+      "dependencies": ["backend", "frontend"],
+      "started_at": null,
+      "completed_at": null,
+      "claimed_by": null,
+      "timeout_seconds": 600
+    },
+    "deploy": {
+      "id": "deploy",
+      "description": "Deploy to production",
+      "status": "pending",
+      "dependencies": ["integration"],
+      "started_at": null,
+      "completed_at": null,
+      "claimed_by": null,
+      "timeout_seconds": 600
+    }
+  }
+}
+EOF
+
+echo -e "  ${BOLD}Task DAG:${NC}"
+echo ""
+echo "                    ┌─────────┐"
+echo "                    │  setup  │"
+echo "                    └────┬────┘"
+echo "                         │"
+echo "              ┌──────────┴──────────┐"
+echo "              ▼                     ▼"
+echo "        ┌─────────┐           ┌──────────┐"
+echo "        │ backend │           │ frontend │"
+echo "        └────┬────┘           └────┬─────┘"
+echo "              │                     │"
+echo "              └──────────┬──────────┘"
+echo "                         ▼"
+echo "                  ┌─────────────┐"
+echo "                  │ integration │"
+echo "                  └──────┬──────┘"
+echo "                         │"
+echo "                         ▼"
+echo "                    ┌────────┐"
+echo "                    │ deploy │"
+echo "                    └────────┘"
+echo ""
+
+print_success "Workflow state created"
+print_explanation "Tasks can only run when ALL their dependencies are completed"
+
+wait_for_user
+
+# ============================================================================
+# BASIC COMMANDS
+# ============================================================================
+
+print_header "Step 2: Basic Daemon Commands"
+
+print_step "Ping the daemon"
+print_info "The daemon auto-spawns on first command if not running"
+echo ""
+
+run_command "harness ping"
+
+print_explanation "The daemon is now running as a background process"
+print_explanation "It listens on a Unix socket for client requests"
+
+wait_for_user
+
+print_step "View the current workflow state"
+echo ""
+
+run_command "harness get-state | jq . | head -40"
+
+print_explanation "All 5 tasks are 'pending' - none have been claimed yet"
+print_explanation "Only 'setup' is claimable (it has no dependencies)"
+
+wait_for_user
+
+# ============================================================================
+# TASK WORKFLOW
+# ============================================================================
+
+print_header "Step 3: Task Claiming and Completion"
+
+print_step "Claim the first available task"
+print_info "Each worker gets a unique ID and claims tasks atomically"
+echo ""
+
+run_command "harness task claim"
+
+print_explanation "We got 'setup' - the only task with no dependencies"
+print_explanation "The task is now 'running' and locked to our worker ID"
+
+wait_for_user
+
+print_step "Try to claim again (idempotency)"
+print_info "Claiming again returns the same task - lease renewal pattern"
+echo ""
+
+run_command "harness task claim"
+
+print_explanation "Same task returned - this is intentional!"
+print_explanation "It renews the lease timestamp, preventing task theft on retries"
+
+wait_for_user
+
+print_step "Complete the setup task"
+echo ""
+
+run_command "harness task complete --id setup"
+
+print_success "Task completed!"
+echo ""
+
+print_step "What tasks are claimable now?"
+echo ""
+
+run_command "harness get-state | jq -r '
+  .tasks as \$tasks |
+  \$tasks | to_entries[] |
+  .key as \$tid |
+  .value.status as \$status |
+  .value.dependencies as \$deps |
+  (if \$status == \"pending\" and ([\$deps[] | \$tasks[.].status] | all(. == \"completed\")) then \" <- CLAIMABLE\" else \"\" end) as \$marker |
+  \"\(\$tid): \(\$status)\(\$marker)\"
+'"
+
+print_explanation "Both 'backend' and 'frontend' are now claimable!"
+print_explanation "They can run in parallel (different workers could claim each)"
+
+wait_for_user
+
+print_step "Claim and complete the parallel tasks"
+echo ""
+
+echo -e "${YELLOW}  \$ harness task claim${NC}"
+CLAIM_RESULT=$(harness task claim)
+TASK_ID=$(echo "$CLAIM_RESULT" | jq -r '.task.id')
+echo "    Claimed: $TASK_ID"
+echo ""
+
+echo -e "${YELLOW}  \$ harness task complete --id $TASK_ID${NC}"
+harness task complete --id "$TASK_ID"
+echo ""
+
+echo -e "${YELLOW}  \$ harness task claim${NC}"
+CLAIM_RESULT=$(harness task claim)
+TASK_ID=$(echo "$CLAIM_RESULT" | jq -r '.task.id')
+echo "    Claimed: $TASK_ID"
+echo ""
+
+echo -e "${YELLOW}  \$ harness task complete --id $TASK_ID${NC}"
+harness task complete --id "$TASK_ID"
+echo ""
+
+print_success "Both parallel tasks completed!"
+
+wait_for_user
+
+print_step "Continue through the rest of the workflow"
+echo ""
+
+# Complete remaining tasks
+for _ in 1 2; do
+    CLAIM_RESULT=$(harness task claim 2>/dev/null || echo '{"task": null}')
+    TASK_ID=$(echo "$CLAIM_RESULT" | jq -r '.task.id // empty' 2>/dev/null || echo "")
+    if [ -n "$TASK_ID" ]; then
+        echo -e "    Claiming and completing: ${BOLD}$TASK_ID${NC}"
+        harness task complete --id "$TASK_ID" >/dev/null
+    fi
+done
+
+echo ""
+print_success "All tasks completed!"
+
+wait_for_user
+
+print_step "Final state"
+echo ""
+
+run_command "harness get-state | jq -r '.tasks | to_entries[] | \"\\(.key): \\(.value.status)\"'"
+
+print_explanation "Every task is now 'completed' - workflow finished!"
+
+wait_for_user
+
+# ============================================================================
+# GIT MUTEX
+# ============================================================================
+
+print_header "Step 4: Git Operations with Mutex"
+
+print_step "The problem: parallel git operations corrupt .git/index"
+print_info "Two workers running 'git add' simultaneously = data loss"
+echo ""
+
+print_step "The solution: harness git -- <command>"
+print_info "All git operations go through a global mutex"
+echo ""
+
+echo "demo content" > demo.txt
+
+run_command "harness git -- add demo.txt"
+run_command "harness git -- status"
+run_command "harness git -- commit -m 'Add demo file'"
+
+print_explanation "Each git command acquires an exclusive lock"
+print_explanation "Parallel workers block until the lock is free"
+print_explanation "Result: safe git operations, no corruption"
+
+wait_for_user
+
+# ============================================================================
+# EXEC & TRAJECTORY
+# ============================================================================
+
+print_header "Step 5: Command Execution and Observability"
+
+print_step "Execute arbitrary commands"
+print_info "The 'exec' command runs any shell command through the daemon"
+echo ""
+
+run_command "harness exec -- echo 'Hello from harness!'"
+run_command "harness exec -- python3 -c 'print(2 + 2)'"
+
+print_explanation "Commands can optionally acquire the exclusive lock (--exclusive)"
+print_explanation "Useful for operations that need serialization"
+
+wait_for_user
+
+print_step "View the trajectory log"
+print_info "Every operation is logged to .claude/trajectory.jsonl"
+echo ""
+
+run_command "cat '$DEMO_STATE_DIR/trajectory.jsonl' | jq -s '.[0:3]' | head -60"
+
+print_explanation "JSONL format: append-only, crash-safe"
+print_explanation "O(1) tail retrieval - reads from end of file"
+print_explanation "Each event has timestamp, duration, reason for debugging"
+
+wait_for_user
+
+# ============================================================================
+# STATE UPDATE
+# ============================================================================
+
+print_header "Step 6: Direct State Updates"
+
+print_step "Update state fields directly"
+print_info "Useful for orchestration metadata"
+echo ""
+
+run_command "harness update-state --field current_phase 'deployment' --field parallel_workers 3"
+run_command "harness get-state | jq 'del(.tasks)'"
+
+print_explanation "State updates are atomic and validated by Pydantic"
+print_explanation "Unknown fields are allowed for flexibility"
+
+wait_for_user
+
+# ============================================================================
+# ARCHITECTURE
+# ============================================================================
+
+print_header "Step 7: Architecture Overview"
+
+echo -e "  ${BOLD}Client-Daemon Split${NC}"
+echo ""
+echo "    ┌──────────────────────────────────────────────────────────────────┐"
+echo "    │                        CLIENT (client.py)                        │"
+echo "    │  • Imports ONLY stdlib (sys, json, socket, argparse)             │"
+echo "    │  • <50ms startup time                                            │"
+echo "    │  • Zero validation logic                                         │"
+echo "    │  • Just packages argv → JSON → socket                            │"
+echo "    └──────────────────────────────────────────────────────────────────┘"
+echo "                                   │"
+echo "                           Unix Domain Socket"
+echo "                                   │"
+echo "                                   ▼"
+echo "    ┌──────────────────────────────────────────────────────────────────┐"
+echo "    │                        DAEMON (daemon.py)                        │"
+echo "    │  • ThreadingMixIn for parallel request handling                  │"
+echo "    │  • Pydantic validation at the boundary                           │"
+echo "    │  • StateManager with thread-safe locking                         │"
+echo "    │  • TrajectoryLogger for observability                            │"
+echo "    │  • Runtime abstraction (Local or Docker)                         │"
+echo "    └──────────────────────────────────────────────────────────────────┘"
+echo ""
+
+wait_for_user
+
+echo -e "  ${BOLD}Lock Hierarchy (Deadlock Prevention)${NC}"
+echo ""
+echo "    Acquire locks in this order ONLY:"
+echo ""
+echo "    ┌───────────────────────────────────────┐"
+echo "    │  1. StateManager._lock     (highest)  │  Protects DAG state"
+echo "    ├───────────────────────────────────────┤"
+echo "    │  2. TrajectoryLogger._lock            │  Protects event log"
+echo "    ├───────────────────────────────────────┤"
+echo "    │  3. GLOBAL_EXEC_LOCK       (lowest)   │  Protects git index"
+echo "    └───────────────────────────────────────┘"
+echo ""
+echo -e "  ${DIM}Release-then-Log Pattern: Release state lock BEFORE logging${NC}"
+echo -e "  ${DIM}This prevents lock convoy (threads waiting on I/O)${NC}"
+echo ""
+
+wait_for_user
+
+echo -e "  ${BOLD}Atomic Persistence Pattern${NC}"
+echo ""
+echo "    ┌─────────────────────────────────────────────────────────────┐"
+echo "    │  1. Write to state.json.tmp                                 │"
+echo "    │  2. fsync() - ensure bytes hit disk                         │"
+echo "    │  3. rename(tmp, state.json) - POSIX atomic operation        │"
+echo "    └─────────────────────────────────────────────────────────────┘"
+echo ""
+echo -e "  ${DIM}If power fails during write: tmp file is corrupt, original intact${NC}"
+echo -e "  ${DIM}If power fails during rename: atomic, so either old or new state${NC}"
+echo ""
+
+wait_for_user
+
+# ============================================================================
+# RECAP
+# ============================================================================
+
+print_header "Recap: Key Commands"
+
+echo -e "  ${BOLD}Daemon Control${NC}"
+echo -e "    ${YELLOW}harness ping${NC}              Check if daemon is running"
+echo -e "    ${YELLOW}harness shutdown${NC}          Stop the daemon"
+echo ""
+echo -e "  ${BOLD}State Management${NC}"
+echo -e "    ${YELLOW}harness get-state${NC}         Get current workflow state"
+echo -e "    ${YELLOW}harness update-state${NC}      Update state fields"
+echo ""
+echo -e "  ${BOLD}Task Workflow${NC}"
+echo -e "    ${YELLOW}harness task claim${NC}        Claim next available task"
+echo -e "    ${YELLOW}harness task complete${NC}     Mark task as completed"
+echo ""
+echo -e "  ${BOLD}Command Execution${NC}"
+echo -e "    ${YELLOW}harness git -- <cmd>${NC}      Git with mutex"
+echo -e "    ${YELLOW}harness exec -- <cmd>${NC}     Arbitrary command"
+echo ""
+echo -e "  ${BOLD}Hook Integration${NC}"
+echo -e "    ${YELLOW}harness session-start${NC}     SessionStart hook output"
+echo -e "    ${YELLOW}harness check-state${NC}       Stop hook (deny if incomplete)"
+echo -e "    ${YELLOW}harness check-commit${NC}      SubagentStop hook (deny if no commit)"
+echo ""
+
+wait_for_user
+
+# ============================================================================
+# NEXT STEPS
+# ============================================================================
+
+print_header "Next Steps"
+
+echo -e "  ${BOLD}1. Explore the codebase${NC}"
+echo "     src/harness/client.py    - Dumb CLI client"
+echo "     src/harness/daemon.py    - ThreadingMixIn server"
+echo "     src/harness/state.py     - Pydantic models + StateManager"
+echo "     src/harness/trajectory.py - JSONL logging"
+echo "     src/harness/runtime.py   - Local/Docker execution"
+echo ""
+echo -e "  ${BOLD}2. Run the tests${NC}"
+echo "     pytest                              # All tests"
+echo "     pytest tests/harness/test_state.py  # State management"
+echo "     pytest tests/harness/test_integration.py -v  # Full workflow"
+echo ""
+echo -e "  ${BOLD}3. Read the architecture docs${NC}"
+echo "     CLAUDE.md                           # Development guidelines"
+echo "     docs/plans/                         # Design documents"
+echo ""
+echo -e "  ${BOLD}4. Try parallel workers${NC}"
+echo "     Open multiple terminals and run 'harness task claim'"
+echo "     Watch them coordinate via the shared state"
+echo ""
+
+print_header "Demo Complete!"
+
+echo -e "  Thanks for taking the tour!"
+echo ""
+echo -e "  ${DIM}Demo directory will be cleaned up on exit.${NC}"
+echo ""
