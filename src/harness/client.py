@@ -5,7 +5,7 @@ Harness CLI Client - "Dumb" client with auto-spawn.
 CRITICAL: This module MUST NOT import pydantic or harness.state.
 Every import adds ~200ms latency to git hooks.
 
-Only stdlib allowed: sys, json, socket, os, subprocess, time, argparse
+Only stdlib allowed: sys, json, socket, os, subprocess, time, argparse, pathlib
 """
 
 import argparse
@@ -16,15 +16,17 @@ import subprocess
 import sys
 import time
 import uuid
-
+from pathlib import Path
+from typing import Any
 
 # Generate stable WORKER_ID on module load (Council Fix: Lost Ack)
 WORKER_ID = f"worker-{uuid.uuid4().hex[:12]}"
 
 
-# Default socket path
+# Default socket path - /tmp is the standard Unix socket location
 def get_socket_path() -> str:
-    return f"/tmp/harness-{os.getenv('USER', 'default')}.sock"
+    runtime_dir = os.getenv("XDG_RUNTIME_DIR", "/tmp")
+    return f"{runtime_dir}/harness-{os.getenv('USER', 'default')}.sock"
 
 
 def spawn_daemon(worktree_root: str, socket_path: str) -> None:
@@ -60,11 +62,10 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
             # Daemon died immediately - get error output
             _, stderr = proc.communicate()
             raise RuntimeError(
-                f"Daemon crashed on startup (exit {proc.returncode}): "
-                f"{stderr.decode().strip()}"
+                f"Daemon crashed on startup (exit {proc.returncode}): {stderr.decode().strip()}"
             )
 
-        if os.path.exists(socket_path):
+        if Path(socket_path).exists():
             time.sleep(0.05)  # Extra delay for server to start accepting
             return
         time.sleep(0.1)
@@ -72,22 +73,18 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
     # Timeout - check one more time if process died
     if proc.poll() is not None:
         _, stderr = proc.communicate()
-        raise RuntimeError(
-            f"Daemon crashed (exit {proc.returncode}): {stderr.decode().strip()}"
-        )
+        raise RuntimeError(f"Daemon crashed (exit {proc.returncode}): {stderr.decode().strip()}")
 
-    raise RuntimeError(
-        f"Daemon failed to start (timeout {timeout_seconds}s waiting for socket)"
-    )
+    raise RuntimeError(f"Daemon failed to start (timeout {timeout_seconds}s waiting for socket)")
 
 
 def send_rpc(
     socket_path: str,
-    request: dict,
+    request: dict[str, Any],
     worktree_root: str | None = None,
     timeout: float = 5.0,
     max_retries: int = 1,
-) -> dict:
+) -> dict[str, Any]:
     """
     Send RPC request to daemon.
 
@@ -111,7 +108,8 @@ def send_rpc(
                 if b"\n" in response:
                     break
 
-            return json.loads(response.decode().strip())
+            result: dict[str, Any] = json.loads(response.decode().strip())
+            return result
 
         except (FileNotFoundError, ConnectionRefusedError):
             if attempt < max_retries and worktree_root:
@@ -121,6 +119,9 @@ def send_rpc(
             raise
         finally:
             sock.close()
+
+    # This should never be reached due to the raise in the except block
+    raise RuntimeError("send_rpc failed after all retries")
 
 
 def _get_git_root() -> str:
@@ -132,7 +133,7 @@ def _get_git_root() -> str:
     )
     if result.returncode == 0:
         return result.stdout.strip()
-    return os.getcwd()
+    return str(Path.cwd())
 
 
 # NOTE: No _coerce_value function!
@@ -141,7 +142,7 @@ def _get_git_root() -> str:
 # (e.g., branch name "true" should not become bool(True))
 
 
-def main():
+def main() -> None:
     """CLI entry point using argparse."""
     parser = argparse.ArgumentParser(
         prog="harness", description="Thread-safe state management for dev-workflow"
@@ -250,7 +251,14 @@ def main():
         command_args = args.command_args
         if command_args and command_args[0] == "--":
             command_args = command_args[1:]
-        _cmd_exec(socket_path, worktree_root, command_args, args.cwd, args.env_vars or [], args.timeout)
+        _cmd_exec(
+            socket_path,
+            worktree_root,
+            command_args,
+            args.cwd,
+            args.env_vars or [],
+            args.timeout,
+        )
     elif args.command == "session-start":
         _cmd_session_start(socket_path, worktree_root)
     elif args.command == "check-state":
@@ -261,7 +269,7 @@ def main():
         _cmd_shutdown(socket_path, worktree_root)
 
 
-def _cmd_ping(socket_path: str, worktree_root: str):
+def _cmd_ping(socket_path: str, worktree_root: str) -> None:
     try:
         response = send_rpc(socket_path, {"command": "ping"}, worktree_root)
         if response.get("status") == "ok":
@@ -274,7 +282,7 @@ def _cmd_ping(socket_path: str, worktree_root: str):
         sys.exit(1)
 
 
-def _cmd_get_state(socket_path: str, worktree_root: str):
+def _cmd_get_state(socket_path: str, worktree_root: str) -> None:
     response = send_rpc(socket_path, {"command": "get_state"}, worktree_root)
     if response["status"] != "ok":
         print(f"Error: {response.get('message')}", file=sys.stderr)
@@ -285,7 +293,7 @@ def _cmd_get_state(socket_path: str, worktree_root: str):
     print(json.dumps(response["data"], indent=2))
 
 
-def _cmd_update_state(socket_path: str, worktree_root: str, fields: list):
+def _cmd_update_state(socket_path: str, worktree_root: str, fields: list[list[str]]) -> None:
     """Update state fields. fields is list of [key, value] pairs from argparse.
 
     NOTE: All values are passed as raw strings to the daemon.
@@ -304,9 +312,9 @@ def _cmd_update_state(socket_path: str, worktree_root: str, fields: list):
     print(f"Updated: current_task={response['data'].get('current_task')}")
 
 
-def _cmd_git(socket_path: str, worktree_root: str, git_args: list):
+def _cmd_git(socket_path: str, worktree_root: str, git_args: list[str]) -> None:
     """Execute git command through daemon mutex."""
-    cwd = os.getcwd()
+    cwd = str(Path.cwd())
     response = send_rpc(
         socket_path,
         {"command": "git", "args": git_args, "cwd": cwd},
@@ -322,7 +330,7 @@ def _cmd_git(socket_path: str, worktree_root: str, git_args: list):
     sys.exit(data["returncode"])
 
 
-def _cmd_session_start(socket_path: str, worktree_root: str):
+def _cmd_session_start(socket_path: str, worktree_root: str) -> None:
     try:
         response = send_rpc(socket_path, {"command": "get_state"}, worktree_root)
     except (FileNotFoundError, ConnectionRefusedError):
@@ -346,16 +354,13 @@ def _cmd_session_start(socket_path: str, worktree_root: str):
     output = {
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
-            "additionalContext": (
-                f"Resuming workflow: "
-                f"task {completed_tasks}/{total_tasks}"
-            ),
+            "additionalContext": (f"Resuming workflow: task {completed_tasks}/{total_tasks}"),
         }
     }
     print(json.dumps(output))
 
 
-def _cmd_check_state(socket_path: str, worktree_root: str):
+def _cmd_check_state(socket_path: str, worktree_root: str) -> None:
     try:
         response = send_rpc(socket_path, {"command": "get_state"}, worktree_root)
     except (FileNotFoundError, ConnectionRefusedError):
@@ -377,14 +382,12 @@ def _cmd_check_state(socket_path: str, worktree_root: str):
     completed_tasks = sum(1 for t in tasks.values() if t.get("status") == "completed")
 
     if completed_tasks < total_tasks:
-        print(
-            f"deny: Workflow in progress ({completed_tasks}/{total_tasks})"
-        )
+        print(f"deny: Workflow in progress ({completed_tasks}/{total_tasks})")
         sys.exit(1)
     print("allow")
 
 
-def _cmd_check_commit(socket_path: str, worktree_root: str):
+def _cmd_check_commit(socket_path: str, worktree_root: str) -> None:
     try:
         response = send_rpc(socket_path, {"command": "get_state"}, worktree_root)
     except (FileNotFoundError, ConnectionRefusedError):
@@ -400,7 +403,7 @@ def _cmd_check_commit(socket_path: str, worktree_root: str):
     # Get current HEAD via daemon (mutex-protected)
     git_response = send_rpc(
         socket_path,
-        {"command": "git", "args": ["rev-parse", "HEAD"], "cwd": os.getcwd()},
+        {"command": "git", "args": ["rev-parse", "HEAD"], "cwd": str(Path.cwd())},
         worktree_root,
     )
     if git_response["status"] != "ok":
@@ -416,7 +419,7 @@ def _cmd_check_commit(socket_path: str, worktree_root: str):
     print("allow")
 
 
-def _cmd_shutdown(socket_path: str, worktree_root: str):
+def _cmd_shutdown(socket_path: str, _worktree_root: str) -> None:
     try:
         send_rpc(socket_path, {"command": "shutdown"}, None)
         print("Shutdown requested")
@@ -424,7 +427,7 @@ def _cmd_shutdown(socket_path: str, worktree_root: str):
         print("Daemon not running")
 
 
-def _cmd_task_claim(socket_path: str, worktree_root: str):
+def _cmd_task_claim(socket_path: str, worktree_root: str) -> None:
     """Claim next available task."""
     response = send_rpc(
         socket_path,
@@ -437,7 +440,7 @@ def _cmd_task_claim(socket_path: str, worktree_root: str):
     print(json.dumps(response["data"], indent=2))
 
 
-def _cmd_task_complete(socket_path: str, worktree_root: str, task_id: str):
+def _cmd_task_complete(socket_path: str, worktree_root: str, task_id: str) -> None:
     """Mark task as complete."""
     response = send_rpc(
         socket_path,
@@ -453,14 +456,14 @@ def _cmd_task_complete(socket_path: str, worktree_root: str, task_id: str):
 def _cmd_exec(
     socket_path: str,
     worktree_root: str,
-    command_args: list,
+    command_args: list[str],
     cwd: str | None,
-    env_vars: list,
+    env_vars: list[str],
     timeout: float,
-):
+) -> None:
     """Execute command through daemon mutex."""
     # Parse environment variables
-    env = {}
+    env: dict[str, str] = {}
     for env_var in env_vars:
         if "=" in env_var:
             key, value = env_var.split("=", 1)
@@ -471,7 +474,7 @@ def _cmd_exec(
 
     # Use current directory if not specified
     if cwd is None:
-        cwd = os.getcwd()
+        cwd = str(Path.cwd())
 
     response = send_rpc(
         socket_path,

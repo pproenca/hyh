@@ -3,6 +3,7 @@
 This module provides a thread-safe trajectory logger that appends events to a JSONL
 file and supports efficient O(1) tail operations using reverse-seek.
 """
+
 import json
 import threading
 from pathlib import Path
@@ -19,7 +20,7 @@ class TrajectoryLogger:
     - Separate lock from StateManager (prevents lock convoy)
     """
 
-    def __init__(self, trajectory_file: Path):
+    def __init__(self, trajectory_file: Path) -> None:
         """Initialize the trajectory logger.
 
         Args:
@@ -41,7 +42,7 @@ class TrajectoryLogger:
             self.trajectory_file.parent.mkdir(parents=True, exist_ok=True)
 
             # Append the event as a JSON line
-            with open(self.trajectory_file, "a") as f:
+            with self.trajectory_file.open("a") as f:
                 f.write(json.dumps(event) + "\n")
 
     def tail(self, n: int) -> list[dict[str, Any]]:
@@ -73,9 +74,9 @@ class TrajectoryLogger:
         Returns:
             List of the last N events
         """
-        BLOCK_SIZE = 4096  # 4KB blocks
+        block_size = 4096  # 4KB blocks
 
-        with open(self.trajectory_file, "rb") as f:
+        with self.trajectory_file.open("rb") as f:
             # Get file size
             f.seek(0, 2)  # Seek to end
             file_size = f.tell()
@@ -89,7 +90,7 @@ class TrajectoryLogger:
 
             while True:
                 # Determine how much to read
-                read_size = min(BLOCK_SIZE, position)
+                read_size = min(block_size, position)
                 position -= read_size
 
                 # Seek to position and read
@@ -106,13 +107,13 @@ class TrajectoryLogger:
                     break
 
             # Parse JSON lines, skipping corrupt ones
-            events = []
+            events: list[dict[str, Any]] = []
             for line in lines:
                 line = line.strip()
                 if not line:
                     continue
                 try:
-                    event = json.loads(line.decode("utf-8"))
+                    event: dict[str, Any] = json.loads(line.decode("utf-8"))
                     events.append(event)
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     # Skip corrupt lines (crash resilience)

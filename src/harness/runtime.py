@@ -18,14 +18,13 @@ Council Fixes Applied:
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import threading
-import signal
-import os
 from abc import ABC, abstractmethod
-from typing import Protocol, Dict, Optional
 from dataclasses import dataclass
-
+from typing import Protocol
 
 # Global execution lock for exclusive operations
 GLOBAL_EXEC_LOCK = threading.Lock()
@@ -65,6 +64,7 @@ def decode_signal(returncode: int) -> str | None:
 @dataclass
 class ExecutionResult:
     """Result of executing a command."""
+
     returncode: int
     stdout: str
     stderr: str
@@ -99,7 +99,7 @@ class IdentityMapper(PathMapper):
 class VolumeMapper(PathMapper):
     """Path mapper for Docker volume mounts."""
 
-    def __init__(self, host_root: str, container_root: str):
+    def __init__(self, host_root: str, container_root: str) -> None:
         """
         Initialize VolumeMapper.
 
@@ -115,7 +115,7 @@ class VolumeMapper(PathMapper):
         """Map a host path to a container path."""
         if host_path.startswith(self.host_root):
             # Replace host root with container root
-            relative_path = host_path[len(self.host_root):]
+            relative_path = host_path[len(self.host_root) :]
             return self.container_root + relative_path
         return host_path
 
@@ -123,7 +123,7 @@ class VolumeMapper(PathMapper):
         """Map a container path to a host path."""
         if runtime_path.startswith(self.container_root):
             # Replace container root with host root
-            relative_path = runtime_path[len(self.container_root):]
+            relative_path = runtime_path[len(self.container_root) :]
             return self.host_root + relative_path
         return runtime_path
 
@@ -134,9 +134,9 @@ class Runtime(Protocol):
     def execute(
         self,
         command: list[str],
-        cwd: Optional[str] = None,
-        env: Optional[Dict[str, str]] = None,
-        timeout: Optional[float] = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout: float | None = None,
         exclusive: bool = False,
     ) -> ExecutionResult:
         """
@@ -170,9 +170,9 @@ class LocalRuntime:
     def execute(
         self,
         command: list[str],
-        cwd: Optional[str] = None,
-        env: Optional[Dict[str, str]] = None,
-        timeout: Optional[float] = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout: float | None = None,
         exclusive: bool = False,
     ) -> ExecutionResult:
         """
@@ -188,10 +188,11 @@ class LocalRuntime:
         Returns:
             ExecutionResult with returncode, stdout, stderr
         """
-        def _execute():
+
+        def _execute() -> ExecutionResult:
             # Build environment (merge with current environment if provided)
-            exec_env = os.environ.copy() if env else None
-            if env:
+            exec_env: dict[str, str] | None = os.environ.copy() if env else None
+            if env and exec_env is not None:
                 exec_env.update(env)
 
             result = subprocess.run(
@@ -212,8 +213,7 @@ class LocalRuntime:
         if exclusive:
             with GLOBAL_EXEC_LOCK:
                 return _execute()
-        else:
-            return _execute()
+        return _execute()
 
     def check_capabilities(self) -> None:
         """
@@ -233,7 +233,7 @@ class LocalRuntime:
 class DockerRuntime:
     """Runtime for executing commands inside a Docker container."""
 
-    def __init__(self, container_id: str, path_mapper: PathMapper):
+    def __init__(self, container_id: str, path_mapper: PathMapper) -> None:
         """
         Initialize DockerRuntime.
 
@@ -253,9 +253,9 @@ class DockerRuntime:
     def execute(
         self,
         command: list[str],
-        cwd: Optional[str] = None,
-        env: Optional[Dict[str, str]] = None,
-        timeout: Optional[float] = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout: float | None = None,
         exclusive: bool = False,
     ) -> ExecutionResult:
         """
@@ -271,7 +271,8 @@ class DockerRuntime:
         Returns:
             ExecutionResult with returncode, stdout, stderr
         """
-        def _execute():
+
+        def _execute() -> ExecutionResult:
             # Build docker exec command
             docker_cmd = ["docker", "exec"]
 
@@ -313,11 +314,10 @@ class DockerRuntime:
         if exclusive:
             with GLOBAL_EXEC_LOCK:
                 return _execute()
-        else:
-            return _execute()
+        return _execute()
 
 
-def create_runtime() -> Runtime:
+def create_runtime() -> LocalRuntime | DockerRuntime:
     """
     Create a runtime instance based on environment variables.
 
@@ -337,11 +337,11 @@ def create_runtime() -> Runtime:
         host_root = os.environ.get("HARNESS_HOST_ROOT")
         container_root = os.environ.get("HARNESS_CONTAINER_ROOT")
 
+        path_mapper: PathMapper
         if host_root and container_root:
             path_mapper = VolumeMapper(host_root, container_root)
         else:
             path_mapper = IdentityMapper()
 
         return DockerRuntime(container_id, path_mapper)
-    else:
-        return LocalRuntime()
+    return LocalRuntime()

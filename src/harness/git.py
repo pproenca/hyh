@@ -6,15 +6,14 @@ Git operations use exclusive=True to protect .git/index
 across ALL parallel threads without GIL contention.
 """
 
-from typing import List
-from .runtime import LocalRuntime, ExecutionResult
+from .runtime import ExecutionResult, LocalRuntime
 
 # Singleton runtime instance
 _runtime = LocalRuntime()
 
 
 def safe_git_exec(
-    args: List[str],
+    args: list[str],
     cwd: str,
     timeout: int = 60,
 ) -> ExecutionResult:
@@ -33,7 +32,7 @@ def safe_git_exec(
         ExecutionResult with returncode, stdout, stderr
     """
     return _runtime.execute(
-        ["git"] + args,
+        ["git", *args],
         cwd=cwd,
         timeout=timeout,
         exclusive=True,

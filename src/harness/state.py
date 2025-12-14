@@ -6,14 +6,15 @@ WorkflowState is the canonical schema for dev-workflow state.
 StateManager handles persistence to JSON format.
 """
 
-from pydantic import BaseModel, Field
-from typing import Literal
-from pathlib import Path
-from datetime import datetime, timezone
-from enum import Enum
 import json
 import os
 import threading
+from datetime import UTC, datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
 
 
 class TaskStatus(str, Enum):
@@ -47,9 +48,9 @@ class Task(BaseModel):
         # Ensure we compare UTC to UTC
         started = self.started_at
         if started.tzinfo is None:
-            started = started.replace(tzinfo=timezone.utc)
+            started = started.replace(tzinfo=UTC)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         elapsed = now - started
         return elapsed.total_seconds() > self.timeout_seconds
 
@@ -124,7 +125,7 @@ class StateManager:
     Thread-safe: All public methods are protected by a Lock.
     """
 
-    def __init__(self, worktree_root: Path):
+    def __init__(self, worktree_root: Path) -> None:
         self.worktree_root = Path(worktree_root)
         self.state_file = self.worktree_root / ".claude" / "dev-workflow-state.json"
         self._state: WorkflowState | None = None
@@ -150,13 +151,13 @@ class StateManager:
 
             content = state.model_dump_json(indent=2)
             temp_file = self.state_file.with_suffix(".tmp")
-            with open(temp_file, "w") as f:
+            with temp_file.open("w") as f:
                 f.write(content)
                 f.flush()
                 os.fsync(f.fileno())
             temp_file.rename(self.state_file)
 
-    def update(self, **kwargs) -> WorkflowState:
+    def update(self, **kwargs: Any) -> WorkflowState:
         """Update specific fields atomically (thread-safe).
 
         Auto-loads state from disk if not already loaded.
@@ -176,7 +177,7 @@ class StateManager:
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             content = self._state.model_dump_json(indent=2)
             temp_file = self.state_file.with_suffix(".tmp")
-            with open(temp_file, "w") as f:
+            with temp_file.open("w") as f:
                 f.write(content)
                 f.flush()
                 os.fsync(f.fileno())
@@ -203,7 +204,7 @@ class StateManager:
             is_new_claim = task.claimed_by != worker_id
 
             # ALWAYS renew the lease (prevents task stealing on retry)
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             task.started_at = now
 
             if is_new_claim:
@@ -215,7 +216,7 @@ class StateManager:
             self._state.tasks[task.id] = task
             content = self._state.model_dump_json(indent=2)
             temp_file = self.state_file.with_suffix(".tmp")
-            with open(temp_file, "w") as f:
+            with temp_file.open("w") as f:
                 f.write(content)
                 f.flush()
                 os.fsync(f.fileno())
@@ -247,13 +248,13 @@ class StateManager:
 
             # Update task
             task.status = TaskStatus.COMPLETED
-            task.completed_at = datetime.now(timezone.utc)
+            task.completed_at = datetime.now(UTC)
 
             # Update state and save
             self._state.tasks[task_id] = task
             content = self._state.model_dump_json(indent=2)
             temp_file = self.state_file.with_suffix(".tmp")
-            with open(temp_file, "w") as f:
+            with temp_file.open("w") as f:
                 f.write(content)
                 f.flush()
                 os.fsync(f.fileno())

@@ -1,14 +1,15 @@
 # tests/harness/test_integration_council.py
 """Integration tests verifying Council Amendments A, B, C work together."""
 
-import pytest
 import json
 import os
 import socket
+import subprocess
 import threading
 import time
-import subprocess
 import uuid
+
+import pytest
 
 
 @pytest.fixture
@@ -26,7 +27,11 @@ def socket_path():
 @pytest.fixture
 def worktree(tmp_path):
     subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=tmp_path,
+        capture_output=True,
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True)
     (tmp_path / "file.txt").write_text("content")
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True)
@@ -54,7 +59,7 @@ def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
 def test_amendments_work_together(socket_path, worktree):
     """All three Council amendments should work in harmony."""
     from harness.daemon import HarnessDaemon
-    from harness.state import WorkflowState, Task, TaskStatus, StateManager
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
     # Amendment C: Create valid DAG (no cycles)
     manager = StateManager(worktree)
@@ -93,9 +98,9 @@ def test_amendments_work_together(socket_path, worktree):
 
         # Verify duration_ms in trajectory
         trajectory_file = worktree / ".claude" / "trajectory.jsonl"
-        with open(trajectory_file, "r") as f:
+        with open(trajectory_file) as f:
             lines = f.readlines()
-            exec_events = [json.loads(l) for l in lines if "exec" in l]
+            exec_events = [json.loads(line) for line in lines if "exec" in line]
             assert any("duration_ms" in e for e in exec_events)
     finally:
         daemon.shutdown()
@@ -104,7 +109,7 @@ def test_amendments_work_together(socket_path, worktree):
 
 def test_cyclic_dag_rejected_at_boundary(tmp_path):
     """Amendment C: Cyclic dependencies must be rejected."""
-    from harness.state import WorkflowState, Task, TaskStatus, StateManager
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
     manager = StateManager(tmp_path)
     cyclic_state = WorkflowState(

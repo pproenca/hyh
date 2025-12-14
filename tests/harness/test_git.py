@@ -2,7 +2,7 @@
 """Tests for git operations delegating to runtime.py."""
 
 import subprocess
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 
 def test_safe_git_exec_uses_runtime():
@@ -70,27 +70,30 @@ def test_global_git_lock_removed():
 
 def test_uses_global_exec_lock():
     """Import GLOBAL_EXEC_LOCK from runtime."""
-    from harness.runtime import GLOBAL_EXEC_LOCK
-
     # Just verify it exists and is a Lock
     import threading
+
+    from harness.runtime import GLOBAL_EXEC_LOCK
+
     assert isinstance(GLOBAL_EXEC_LOCK, threading.Lock)
 
 
 def test_git_uses_exclusive_locking(monkeypatch):
     """Git operations must pass exclusive=True."""
-    from harness.git import safe_git_exec, safe_commit
+    from harness.git import safe_commit, safe_git_exec
 
     # Track calls to runtime.execute
     execute_calls = []
 
     def mock_execute(command, cwd=None, timeout=None, exclusive=False):
-        execute_calls.append({
-            "command": command,
-            "cwd": cwd,
-            "timeout": timeout,
-            "exclusive": exclusive,
-        })
+        execute_calls.append(
+            {
+                "command": command,
+                "cwd": cwd,
+                "timeout": timeout,
+                "exclusive": exclusive,
+            }
+        )
         return MagicMock(returncode=0, stdout="", stderr="")
 
     # Patch the runtime singleton
@@ -99,9 +102,7 @@ def test_git_uses_exclusive_locking(monkeypatch):
 
         # Test safe_git_exec
         safe_git_exec(["status"], cwd="/tmp")
-        assert execute_calls[-1]["exclusive"] is True, (
-            "safe_git_exec must use exclusive=True"
-        )
+        assert execute_calls[-1]["exclusive"] is True, "safe_git_exec must use exclusive=True"
 
         # Reset and test safe_commit
         execute_calls.clear()
@@ -109,12 +110,8 @@ def test_git_uses_exclusive_locking(monkeypatch):
 
         # Both add and commit should use exclusive=True
         assert len(execute_calls) == 2
-        assert execute_calls[0]["exclusive"] is True, (
-            "git add must use exclusive=True"
-        )
-        assert execute_calls[1]["exclusive"] is True, (
-            "git commit must use exclusive=True"
-        )
+        assert execute_calls[0]["exclusive"] is True, "git add must use exclusive=True"
+        assert execute_calls[1]["exclusive"] is True, "git commit must use exclusive=True"
 
 
 def test_safe_commit_atomic_integration(tmp_path):
@@ -126,14 +123,12 @@ def test_safe_commit_atomic_integration(tmp_path):
         cwd=tmp_path,
         capture_output=True,
     )
-    subprocess.run(
-        ["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True
-    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True)
 
     # Create a file
     (tmp_path / "test.txt").write_text("hello")
 
-    from harness.git import safe_commit, get_head_sha
+    from harness.git import get_head_sha, safe_commit
 
     result = safe_commit(str(tmp_path), "test commit")
     assert result.returncode == 0

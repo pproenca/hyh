@@ -10,12 +10,13 @@ Tests cover:
 - RuntimeFactory (create_runtime from env vars)
 """
 
-import pytest
+import os
 import subprocess
 import threading
 import time
-import os
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestSignalDecoding:
@@ -132,10 +133,7 @@ class TestLocalRuntime:
         from harness.runtime import LocalRuntime
 
         runtime = LocalRuntime()
-        result = runtime.execute(
-            ["sh", "-c", "echo $TEST_VAR"],
-            env={"TEST_VAR": "test_value"}
-        )
+        result = runtime.execute(["sh", "-c", "echo $TEST_VAR"], env={"TEST_VAR": "test_value"})
 
         assert result.returncode == 0
         assert result.stdout.strip() == "test_value"
@@ -170,7 +168,7 @@ class TestLocalRuntime:
 
     def test_no_lock_by_default(self):
         """LocalRuntime should NOT acquire lock by default."""
-        from harness.runtime import LocalRuntime, GLOBAL_EXEC_LOCK
+        from harness.runtime import GLOBAL_EXEC_LOCK, LocalRuntime
 
         runtime = LocalRuntime()
 
@@ -194,7 +192,7 @@ class TestLocalRuntime:
 
     def test_exclusive_acquires_lock(self):
         """LocalRuntime with exclusive=True should acquire lock."""
-        from harness.runtime import LocalRuntime, GLOBAL_EXEC_LOCK
+        from harness.runtime import GLOBAL_EXEC_LOCK, LocalRuntime
 
         runtime = LocalRuntime()
 
@@ -251,10 +249,7 @@ class TestDockerRuntime:
 
         mock_run.return_value = MagicMock(returncode=0, stdout="output", stderr="")
 
-        runtime = DockerRuntime(
-            container_id="test-container",
-            path_mapper=IdentityMapper()
-        )
+        runtime = DockerRuntime(container_id="test-container", path_mapper=IdentityMapper())
         runtime.execute(["echo", "hello"])
 
         # Check that docker exec was called
@@ -271,10 +266,7 @@ class TestDockerRuntime:
 
         mock_run.return_value = MagicMock(returncode=0, stdout="output", stderr="")
 
-        runtime = DockerRuntime(
-            container_id="test-container",
-            path_mapper=IdentityMapper()
-        )
+        runtime = DockerRuntime(container_id="test-container", path_mapper=IdentityMapper())
         runtime.execute(["echo", "hello"])
 
         # Check that --user flag is present
@@ -296,14 +288,8 @@ class TestDockerRuntime:
 
         mock_run.return_value = MagicMock(returncode=0, stdout="output", stderr="")
 
-        runtime = DockerRuntime(
-            container_id="test-container",
-            path_mapper=IdentityMapper()
-        )
-        runtime.execute(
-            ["echo", "test"],
-            env={"API_KEY": "secret123", "DEBUG": "true"}
-        )
+        runtime = DockerRuntime(container_id="test-container", path_mapper=IdentityMapper())
+        runtime.execute(["echo", "test"], env={"API_KEY": "secret123", "DEBUG": "true"})
 
         # Check that -e flags are present
         args = mock_run.call_args[0][0]
@@ -329,10 +315,7 @@ class TestDockerRuntime:
         mock_run.return_value = MagicMock(returncode=0, stdout="output", stderr="")
 
         mapper = VolumeMapper(host_root="/host/workspace", container_root="/workspace")
-        runtime = DockerRuntime(
-            container_id="test-container",
-            path_mapper=mapper
-        )
+        runtime = DockerRuntime(container_id="test-container", path_mapper=mapper)
         runtime.execute(["pwd"], cwd="/host/workspace/src")
 
         # Check that -w flag uses mapped path
@@ -348,10 +331,7 @@ class TestDockerRuntime:
 
         mock_run.return_value = MagicMock(returncode=0, stdout="output", stderr="")
 
-        runtime = DockerRuntime(
-            container_id="test-container",
-            path_mapper=IdentityMapper()
-        )
+        runtime = DockerRuntime(container_id="test-container", path_mapper=IdentityMapper())
         runtime.execute(["sleep", "1"], timeout=5.0)
 
         # Check that timeout was passed
@@ -364,10 +344,7 @@ class TestDockerRuntime:
 
         mock_run.return_value = MagicMock(returncode=0, stdout="output", stderr="")
 
-        runtime = DockerRuntime(
-            container_id="test-container",
-            path_mapper=IdentityMapper()
-        )
+        runtime = DockerRuntime(container_id="test-container", path_mapper=IdentityMapper())
         runtime.execute(["python", "script.py", "--arg", "value"])
 
         args = mock_run.call_args[0][0]
@@ -389,7 +366,7 @@ class TestRuntimeFactory:
 
     def test_create_local_runtime_by_default(self):
         """create_runtime() should return LocalRuntime by default."""
-        from harness.runtime import create_runtime, LocalRuntime
+        from harness.runtime import LocalRuntime, create_runtime
 
         runtime = create_runtime()
         assert isinstance(runtime, LocalRuntime)
@@ -397,7 +374,7 @@ class TestRuntimeFactory:
     @patch.dict(os.environ, {"HARNESS_CONTAINER_ID": "test-container"})
     def test_create_docker_runtime_from_env(self):
         """create_runtime() should return DockerRuntime when env var set."""
-        from harness.runtime import create_runtime, DockerRuntime
+        from harness.runtime import DockerRuntime, create_runtime
 
         runtime = create_runtime()
         assert isinstance(runtime, DockerRuntime)
@@ -405,21 +382,24 @@ class TestRuntimeFactory:
     @patch.dict(os.environ, {"HARNESS_CONTAINER_ID": "test-container"})
     def test_create_docker_runtime_uses_container_id(self):
         """DockerRuntime from factory should use container ID from env."""
-        from harness.runtime import create_runtime, DockerRuntime
+        from harness.runtime import DockerRuntime, create_runtime
 
         runtime = create_runtime()
         assert isinstance(runtime, DockerRuntime)
         # Access container_id attribute
         assert runtime.container_id == "test-container"
 
-    @patch.dict(os.environ, {
-        "HARNESS_CONTAINER_ID": "test-container",
-        "HARNESS_HOST_ROOT": "/host/workspace",
-        "HARNESS_CONTAINER_ROOT": "/workspace"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "HARNESS_CONTAINER_ID": "test-container",
+            "HARNESS_HOST_ROOT": "/host/workspace",
+            "HARNESS_CONTAINER_ROOT": "/workspace",
+        },
+    )
     def test_create_docker_runtime_with_volume_mapping(self):
         """DockerRuntime from factory should use VolumeMapper when paths provided."""
-        from harness.runtime import create_runtime, DockerRuntime, VolumeMapper
+        from harness.runtime import DockerRuntime, VolumeMapper, create_runtime
 
         runtime = create_runtime()
         assert isinstance(runtime, DockerRuntime)
@@ -428,7 +408,7 @@ class TestRuntimeFactory:
     @patch.dict(os.environ, {"HARNESS_CONTAINER_ID": "test-container"}, clear=True)
     def test_create_docker_runtime_with_identity_mapper_default(self):
         """DockerRuntime should use IdentityMapper when no paths in env."""
-        from harness.runtime import create_runtime, DockerRuntime, IdentityMapper
+        from harness.runtime import DockerRuntime, IdentityMapper, create_runtime
 
         # Remove any path variables
         os.environ.pop("HARNESS_HOST_ROOT", None)
@@ -441,7 +421,7 @@ class TestRuntimeFactory:
     @patch.dict(os.environ, {}, clear=True)
     def test_create_local_runtime_when_no_env_vars(self):
         """create_runtime() should return LocalRuntime when no env vars set."""
-        from harness.runtime import create_runtime, LocalRuntime
+        from harness.runtime import LocalRuntime, create_runtime
 
         runtime = create_runtime()
         assert isinstance(runtime, LocalRuntime)

@@ -8,14 +8,15 @@ The daemon provides:
 - Single instance guarantee via fcntl.flock
 """
 
-import pytest
 import json
 import os
 import socket
+import subprocess
 import threading
 import time
-import subprocess
 import uuid
+
+import pytest
 
 
 @pytest.fixture
@@ -49,9 +50,7 @@ def worktree(tmp_path):
     )
     (tmp_path / "file.txt").write_text("content")
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True
-    )
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True)
     return tmp_path
 
 
@@ -76,7 +75,7 @@ def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
 def test_daemon_get_state(socket_path, worktree):
     """Daemon should return state via get_state command."""
     from harness.daemon import HarnessDaemon
-    from harness.state import WorkflowState, Task, TaskStatus, StateManager
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
     # Create state file with v2 JSON schema (task DAG)
     manager = StateManager(worktree)
@@ -121,7 +120,7 @@ def test_daemon_get_state(socket_path, worktree):
 def test_daemon_update_state(socket_path, worktree):
     """Daemon should update state via update_state command."""
     from harness.daemon import HarnessDaemon
-    from harness.state import WorkflowState, Task, TaskStatus, StateManager
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
     # Create state with v2 JSON schema (task DAG)
     manager = StateManager(worktree)
@@ -216,7 +215,7 @@ def test_daemon_git_operations(socket_path, worktree):
 def test_daemon_parallel_clients(socket_path, worktree):
     """Verify daemon handles parallel clients (Python 3.13t threading)."""
     from harness.daemon import HarnessDaemon
-    from harness.state import WorkflowState, Task, TaskStatus, StateManager
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
     # Create state with v2 JSON schema (task DAG)
     manager = StateManager(worktree)
@@ -288,7 +287,7 @@ def test_daemon_single_instance_lock(socket_path, worktree):
 def daemon_with_state(socket_path, worktree):
     """Create a daemon with tasks in state."""
     from harness.daemon import HarnessDaemon
-    from harness.state import WorkflowState, Task, TaskStatus, StateManager
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
     # Create state with tasks
     manager = StateManager(worktree)
@@ -399,8 +398,9 @@ def test_handle_task_claim_marks_running(daemon_with_state, socket_path):
 def test_handle_task_claim_reclaims_timed_out(daemon_with_state, socket_path):
     """task_claim should reclaim timed out tasks with is_reclaim flag."""
     daemon, worktree = daemon_with_state
-    from harness.state import StateManager, WorkflowState, Task, TaskStatus
     from datetime import datetime, timedelta
+
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
     # Create a timed out task
     manager = StateManager(worktree)
@@ -491,9 +491,7 @@ def test_handle_task_complete_validates_ownership(daemon_with_state, socket_path
     assert "not claimed by" in response["message"]
 
 
-def test_task_claim_logs_trajectory_after_state_update(
-    daemon_with_state, socket_path, worktree
-):
+def test_task_claim_logs_trajectory_after_state_update(daemon_with_state, socket_path, worktree):
     """task_claim should log to trajectory AFTER state update (lock convoy fix)."""
     daemon, worktree_path = daemon_with_state
 
@@ -512,7 +510,7 @@ def test_task_claim_logs_trajectory_after_state_update(
     # Read the trajectory
     import json
 
-    with open(trajectory_file, "r") as f:
+    with open(trajectory_file) as f:
         lines = f.readlines()
         assert len(lines) >= 1
         event = json.loads(lines[-1])
@@ -560,8 +558,9 @@ def test_exec_logs_duration_ms(daemon_with_state, socket_path, worktree):
 
     # Verify trajectory has duration_ms
     import json
+
     trajectory_file = worktree_path / ".claude" / "trajectory.jsonl"
-    with open(trajectory_file, "r") as f:
+    with open(trajectory_file) as f:
         lines = f.readlines()
         # Find the exec event
         exec_events = [json.loads(line) for line in lines if "exec" in line]
@@ -575,8 +574,9 @@ def test_exec_logs_duration_ms(daemon_with_state, socket_path, worktree):
 
 def test_daemon_calls_check_capabilities_on_init(socket_path, worktree):
     """HarnessDaemon should call runtime.check_capabilities() on init."""
+    from unittest.mock import MagicMock, patch
+
     from harness.daemon import HarnessDaemon
-    from unittest.mock import patch, MagicMock
 
     with patch("harness.daemon.create_runtime") as mock_create:
         mock_runtime = MagicMock()
@@ -592,8 +592,9 @@ def test_daemon_calls_check_capabilities_on_init(socket_path, worktree):
 
 def test_daemon_fails_fast_on_capability_check_failure(socket_path, worktree):
     """HarnessDaemon should fail immediately if check_capabilities fails."""
+    from unittest.mock import MagicMock, patch
+
     from harness.daemon import HarnessDaemon
-    from unittest.mock import patch, MagicMock
 
     with patch("harness.daemon.create_runtime") as mock_create:
         mock_runtime = MagicMock()
@@ -629,8 +630,9 @@ def test_exec_trajectory_log_truncation_limit(daemon_with_state, socket_path, wo
 
     # Verify trajectory log captures enough context (not truncated to 200)
     import json
+
     trajectory_file = worktree_path / ".claude" / "trajectory.jsonl"
-    with open(trajectory_file, "r") as f:
+    with open(trajectory_file) as f:
         lines = f.readlines()
         exec_events = [json.loads(line) for line in lines if '"exec"' in line]
         assert len(exec_events) >= 1

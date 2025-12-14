@@ -1,7 +1,7 @@
 [project]
 name = "harness"
-version = "0.1.0"
-description = "Thread-safe state management daemon for dev workflows"
+version = "2.0.0"
+description = "Autonomous Research Kernel with Thread-Safe Pull Engine"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -12,6 +12,16 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-timeout>=2.0",
+    "ruff>=0.8",
+    "mypy>=1.8",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-timeout>=2.0",
+    "ruff>=0.8",
+    "mypy>=1.8",
 ]
 
 [project.scripts]
@@ -27,3 +37,63 @@ packages = ["src/harness"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "--timeout=30"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # Pyflakes
+    "UP",  # pyupgrade (Keep Python 3.13 modern)
+    "B",   # flake8-bugbear (Catch common bugs)
+    "SIM", # flake8-simplify
+    "I",   # isort (Import hygiene)
+    "N",   # pep8-naming
+    "ANN", # flake8-annotations (Strict Typing - Guido's Rule)
+    "S",   # flake8-bandit (Security - Justin's Rule)
+    "DTZ", # flake8-datetimez (Timezone Safety - Sam's Rule)
+    "PTH", # flake8-use-pathlib (Path Safety)
+    "RET", # flake8-return
+    "ARG", # flake8-unused-arguments
+    "RUF", # Ruff-specific quality checks
+]
+ignore = [
+    "S101",   # Use of assert (Allowed in general logic, critical for invariants)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: allow assert, skip annotations, unused args, subprocess, /tmp paths, datetime without tz,
+# unused loop vars, unpacked vars, implicit return (common test patterns)
+"tests/*" = ["S101", "ANN", "ARG", "S603", "S607", "S108", "DTZ", "PTH", "RUF043", "B007", "RUF059", "RET503"]
+# Client prints to stdout (The Interface) and spawns daemon subprocess
+# S108: /tmp is standard Unix socket location per XDG
+"src/harness/client.py" = ["T201", "S603", "S607", "S108"]
+# Daemon executes commands through runtime - trusted subprocess execution
+"src/harness/daemon.py" = ["T201", "S603"]
+# Runtime is the subprocess execution layer - S603/S607 are intentional
+"src/harness/runtime.py" = ["S603", "S607"]
+# State uses **kwargs: Any for Pydantic model_copy (legitimate Any usage)
+"src/harness/state.py" = ["ANN401"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+local_partial_types = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false

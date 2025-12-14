@@ -4,13 +4,14 @@ Integration tests for the complete harness system.
 Tests daemon + client + state + git working together.
 """
 
-import pytest
+import json
+import os
 import subprocess
 import threading
 import time
-import json
-import os
 import uuid
+
+import pytest
 
 
 @pytest.fixture
@@ -23,14 +24,10 @@ def integration_worktree(tmp_path):
         cwd=tmp_path,
         capture_output=True,
     )
-    subprocess.run(
-        ["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True
-    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True)
     (tmp_path / "file.txt").write_text("initial")
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True
-    )
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True)
 
     # Use short socket path in /tmp to avoid macOS AF_UNIX path length limit
     socket_id = uuid.uuid4().hex[:8]
@@ -39,9 +36,7 @@ def integration_worktree(tmp_path):
     yield {"worktree": tmp_path, "socket": socket_path}
 
     # Cleanup daemon
-    subprocess.run(
-        ["pkill", "-f", f"harness.daemon.*{socket_path}"], capture_output=True
-    )
+    subprocess.run(["pkill", "-f", f"harness.daemon.*{socket_path}"], capture_output=True)
     # Give daemon time to shutdown
     time.sleep(0.2)
     # Clean up socket files
@@ -57,8 +52,9 @@ def test_parallel_git_operations_no_race(integration_worktree):
     Uses the daemon directly in a thread (like test_daemon.py) to avoid
     issues with subprocess spawning and connection backlog.
     """
-    from harness.daemon import HarnessDaemon
     import socket as socket_module
+
+    from harness.daemon import HarnessDaemon
 
     socket_path = integration_worktree["socket"]
     worktree = integration_worktree["worktree"]
@@ -73,9 +69,7 @@ def test_parallel_git_operations_no_race(integration_worktree):
     def send_command(cmd, max_retries=3):
         """Send command to daemon and return response with retry on connection refused."""
         for attempt in range(max_retries):
-            sock = socket_module.socket(
-                socket_module.AF_UNIX, socket_module.SOCK_STREAM
-            )
+            sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
             sock.settimeout(10.0)
             try:
                 sock.connect(socket_path)
@@ -104,9 +98,7 @@ def test_parallel_git_operations_no_race(integration_worktree):
 
     def git_status(client_id):
         try:
-            resp = send_command(
-                {"command": "git", "args": ["status"], "cwd": str(worktree)}
-            )
+            resp = send_command({"command": "git", "args": ["status"], "cwd": str(worktree)})
             with lock:
                 results.append((client_id, resp["status"]))
             # Check for index.lock errors in stderr
@@ -138,7 +130,7 @@ def test_parallel_git_operations_no_race(integration_worktree):
 def test_state_persistence_across_daemon_restart(integration_worktree):
     """State should persist across daemon restarts."""
     from harness.client import send_rpc
-    from harness.state import WorkflowState, Task, TaskStatus, StateManager
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
     socket_path = integration_worktree["socket"]
     worktree = integration_worktree["worktree"]
@@ -256,7 +248,7 @@ def test_cli_get_state_without_workflow(integration_worktree):
 
 def test_cli_update_state(integration_worktree):
     """Test update-state command works correctly."""
-    from harness.state import WorkflowState, Task, TaskStatus, StateManager
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
@@ -306,7 +298,8 @@ def test_cli_update_state(integration_worktree):
 def test_cli_session_start_with_active_workflow(integration_worktree):
     """Test session-start hook outputs correct JSON."""
     import sys
-    from harness.state import WorkflowState, Task, TaskStatus, StateManager
+
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
@@ -320,7 +313,7 @@ def test_cli_session_start_with_active_workflow(integration_worktree):
             id=f"task-{i}",
             description=f"Task {i}",
             status=TaskStatus.COMPLETED if i <= 2 else TaskStatus.PENDING,
-            dependencies=[f"task-{i-1}"] if i > 1 else [],
+            dependencies=[f"task-{i - 1}"] if i > 1 else [],
         )
     manager.save(WorkflowState(tasks=tasks))
 
@@ -396,10 +389,11 @@ def test_cli_shutdown(integration_worktree):
 @pytest.fixture
 def workflow_with_tasks(integration_worktree):
     """Set up workflow state with DAG tasks."""
-    from harness.state import StateManager, WorkflowState, Task, TaskStatus
-    from harness.daemon import HarnessDaemon
-    import threading
     import socket as socket_module
+    import threading
+
+    from harness.daemon import HarnessDaemon
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
@@ -440,9 +434,7 @@ def workflow_with_tasks(integration_worktree):
     def send_command(cmd, max_retries=3):
         """Send command to daemon and return response with retry on connection refused."""
         for attempt in range(max_retries):
-            sock = socket_module.socket(
-                socket_module.AF_UNIX, socket_module.SOCK_STREAM
-            )
+            sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
             sock.settimeout(10.0)
             try:
                 sock.connect(socket_path)
@@ -497,11 +489,7 @@ def test_full_task_workflow(workflow_with_tasks):
     assert resp["data"]["task"] is None  # No claimable tasks
 
     # Complete task-1
-    resp = send_command({
-        "command": "task_complete",
-        "task_id": "task-1",
-        "worker_id": "worker-1"
-    })
+    resp = send_command({"command": "task_complete", "task_id": "task-1", "worker_id": "worker-1"})
     assert resp["status"] == "ok"
 
     # Now task-2 and task-3 should be claimable
@@ -512,7 +500,10 @@ def test_full_task_workflow(workflow_with_tasks):
     # Verify state
     state = manager.load()
     assert state.tasks["task-1"].status == TaskStatus.COMPLETED
-    assert state.tasks["task-2"].status == TaskStatus.RUNNING or state.tasks["task-3"].status == TaskStatus.RUNNING
+    assert (
+        state.tasks["task-2"].status == TaskStatus.RUNNING
+        or state.tasks["task-3"].status == TaskStatus.RUNNING
+    )
 
 
 def test_dag_dependency_enforcement(workflow_with_tasks):
@@ -530,11 +521,7 @@ def test_dag_dependency_enforcement(workflow_with_tasks):
     assert resp["data"]["task"] is None
 
     # Complete task-1
-    resp = send_command({
-        "command": "task_complete",
-        "task_id": "task-1",
-        "worker_id": "worker-1"
-    })
+    resp = send_command({"command": "task_complete", "task_id": "task-1", "worker_id": "worker-1"})
     assert resp["status"] == "ok"
 
     # Now worker-2 can claim task-2 or task-3
@@ -575,11 +562,7 @@ def test_json_state_persistence(workflow_with_tasks):
     resp = send_command({"command": "task_claim", "worker_id": "worker-1"})
     assert resp["status"] == "ok"
 
-    resp = send_command({
-        "command": "task_complete",
-        "task_id": "task-1",
-        "worker_id": "worker-1"
-    })
+    resp = send_command({"command": "task_complete", "task_id": "task-1", "worker_id": "worker-1"})
     assert resp["status"] == "ok"
 
     # Verify state file exists and is valid JSON

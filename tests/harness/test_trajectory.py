@@ -1,4 +1,5 @@
 """Tests for trajectory.py - TrajectoryLogger with efficient tail."""
+
 import json
 import threading
 import time
@@ -57,10 +58,7 @@ def test_thread_safe(temp_trajectory_dir, logger):
         for i in range(events_per_thread):
             logger.log({"thread": thread_id, "event": i})
 
-    threads = [
-        threading.Thread(target=write_events, args=(tid,))
-        for tid in range(num_threads)
-    ]
+    threads = [threading.Thread(target=write_events, args=(tid,)) for tid in range(num_threads)]
 
     for t in threads:
         t.start()
