@@ -490,6 +490,37 @@ def test_claim_task_returns_existing(tmp_path):
     assert task.claimed_by == "worker-1"
 
 
+def test_claim_task_renews_lease_on_retry(tmp_path):
+    """claim_task should renew started_at on idempotent retry to prevent task stealing."""
+    from datetime import timedelta
+
+    manager = StateManager(tmp_path)
+    old_time = datetime.now() - timedelta(minutes=5)
+    state = WorkflowState(
+        tasks={
+            "task-1": Task(
+                id="task-1",
+                description="Task 1",
+                status=TaskStatus.RUNNING,
+                dependencies=[],
+                claimed_by="worker-1",
+                started_at=old_time,
+            ),
+        }
+    )
+    manager.save(state)
+
+    # Retry claim with same worker
+    before_claim = datetime.now()
+    task = manager.claim_task("worker-1")
+
+    assert task is not None
+    assert task.id == "task-1"
+    assert task.claimed_by == "worker-1"
+    # Critical: started_at must be renewed
+    assert task.started_at >= before_claim, "Lease was not renewed on retry"
+
+
 def test_claim_task_race_condition_prevented(tmp_path):
     """claim_task should prevent race conditions with threading."""
     manager = StateManager(tmp_path)
