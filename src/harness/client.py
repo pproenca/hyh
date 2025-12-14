@@ -179,6 +179,37 @@ def main():
         help="Git arguments after -- separator (e.g., harness git -- commit -m 'msg')",
     )
 
+    # task subcommand with claim and complete
+    task = subparsers.add_parser("task", help="Task management commands")
+    task_subparsers = task.add_subparsers(dest="task_command", required=True)
+    task_subparsers.add_parser("claim", help="Claim next available task")
+    task_complete = task_subparsers.add_parser("complete", help="Mark task as complete")
+    task_complete.add_argument("--id", required=True, help="Task ID to complete")
+
+    # exec command
+    exec_parser = subparsers.add_parser(
+        "exec",
+        help="Execute command with mutex (Usage: harness exec -- <command>)",
+        description="Run arbitrary commands through the daemon's global mutex.",
+        usage="harness exec [--cwd DIR] [-e VAR=value] [--timeout SEC] -- <command> [args...]",
+    )
+    exec_parser.add_argument("--cwd", help="Working directory for command")
+    exec_parser.add_argument(
+        "-e",
+        "--env",
+        action="append",
+        dest="env_vars",
+        help="Environment variable (repeatable, format: VAR=value)",
+    )
+    exec_parser.add_argument(
+        "--timeout", type=float, default=5.0, help="Command timeout in seconds"
+    )
+    exec_parser.add_argument(
+        "command_args",
+        nargs=argparse.REMAINDER,
+        help="Command and arguments after -- separator",
+    )
+
     # session-start
     subparsers.add_parser("session-start", help="Handle SessionStart hook")
 
@@ -209,6 +240,17 @@ def main():
         if git_args and git_args[0] == "--":
             git_args = git_args[1:]
         _cmd_git(socket_path, worktree_root, git_args)
+    elif args.command == "task":
+        if args.task_command == "claim":
+            _cmd_task_claim(socket_path, worktree_root)
+        elif args.task_command == "complete":
+            _cmd_task_complete(socket_path, worktree_root, args.id)
+    elif args.command == "exec":
+        # Strip leading -- separator if present
+        command_args = args.command_args
+        if command_args and command_args[0] == "--":
+            command_args = command_args[1:]
+        _cmd_exec(socket_path, worktree_root, command_args, args.cwd, args.env_vars or [], args.timeout)
     elif args.command == "session-start":
         _cmd_session_start(socket_path, worktree_root)
     elif args.command == "check-state":
@@ -362,6 +404,76 @@ def _cmd_shutdown(socket_path: str, worktree_root: str):
         print("Shutdown requested")
     except (FileNotFoundError, ConnectionRefusedError):
         print("Daemon not running")
+
+
+def _cmd_task_claim(socket_path: str, worktree_root: str):
+    """Claim next available task."""
+    response = send_rpc(
+        socket_path,
+        {"command": "task_claim", "worker_id": WORKER_ID},
+        worktree_root,
+    )
+    if response["status"] != "ok":
+        print(f"Error: {response.get('message')}", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(response["data"], indent=2))
+
+
+def _cmd_task_complete(socket_path: str, worktree_root: str, task_id: str):
+    """Mark task as complete."""
+    response = send_rpc(
+        socket_path,
+        {"command": "task_complete", "task_id": task_id, "worker_id": WORKER_ID},
+        worktree_root,
+    )
+    if response["status"] != "ok":
+        print(f"Error: {response.get('message')}", file=sys.stderr)
+        sys.exit(1)
+    print(f"Task {task_id} completed")
+
+
+def _cmd_exec(
+    socket_path: str,
+    worktree_root: str,
+    command_args: list,
+    cwd: str | None,
+    env_vars: list,
+    timeout: float,
+):
+    """Execute command through daemon mutex."""
+    # Parse environment variables
+    env = {}
+    for env_var in env_vars:
+        if "=" in env_var:
+            key, value = env_var.split("=", 1)
+            env[key] = value
+        else:
+            print(f"Error: Invalid env var format: {env_var}", file=sys.stderr)
+            sys.exit(1)
+
+    # Use current directory if not specified
+    if cwd is None:
+        cwd = os.getcwd()
+
+    response = send_rpc(
+        socket_path,
+        {
+            "command": "exec",
+            "args": command_args,
+            "cwd": cwd,
+            "env": env,
+            "timeout": timeout,
+        },
+        worktree_root,
+    )
+    if response["status"] != "ok":
+        print(f"Error: {response.get('message')}", file=sys.stderr)
+        sys.exit(1)
+    data = response["data"]
+    print(data["stdout"], end="")
+    if data["stderr"]:
+        print(data["stderr"], file=sys.stderr, end="")
+    sys.exit(data["returncode"])
 
 
 if __name__ == "__main__":
