@@ -201,6 +201,52 @@ class TestWorkerID:
         worker_id_2 = client_module.WORKER_ID
         assert worker_id_1 == worker_id_2
 
+    def test_worker_id_stable_across_processes(self, tmp_path):
+        """WORKER_ID must be identical across separate CLI invocations.
+
+        This is critical for idempotent task claims - if a worker claims a task,
+        then calls claim again, it should get the same task back (lease renewal).
+        This requires the worker_id to be stable across process invocations.
+
+        Bug regression test: uuid.uuid4() generates new ID per process.
+        """
+        # Script that prints the worker ID
+        script = """
+import sys
+sys.path.insert(0, 'src')
+from harness.client import get_worker_id
+print(get_worker_id())
+"""
+        script_file = tmp_path / "get_worker_id.py"
+        script_file.write_text(script)
+
+        # Run twice as separate processes
+        result1 = subprocess.run(
+            ["python", str(script_file)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).parent.parent.parent,  # Project root
+        )
+        result2 = subprocess.run(
+            ["python", str(script_file)],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).parent.parent.parent,
+        )
+
+        assert result1.returncode == 0, f"First call failed: {result1.stderr}"
+        assert result2.returncode == 0, f"Second call failed: {result2.stderr}"
+
+        worker_id_1 = result1.stdout.strip()
+        worker_id_2 = result2.stdout.strip()
+
+        assert worker_id_1 == worker_id_2, (
+            f"Worker ID changed between processes!\n"
+            f"  First:  {worker_id_1}\n"
+            f"  Second: {worker_id_2}\n"
+            f"This breaks idempotent task claims (lease renewal pattern)."
+        )
+
 
 # TestTaskCommands
 class TestTaskCommands:

@@ -91,7 +91,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         state = server.state_manager.load()
         if state is None:
             return {"status": "ok", "data": None}
-        return {"status": "ok", "data": state.model_dump()}
+        return {"status": "ok", "data": state.model_dump(mode="json")}
 
     def _handle_update_state(
         self, request: dict[str, Any], server: HarnessDaemon
@@ -102,7 +102,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         try:
             # Pydantic validation happens here (CPU-heavy, parallel thread)
             updated = server.state_manager.update(**updates)
-            return {"status": "ok", "data": updated.model_dump()}
+            return {"status": "ok", "data": updated.model_dump(mode="json")}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 

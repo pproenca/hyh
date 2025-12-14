@@ -713,3 +713,18 @@ def test_timeout_reclaim_by_different_worker(workflow_with_short_timeout):
     assert resp2["data"]["task"]["id"] == "task-1"
     assert resp2["data"]["is_reclaim"] is True  # Flagged as reclaim
     assert resp2["data"]["task"]["claimed_by"] == "worker-2"
+
+
+def test_ownership_validation_on_complete(workflow_with_tasks):
+    """Worker B cannot complete Worker A's task."""
+    send_command = workflow_with_tasks["send_command"]
+
+    # Worker-1 claims task-1
+    resp = send_command({"command": "task_claim", "worker_id": "worker-1"})
+    assert resp["status"] == "ok"
+    assert resp["data"]["task"]["id"] == "task-1"
+
+    # Worker-2 tries to complete Worker-1's task - should fail
+    resp = send_command({"command": "task_complete", "task_id": "task-1", "worker_id": "worker-2"})
+    assert resp["status"] == "error"
+    assert "not claimed by" in resp["message"].lower()
