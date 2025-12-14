@@ -689,3 +689,49 @@ def test_plan_import_rejects_cycle(daemon_manager):
     resp = send_command(daemon.socket_path, {"command": "plan_import", "content": content})
     assert resp["status"] == "error"
     assert "cycle" in resp["message"].lower()
+
+
+def test_daemon_server_close_removes_lock_file(worktree):
+    """server_close() should remove socket and lock files."""
+    import uuid
+    from pathlib import Path
+
+    from harness.daemon import HarnessDaemon
+
+    socket_path = f"/tmp/harness-close-{uuid.uuid4().hex[:8]}.sock"
+    lock_path = socket_path + ".lock"
+
+    daemon = HarnessDaemon(socket_path, str(worktree))
+
+    # Verify files exist after init
+    assert Path(socket_path).exists()
+    assert Path(lock_path).exists()
+
+    # Close daemon
+    daemon.server_close()
+
+    # Verify files are cleaned up
+    assert not Path(socket_path).exists()
+    assert not Path(lock_path).exists()
+
+
+def test_daemon_stale_socket_removed_on_init(worktree):
+    """Daemon should remove stale socket file on init."""
+    import uuid
+    from pathlib import Path
+
+    from harness.daemon import HarnessDaemon
+
+    socket_path = f"/tmp/harness-stale-{uuid.uuid4().hex[:8]}.sock"
+
+    # Create stale socket file
+    Path(socket_path).touch()
+    assert Path(socket_path).exists()
+
+    # Init should remove stale socket
+    daemon = HarnessDaemon(socket_path, str(worktree))
+
+    # Daemon should have started successfully
+    assert Path(socket_path).exists()  # Real socket now
+
+    daemon.server_close()
