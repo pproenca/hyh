@@ -379,3 +379,205 @@ def test_cli_shutdown(integration_worktree):
         pytest.fail("Daemon should have been shutdown")
     except (FileNotFoundError, ConnectionRefusedError):
         pass  # Expected - daemon is down
+
+
+@pytest.fixture
+def workflow_with_tasks(integration_worktree):
+    """Set up workflow state with DAG tasks."""
+    from harness.state import StateManager, WorkflowState, Task, TaskStatus
+    from harness.daemon import HarnessDaemon
+    import threading
+    import socket as socket_module
+
+    worktree = integration_worktree["worktree"]
+    socket_path = integration_worktree["socket"]
+
+    # Create workflow state with DAG
+    manager = StateManager(worktree)
+    state = WorkflowState(
+        tasks={
+            "task-1": Task(
+                id="task-1",
+                description="First task (no deps)",
+                status=TaskStatus.PENDING,
+                dependencies=[],
+            ),
+            "task-2": Task(
+                id="task-2",
+                description="Second task (depends on task-1)",
+                status=TaskStatus.PENDING,
+                dependencies=["task-1"],
+            ),
+            "task-3": Task(
+                id="task-3",
+                description="Third task (depends on task-1)",
+                status=TaskStatus.PENDING,
+                dependencies=["task-1"],
+            ),
+        }
+    )
+    manager.save(state)
+
+    # Start daemon
+    daemon = HarnessDaemon(socket_path, str(worktree))
+    server_thread = threading.Thread(target=daemon.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+    time.sleep(0.2)  # Let daemon fully start
+
+    def send_command(cmd, max_retries=3):
+        """Send command to daemon and return response with retry on connection refused."""
+        for attempt in range(max_retries):
+            sock = socket_module.socket(
+                socket_module.AF_UNIX, socket_module.SOCK_STREAM
+            )
+            sock.settimeout(10.0)
+            try:
+                sock.connect(socket_path)
+                sock.sendall(json.dumps(cmd).encode() + b"\n")
+                response = b""
+                while True:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+                    if b"\n" in response:
+                        break
+                return json.loads(response.decode().strip())
+            except ConnectionRefusedError:
+                # Socket backlog full - retry after brief delay
+                if attempt < max_retries - 1:
+                    time.sleep(0.1 * (attempt + 1))
+                    continue
+                raise
+            finally:
+                sock.close()
+
+    yield {
+        "worktree": worktree,
+        "socket": socket_path,
+        "manager": manager,
+        "daemon": daemon,
+        "send_command": send_command,
+    }
+
+    # Cleanup
+    daemon.shutdown()
+    server_thread.join(timeout=1)
+
+
+def test_full_task_workflow(workflow_with_tasks):
+    """End-to-end test: claim task, complete it, verify DAG progression."""
+    from harness.state import TaskStatus
+
+    send_command = workflow_with_tasks["send_command"]
+    manager = workflow_with_tasks["manager"]
+
+    # Worker 1 claims a task (should get task-1 - no deps)
+    resp = send_command({"command": "task_claim", "worker_id": "worker-1"})
+    assert resp["status"] == "ok"
+    assert resp["data"]["task"]["id"] == "task-1"
+    assert resp["data"]["task"]["status"] == "running"
+
+    # Verify task-2 and task-3 are blocked (can't claim yet)
+    resp = send_command({"command": "task_claim", "worker_id": "worker-2"})
+    assert resp["status"] == "ok"
+    assert resp["data"]["task"] is None  # No claimable tasks
+
+    # Complete task-1
+    resp = send_command({
+        "command": "task_complete",
+        "task_id": "task-1",
+        "worker_id": "worker-1"
+    })
+    assert resp["status"] == "ok"
+
+    # Now task-2 and task-3 should be claimable
+    resp = send_command({"command": "task_claim", "worker_id": "worker-2"})
+    assert resp["status"] == "ok"
+    assert resp["data"]["task"]["id"] in ["task-2", "task-3"]
+
+    # Verify state
+    state = manager.load()
+    assert state.tasks["task-1"].status == TaskStatus.COMPLETED
+    assert state.tasks["task-2"].status == TaskStatus.RUNNING or state.tasks["task-3"].status == TaskStatus.RUNNING
+
+
+def test_dag_dependency_enforcement(workflow_with_tasks):
+    """Can't claim blocked tasks - dependencies must be satisfied first."""
+    send_command = workflow_with_tasks["send_command"]
+
+    # Try to claim any task - should only get task-1 (no deps)
+    resp = send_command({"command": "task_claim", "worker_id": "worker-1"})
+    assert resp["status"] == "ok"
+    assert resp["data"]["task"]["id"] == "task-1"
+
+    # Second worker tries to claim - should get nothing (task-2/3 blocked, task-1 taken)
+    resp = send_command({"command": "task_claim", "worker_id": "worker-2"})
+    assert resp["status"] == "ok"
+    assert resp["data"]["task"] is None
+
+    # Complete task-1
+    resp = send_command({
+        "command": "task_complete",
+        "task_id": "task-1",
+        "worker_id": "worker-1"
+    })
+    assert resp["status"] == "ok"
+
+    # Now worker-2 can claim task-2 or task-3
+    resp = send_command({"command": "task_claim", "worker_id": "worker-2"})
+    assert resp["status"] == "ok"
+    assert resp["data"]["task"]["id"] in ["task-2", "task-3"]
+
+
+def test_trajectory_logging(workflow_with_tasks):
+    """Trajectory file captures claim events."""
+    send_command = workflow_with_tasks["send_command"]
+    worktree = workflow_with_tasks["worktree"]
+    trajectory_file = worktree / ".claude" / "trajectory.jsonl"
+
+    # Claim task
+    resp = send_command({"command": "task_claim", "worker_id": "worker-1"})
+    assert resp["status"] == "ok"
+
+    # Verify trajectory file exists and has claim event
+    assert trajectory_file.exists()
+    lines = trajectory_file.read_text().strip().split("\n")
+    assert len(lines) >= 1
+
+    # Parse last line (claim event)
+    event = json.loads(lines[-1])
+    assert event["event_type"] == "task_claim"
+    assert event["worker_id"] == "worker-1"
+    assert event["task_id"] == "task-1"
+
+
+def test_json_state_persistence(workflow_with_tasks):
+    """State persisted as JSON with correct schema (Council fix verification)."""
+    send_command = workflow_with_tasks["send_command"]
+    worktree = workflow_with_tasks["worktree"]
+    state_file = worktree / ".claude" / "dev-workflow-state.json"
+
+    # Claim and complete a task
+    resp = send_command({"command": "task_claim", "worker_id": "worker-1"})
+    assert resp["status"] == "ok"
+
+    resp = send_command({
+        "command": "task_complete",
+        "task_id": "task-1",
+        "worker_id": "worker-1"
+    })
+    assert resp["status"] == "ok"
+
+    # Verify state file exists and is valid JSON
+    assert state_file.exists()
+    data = json.loads(state_file.read_text())
+
+    # Verify schema structure
+    assert "tasks" in data
+    assert "task-1" in data["tasks"]
+    assert data["tasks"]["task-1"]["status"] == "completed"
+    assert data["tasks"]["task-1"]["claimed_by"] == "worker-1"
+    assert "started_at" in data["tasks"]["task-1"]
+    assert "completed_at" in data["tasks"]["task-1"]
