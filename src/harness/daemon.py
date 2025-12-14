@@ -27,7 +27,9 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
+from .acp import ACPEmitter
 from .git import safe_git_exec
+from .plan import parse_plan_content
 from .runtime import Runtime, create_runtime, decode_signal
 from .state import StateManager, Task, TaskStatus
 from .trajectory import TrajectoryLogger
@@ -76,6 +78,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             "task_claim": self._handle_task_claim,
             "task_complete": self._handle_task_complete,
             "exec": self._handle_exec,
+            "plan_import": self._handle_plan_import,
         }
 
         if command is None:
@@ -177,6 +180,13 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                     "is_reclaim": is_reclaim,
                 }
             )
+            server.acp_emitter.emit(
+                {
+                    "event_type": "task_claim",
+                    "task_id": task.id,
+                    "worker_id": worker_id,
+                }
+            )
 
             return {
                 "status": "ok",
@@ -211,6 +221,12 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                     "event_type": "task_complete",
                     "task_id": task_id,
                     "worker_id": worker_id,
+                }
+            )
+            server.acp_emitter.emit(
+                {
+                    "event_type": "task_complete",
+                    "task_id": task_id,
                 }
             )
 
@@ -293,6 +309,36 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
+    def _handle_plan_import(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
+        """Import plan from LLM output."""
+        content = request.get("content")
+        if not content:
+            return {"status": "error", "message": "content required"}
+
+        try:
+            plan = parse_plan_content(content)
+            state = plan.to_workflow_state()
+            server.state_manager.save(state)
+
+            server.trajectory_logger.log(
+                {
+                    "event_type": "plan_import",
+                    "goal": plan.goal,
+                    "task_count": len(plan.tasks),
+                }
+            )
+            server.acp_emitter.emit(
+                {
+                    "event_type": "plan_import",
+                    "goal": plan.goal,
+                    "task_count": len(plan.tasks),
+                }
+            )
+
+            return {"status": "ok", "data": {"goal": plan.goal, "task_count": len(plan.tasks)}}
+        except ValueError as e:
+            return {"status": "error", "message": str(e)}
+
 
 class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     """
@@ -308,6 +354,7 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     worktree_root: Path
     state_manager: StateManager
     trajectory_logger: TrajectoryLogger
+    acp_emitter: ACPEmitter
     runtime: Runtime
     _lock_fd: TextIOWrapper | None
     _lock_path: str
@@ -319,6 +366,7 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         self.trajectory_logger = TrajectoryLogger(
             self.worktree_root / ".claude" / "trajectory.jsonl"
         )
+        self.acp_emitter = ACPEmitter()
         self.runtime = create_runtime()
         self.runtime.check_capabilities()  # Fail fast if dependencies unavailable
         self._lock_fd = None

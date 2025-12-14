@@ -308,6 +308,12 @@ def main() -> None:
     task_complete = task_subparsers.add_parser("complete", help="Mark task as complete")
     task_complete.add_argument("--id", required=True, help="Task ID to complete")
 
+    # plan subcommand
+    plan_parser = subparsers.add_parser("plan", help="Plan management")
+    plan_sub = plan_parser.add_subparsers(dest="plan_command", required=True)
+    plan_import_parser = plan_sub.add_parser("import", help="Import plan from file")
+    plan_import_parser.add_argument("--file", required=True, help="Plan file path")
+
     # exec command
     exec_parser = subparsers.add_parser(
         "exec",
@@ -370,6 +376,9 @@ def main() -> None:
             _cmd_task_claim(socket_path, worktree_root)
         elif args.task_command == "complete":
             _cmd_task_complete(socket_path, worktree_root, args.id)
+    elif args.command == "plan":
+        if args.plan_command == "import":
+            _cmd_plan_import(socket_path, worktree_root, args.file)
     elif args.command == "exec":
         # Strip leading -- separator if present
         command_args = args.command_args
@@ -626,6 +635,25 @@ def _cmd_exec(
 def _cmd_worker_id() -> None:
     """Print stable worker ID."""
     print(get_worker_id())
+
+
+def _cmd_plan_import(socket_path: str, worktree_root: str, file_path: str) -> None:
+    """Import plan from file."""
+    path = Path(file_path)
+    if not path.exists():
+        print(f"Error: File not found: {file_path}", file=sys.stderr)
+        sys.exit(1)
+
+    content = path.read_text()
+    response = send_rpc(
+        socket_path,
+        {"command": "plan_import", "content": content},
+        worktree_root,
+    )
+    if response["status"] != "ok":
+        print(f"Error: {response.get('message')}", file=sys.stderr)
+        sys.exit(1)
+    print(f"Plan imported ({response['data']['task_count']} tasks)")
 
 
 if __name__ == "__main__":

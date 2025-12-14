@@ -615,3 +615,77 @@ def test_exec_trajectory_log_truncation_limit(daemon_with_state, socket_path, wo
             f"Trajectory log truncated to {len(event['stdout'])} chars. "
             f"Agents need 4KB for debugging."
         )
+
+
+def test_plan_import_handler(daemon_manager):
+    """plan_import should parse JSON and seed state."""
+    daemon, _ = daemon_manager
+    from tests.harness.conftest import send_command
+
+    content = """
+Here is the plan:
+
+```json
+{
+  "goal": "Test",
+  "tasks": {
+    "task-1": {"description": "First"},
+    "task-2": {"description": "Second", "dependencies": ["task-1"]}
+  }
+}
+```
+"""
+    resp = send_command(daemon.socket_path, {"command": "plan_import", "content": content})
+    assert resp["status"] == "ok"
+    assert resp["data"]["task_count"] == 2
+
+    # Verify state
+    state = send_command(daemon.socket_path, {"command": "get_state"})
+    assert "task-1" in state["data"]["tasks"]
+
+
+def test_plan_import_preserves_injection(daemon_manager):
+    """plan_import should preserve instructions and role."""
+    daemon, _ = daemon_manager
+    from tests.harness.conftest import send_command
+
+    content = """
+```json
+{
+  "goal": "Test",
+  "tasks": {
+    "task-1": {
+      "description": "Do it",
+      "instructions": "Step by step guide here",
+      "role": "backend"
+    }
+  }
+}
+```
+"""
+    send_command(daemon.socket_path, {"command": "plan_import", "content": content})
+    state = send_command(daemon.socket_path, {"command": "get_state"})
+    task = state["data"]["tasks"]["task-1"]
+    assert task["instructions"] == "Step by step guide here"
+    assert task["role"] == "backend"
+
+
+def test_plan_import_rejects_cycle(daemon_manager):
+    """plan_import should reject cyclic dependencies."""
+    daemon, _ = daemon_manager
+    from tests.harness.conftest import send_command
+
+    content = """
+```json
+{
+  "goal": "Bad",
+  "tasks": {
+    "a": {"description": "A", "dependencies": ["b"]},
+    "b": {"description": "B", "dependencies": ["a"]}
+  }
+}
+```
+"""
+    resp = send_command(daemon.socket_path, {"command": "plan_import", "content": content})
+    assert resp["status"] == "error"
+    assert "cycle" in resp["message"].lower()

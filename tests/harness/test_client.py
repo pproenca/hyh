@@ -346,3 +346,17 @@ class TestExecCommand:
 
         assert response["status"] == "ok"
         assert "data" in response
+
+
+def test_plan_import_file_not_found():
+    """harness plan import should error on missing file."""
+    import subprocess
+    import sys
+
+    r = subprocess.run(
+        [sys.executable, "-m", "harness.client", "plan", "import", "--file", "/ghost.md"],
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode != 0
+    assert "not found" in r.stderr.lower()

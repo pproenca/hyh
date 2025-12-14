@@ -975,3 +975,60 @@ def test_worker_id_stability_across_invocations(integration_worktree, tmp_path):
 
     assert worker_id_1 == worker_id_2  # Same ID across invocations
     assert worker_id_file.exists()  # File was created
+
+
+def test_plan_import_then_claim_with_injection(socket_path, worktree):
+    """Full flow: import plan -> claim -> verify injection fields."""
+    import sys
+
+    from harness.client import spawn_daemon
+    from tests.harness.conftest import cleanup_daemon_subprocess
+
+    spawn_daemon(str(worktree), socket_path)
+
+    try:
+        plan_file = worktree / "plan.md"
+        plan_file.write_text("""
+```json
+{
+  "goal": "E2E Test",
+  "tasks": {
+    "task-1": {
+      "description": "First task",
+      "instructions": "Do this carefully",
+      "role": "backend"
+    },
+    "task-2": {
+      "description": "Second task",
+      "dependencies": ["task-1"]
+    }
+  }
+}
+```
+""")
+
+        env = {**os.environ, "HARNESS_SOCKET": socket_path, "HARNESS_WORKTREE": str(worktree)}
+
+        # Import
+        r = subprocess.run(
+            [sys.executable, "-m", "harness.client", "plan", "import", "--file", str(plan_file)],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        # Claim
+        r = subprocess.run(
+            [sys.executable, "-m", "harness.client", "task", "claim"],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert r.returncode == 0
+        data = json.loads(r.stdout)
+        assert data["task"]["instructions"] == "Do this carefully"
+        assert data["task"]["role"] == "backend"
+
+    finally:
+        cleanup_daemon_subprocess(socket_path)
