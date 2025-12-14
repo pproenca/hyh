@@ -2,7 +2,7 @@
 
 **Goal:** Transform the Harness from a "Task Counter" to an Autonomous Research Kernel with runtime abstraction, trajectory logging, DAG-based state, and a pull protocol.
 
-**Architecture:** Minimal changes approach - extend existing patterns, colocate related code. LocalRuntime/DockerRuntime in git.py, TrajectoryLogger in state.py, Task/DAG fields in WorkflowState. Clean break from v1.0 schema (no backward compatibility). 5 modified files, 0 new files.
+**Architecture:** Clean architecture approach - proper separation of concerns with dedicated modules. New files: `runtime.py` (execution abstraction), `trajectory.py` (event logging). All shell commands routed through `harness exec` for unified sandboxing. Clean break from v1.0 schema.
 
 ---
 
@@ -12,10 +12,24 @@ This plan addresses four critical issues identified during architecture review:
 
 | Issue | Problem | Fix |
 |-------|---------|-----|
-| **I/O Suicide** | `tail()` reads entire file into RAM | Efficient reverse-seek implementation |
-| **Path Mismatch** | DockerRuntime passes host paths to container | `mount_map` for host→container translation |
-| **Zombie Deadlock** | Crashed workers leave tasks RUNNING forever | Task timeout + reclaim in `get_claimable_task` |
-| **Secret-Less Agent** | No env var passing to Runtime | Add `env` parameter to `execute()` |
+| **Infinite Tail** | `tail()` reads entire file into RAM | Efficient reverse-seek in dedicated `trajectory.py` |
+| **Host Leak** | DockerRuntime passes host paths to container | `PathMapper` for host→container translation in `runtime.py` |
+| **Zombie Deadlock** | Crashed workers leave tasks RUNNING forever | Task timeout + Dead Task Recovery in `get_claimable_task` |
+| **Blind Execution** | No env var passing to Runtime | `env` parameter on `execute()` with proper injection |
+
+---
+
+## File Structure (New)
+
+```
+src/harness/
+├── runtime.py      # NEW: LocalRuntime, DockerRuntime, PathMapper
+├── trajectory.py   # NEW: TrajectoryLogger with efficient tail
+├── state.py        # MODIFIED: Task model, DAG-based WorkflowState
+├── daemon.py       # MODIFIED: task_claim, task_complete, exec handlers
+├── client.py       # MODIFIED: task claim/complete, exec commands
+└── git.py          # MODIFIED: delegates to runtime.py
+```
 
 ---
 
@@ -23,186 +37,292 @@ This plan addresses four critical issues identified during architecture review:
 
 | Task Group | Tasks | Rationale |
 |------------|-------|-----------|
-| Group 1 | 1, 2 | Independent modules (runtime + trajectory), no file overlap |
-| Group 2 | 3 | State schema depends on Task model design from Group 1 |
-| Group 3 | 4, 5 | Daemon handlers + client commands, sequential (daemon before client) |
-| Group 4 | 6 | Integration tests span all modules |
+| Group 1 | 1, 2 | Independent new modules (runtime.py + trajectory.py), no file overlap |
+| Group 2 | 3 | State schema with DAG and Dead Task Recovery |
+| Group 3 | 4, 5, 6 | Daemon handlers + client commands + git delegation, sequential |
+| Group 4 | 7, 8 | Integration tests + code review (final verification) |
 
 ---
 
-### Task 1: Runtime Abstraction (git.py)
+### Task 1: Runtime Abstraction (runtime.py) - NEW FILE
 
 **Effort:** standard (10-15 tool calls)
 
 **Files:**
-- Modify: `src/harness/git.py`
-- Test: `tests/harness/test_git.py`
+- Create: `src/harness/runtime.py`
+- Create: `tests/harness/test_runtime.py`
 
 **Architectural Fixes Applied:**
-- **Secret-Less Agent:** Add `env` parameter to `execute()` for API keys
-- **Path Mismatch:** Add `mount_map` to DockerRuntime for host→container path translation
+- **Blind Execution:** Add `env` parameter to `execute()` for API keys
+- **Host Leak:** Add `PathMapper` ABC + `VolumeMapper` for host→container path translation
 
 **TDD Instructions (MANDATORY):**
 
 1. **Write test FIRST:**
    ```python
-   # tests/harness/test_git.py
+   # tests/harness/test_runtime.py
    import os
    import subprocess
+   import threading
    import pytest
 
 
-   def test_local_runtime_execute_success(tmp_path):
-       """LocalRuntime executes command and returns CompletedProcess."""
-       from harness.git import LocalRuntime
+   class TestPathMapper:
+       """Tests for PathMapper abstraction."""
 
-       runtime = LocalRuntime()
-       result = runtime.execute(["echo", "hello"], cwd=str(tmp_path))
+       def test_identity_mapper_returns_same_path(self):
+           """IdentityMapper returns path unchanged (for LocalRuntime)."""
+           from harness.runtime import IdentityMapper
 
-       assert result.returncode == 0
-       assert result.stdout.strip() == "hello"
+           mapper = IdentityMapper()
+           assert mapper.to_execution("/Users/dev/project") == "/Users/dev/project"
+           assert mapper.to_execution("/tmp/foo") == "/tmp/foo"
 
+       def test_volume_mapper_translates_paths(self):
+           """VolumeMapper translates host paths to container paths."""
+           from harness.runtime import VolumeMapper
 
-   def test_local_runtime_execute_failure(tmp_path):
-       """LocalRuntime returns non-zero for failed commands."""
-       from harness.git import LocalRuntime
+           mapper = VolumeMapper(host_path="/Users/dev/project", container_path="/app")
 
-       runtime = LocalRuntime()
-       result = runtime.execute(["false"], cwd=str(tmp_path))
+           assert mapper.to_execution("/Users/dev/project") == "/app"
+           assert mapper.to_execution("/Users/dev/project/src") == "/app/src"
+           assert mapper.to_execution("/Users/dev/project/src/main.py") == "/app/src/main.py"
 
-       assert result.returncode != 0
+       def test_volume_mapper_ignores_non_matching_paths(self):
+           """VolumeMapper returns unchanged path if prefix doesn't match."""
+           from harness.runtime import VolumeMapper
 
+           mapper = VolumeMapper(host_path="/Users/dev/project", container_path="/app")
 
-   def test_local_runtime_timeout(tmp_path):
-       """LocalRuntime raises TimeoutExpired for slow commands."""
-       from harness.git import LocalRuntime
-
-       runtime = LocalRuntime()
-
-       with pytest.raises(subprocess.TimeoutExpired):
-           runtime.execute(["sleep", "10"], cwd=str(tmp_path), timeout=0.1)
-
-
-   def test_local_runtime_env_vars(tmp_path):
-       """LocalRuntime passes env vars to subprocess."""
-       from harness.git import LocalRuntime
-
-       runtime = LocalRuntime()
-       result = runtime.execute(
-           ["sh", "-c", "echo $TEST_API_KEY"],
-           cwd=str(tmp_path),
-           env={"TEST_API_KEY": "secret123"},
-       )
-
-       assert result.returncode == 0
-       assert "secret123" in result.stdout
+           # Different path entirely
+           assert mapper.to_execution("/tmp/other") == "/tmp/other"
 
 
-   def test_local_runtime_env_merges_with_os_environ(tmp_path):
-       """LocalRuntime merges custom env with os.environ (PATH needed)."""
-       from harness.git import LocalRuntime
+   class TestLocalRuntime:
+       """Tests for LocalRuntime."""
 
-       runtime = LocalRuntime()
-       # Without PATH merge, 'echo' wouldn't be found
-       result = runtime.execute(
-           ["echo", "works"],
-           cwd=str(tmp_path),
-           env={"CUSTOM_VAR": "value"},
-       )
+       def test_execute_success(self, tmp_path):
+           """LocalRuntime executes command and returns CompletedProcess."""
+           from harness.runtime import LocalRuntime
 
-       assert result.returncode == 0
-       assert "works" in result.stdout
+           runtime = LocalRuntime()
+           result = runtime.execute(["echo", "hello"], cwd=str(tmp_path))
 
+           assert result.returncode == 0
+           assert result.stdout.strip() == "hello"
 
-   def test_docker_runtime_execute(tmp_path, mocker):
-       """DockerRuntime calls docker exec with correct args."""
-       from harness.git import DockerRuntime
+       def test_execute_failure(self, tmp_path):
+           """LocalRuntime returns non-zero for failed commands."""
+           from harness.runtime import LocalRuntime
 
-       mock_run = mocker.patch("harness.git.subprocess.run")
-       mock_run.return_value = subprocess.CompletedProcess(
-           args=[], returncode=0, stdout="output", stderr=""
-       )
+           runtime = LocalRuntime()
+           result = runtime.execute(["false"], cwd=str(tmp_path))
 
-       runtime = DockerRuntime(container="test-container")
-       result = runtime.execute(["pytest", "tests/"], cwd="/app")
+           assert result.returncode != 0
 
-       mock_run.assert_called_once()
-       call_args = mock_run.call_args[0][0]
-       assert "docker" in call_args
-       assert "exec" in call_args
-       assert "-w" in call_args
-       assert "test-container" in call_args
+       def test_execute_timeout(self, tmp_path):
+           """LocalRuntime raises TimeoutExpired for slow commands."""
+           from harness.runtime import LocalRuntime
 
+           runtime = LocalRuntime()
 
-   def test_docker_runtime_path_mapping(mocker):
-       """DockerRuntime translates host paths to container paths via mount_map."""
-       from harness.git import DockerRuntime
+           with pytest.raises(subprocess.TimeoutExpired):
+               runtime.execute(["sleep", "10"], cwd=str(tmp_path), timeout=0.1)
 
-       mock_run = mocker.patch("harness.git.subprocess.run")
-       mock_run.return_value = subprocess.CompletedProcess(
-           args=[], returncode=0, stdout="", stderr=""
-       )
+       def test_execute_with_env(self, tmp_path):
+           """LocalRuntime passes env vars to subprocess."""
+           from harness.runtime import LocalRuntime
 
-       runtime = DockerRuntime(
-           container="test-container",
-           mount_map={"/Users/dev/project": "/app"},
-       )
-       runtime.execute(["ls"], cwd="/Users/dev/project/src")
+           runtime = LocalRuntime()
+           result = runtime.execute(
+               ["sh", "-c", "echo $TEST_API_KEY"],
+               cwd=str(tmp_path),
+               env={"TEST_API_KEY": "secret123"},
+           )
 
-       call_args = mock_run.call_args[0][0]
-       # Should translate /Users/dev/project/src -> /app/src
-       assert "/app/src" in call_args
-       assert "/Users/dev/project" not in " ".join(call_args)
+           assert result.returncode == 0
+           assert "secret123" in result.stdout
 
+       def test_env_merges_with_os_environ(self, tmp_path):
+           """LocalRuntime merges custom env with os.environ (PATH needed)."""
+           from harness.runtime import LocalRuntime
 
-   def test_docker_runtime_env_vars(mocker):
-       """DockerRuntime passes env vars via -e flags."""
-       from harness.git import DockerRuntime
+           runtime = LocalRuntime()
+           result = runtime.execute(
+               ["echo", "works"],
+               cwd=str(tmp_path),
+               env={"CUSTOM_VAR": "value"},
+           )
 
-       mock_run = mocker.patch("harness.git.subprocess.run")
-       mock_run.return_value = subprocess.CompletedProcess(
-           args=[], returncode=0, stdout="", stderr=""
-       )
+           assert result.returncode == 0
+           assert "works" in result.stdout
 
-       runtime = DockerRuntime(container="test-container")
-       runtime.execute(
-           ["echo", "test"],
-           cwd="/app",
-           env={"API_KEY": "secret", "DEBUG": "1"},
-       )
+       def test_uses_global_lock(self, tmp_path):
+           """LocalRuntime uses GLOBAL_EXEC_LOCK for thread safety."""
+           from harness.runtime import LocalRuntime, GLOBAL_EXEC_LOCK
 
-       call_args = mock_run.call_args[0][0]
-       # Should have -e API_KEY=secret -e DEBUG=1
-       assert "-e" in call_args
-       env_args = []
-       for i, arg in enumerate(call_args):
-           if arg == "-e" and i + 1 < len(call_args):
-               env_args.append(call_args[i + 1])
-       assert "API_KEY=secret" in env_args
-       assert "DEBUG=1" in env_args
+           runtime = LocalRuntime()
+
+           # Verify lock exists and is a threading.Lock
+           assert isinstance(GLOBAL_EXEC_LOCK, type(threading.Lock()))
 
 
-   def test_runtime_protocol():
-       """Both runtimes implement same interface."""
-       from harness.git import LocalRuntime, DockerRuntime
+   class TestDockerRuntime:
+       """Tests for DockerRuntime."""
 
-       for runtime_cls in [LocalRuntime, DockerRuntime]:
-           assert hasattr(runtime_cls, "execute")
+       def test_execute_calls_docker_exec(self, mocker):
+           """DockerRuntime calls docker exec with correct args."""
+           from harness.runtime import DockerRuntime, VolumeMapper
+
+           mock_run = mocker.patch("harness.runtime.subprocess.run")
+           mock_run.return_value = subprocess.CompletedProcess(
+               args=[], returncode=0, stdout="output", stderr=""
+           )
+
+           runtime = DockerRuntime(container="test-container")
+           runtime.execute(["pytest", "tests/"], cwd="/app")
+
+           mock_run.assert_called_once()
+           call_args = mock_run.call_args[0][0]
+           assert call_args[0] == "docker"
+           assert "exec" in call_args
+           assert "-w" in call_args
+           assert "test-container" in call_args
+
+       def test_path_mapping_with_volume_mapper(self, mocker):
+           """DockerRuntime uses PathMapper to translate paths."""
+           from harness.runtime import DockerRuntime, VolumeMapper
+
+           mock_run = mocker.patch("harness.runtime.subprocess.run")
+           mock_run.return_value = subprocess.CompletedProcess(
+               args=[], returncode=0, stdout="", stderr=""
+           )
+
+           mapper = VolumeMapper("/Users/dev/project", "/app")
+           runtime = DockerRuntime(container="test-container", path_mapper=mapper)
+           runtime.execute(["ls"], cwd="/Users/dev/project/src")
+
+           call_args = mock_run.call_args[0][0]
+           # Find the -w flag and check its value
+           w_index = call_args.index("-w")
+           assert call_args[w_index + 1] == "/app/src"
+
+       def test_env_vars_passed_via_e_flags(self, mocker):
+           """DockerRuntime passes env vars via -e flags."""
+           from harness.runtime import DockerRuntime
+
+           mock_run = mocker.patch("harness.runtime.subprocess.run")
+           mock_run.return_value = subprocess.CompletedProcess(
+               args=[], returncode=0, stdout="", stderr=""
+           )
+
+           runtime = DockerRuntime(container="test-container")
+           runtime.execute(
+               ["echo", "test"],
+               cwd="/app",
+               env={"API_KEY": "secret", "DEBUG": "1"},
+           )
+
+           call_args = mock_run.call_args[0][0]
+           # Find all -e flags
+           env_args = []
+           for i, arg in enumerate(call_args):
+               if arg == "-e" and i + 1 < len(call_args):
+                   env_args.append(call_args[i + 1])
+
+           assert "API_KEY=secret" in env_args
+           assert "DEBUG=1" in env_args
+
+
+   class TestRuntimeFactory:
+       """Tests for runtime factory function."""
+
+       def test_create_local_runtime(self):
+           """create_runtime returns LocalRuntime by default."""
+           from harness.runtime import create_runtime, LocalRuntime
+
+           runtime = create_runtime()
+           assert isinstance(runtime, LocalRuntime)
+
+       def test_create_docker_runtime_from_env(self, monkeypatch):
+           """create_runtime returns DockerRuntime when HARNESS_RUNTIME=docker."""
+           from harness.runtime import create_runtime, DockerRuntime
+
+           monkeypatch.setenv("HARNESS_RUNTIME", "docker")
+           monkeypatch.setenv("HARNESS_DOCKER_CONTAINER", "my-container")
+           monkeypatch.setenv("HARNESS_DOCKER_HOST_PATH", "/Users/dev")
+           monkeypatch.setenv("HARNESS_DOCKER_CONTAINER_PATH", "/app")
+
+           runtime = create_runtime()
+           assert isinstance(runtime, DockerRuntime)
+           assert runtime.container == "my-container"
    ```
 
 2. **Run test, verify FAILURE:**
    ```bash
-   uv run pytest tests/harness/test_git.py -v -k "runtime"
+   uv run pytest tests/harness/test_runtime.py -v
    ```
-   Expected: FAIL (LocalRuntime, DockerRuntime not defined)
+   Expected: FAIL (module harness.runtime not found)
 
 3. **Implement MINIMAL code:**
 
-   In `src/harness/git.py`, add after GLOBAL_GIT_LOCK:
+   Create `src/harness/runtime.py`:
    ```python
+   """Runtime abstraction for command execution.
+
+   Provides LocalRuntime (host execution) and DockerRuntime (container execution)
+   with unified interface for path mapping and environment injection.
+   """
+
+   from __future__ import annotations
+
    import os
+   import subprocess
+   import threading
+   from abc import ABC, abstractmethod
    from typing import Protocol
 
+
+   # Global lock for all command execution (protects .git/index, etc.)
+   GLOBAL_EXEC_LOCK = threading.Lock()
+
+
+   # =============================================================================
+   # Path Mapping
+   # =============================================================================
+
+   class PathMapper(ABC):
+       """Abstract base class for path translation."""
+
+       @abstractmethod
+       def to_execution(self, host_path: str) -> str:
+           """Translate host path to execution environment path."""
+           ...
+
+
+   class IdentityMapper(PathMapper):
+       """Identity mapper - returns path unchanged (for LocalRuntime)."""
+
+       def to_execution(self, host_path: str) -> str:
+           return host_path
+
+
+   class VolumeMapper(PathMapper):
+       """Maps host paths to container paths based on volume mount."""
+
+       def __init__(self, host_path: str, container_path: str):
+           self.host_path = host_path.rstrip("/")
+           self.container_path = container_path.rstrip("/")
+
+       def to_execution(self, host_path: str) -> str:
+           if host_path.startswith(self.host_path):
+               return host_path.replace(self.host_path, self.container_path, 1)
+           return host_path
+
+
+   # =============================================================================
+   # Runtime Protocol and Implementations
+   # =============================================================================
 
    class Runtime(Protocol):
        """Protocol for command execution runtimes."""
@@ -221,6 +341,9 @@ This plan addresses four critical issues identified during architecture review:
    class LocalRuntime:
        """Execute commands locally with global lock."""
 
+       def __init__(self, path_mapper: PathMapper | None = None):
+           self.path_mapper = path_mapper or IdentityMapper()
+
        def execute(
            self,
            args: list[str],
@@ -230,11 +353,12 @@ This plan addresses four critical issues identified during architecture review:
        ) -> subprocess.CompletedProcess:
            # Merge custom env with os.environ (need PATH, etc.)
            merged_env = {**os.environ, **(env or {})}
+           exec_cwd = self.path_mapper.to_execution(cwd)
 
-           with GLOBAL_GIT_LOCK:
+           with GLOBAL_EXEC_LOCK:
                return subprocess.run(
                    args,
-                   cwd=cwd,
+                   cwd=exec_cwd,
                    capture_output=True,
                    text=True,
                    timeout=timeout,
@@ -248,18 +372,10 @@ This plan addresses four critical issues identified during architecture review:
        def __init__(
            self,
            container: str,
-           mount_map: dict[str, str] | None = None,
+           path_mapper: PathMapper | None = None,
        ):
            self.container = container
-           # mount_map: {"/host/path": "/container/path"}
-           self.mount_map = mount_map or {}
-
-       def _translate_path(self, host_path: str) -> str:
-           """Translate host path to container path using mount_map."""
-           for host_prefix, container_prefix in self.mount_map.items():
-               if host_path.startswith(host_prefix):
-                   return host_path.replace(host_prefix, container_prefix, 1)
-           return host_path
+           self.path_mapper = path_mapper or IdentityMapper()
 
        def execute(
            self,
@@ -268,7 +384,7 @@ This plan addresses four critical issues identified during architecture review:
            timeout: int = 60,
            env: dict[str, str] | None = None,
        ) -> subprocess.CompletedProcess:
-           container_cwd = self._translate_path(cwd)
+           container_cwd = self.path_mapper.to_execution(cwd)
 
            # Build docker exec command
            cmd = ["docker", "exec"]
@@ -280,197 +396,249 @@ This plan addresses four critical issues identified during architecture review:
            cmd.extend(["-w", container_cwd, self.container])
            cmd.extend(args)
 
-           with GLOBAL_GIT_LOCK:
+           with GLOBAL_EXEC_LOCK:
                return subprocess.run(
                    cmd,
                    capture_output=True,
                    text=True,
                    timeout=timeout,
                )
-   ```
 
-   Update `safe_git_exec` to use LocalRuntime internally:
-   ```python
-   _local_runtime = LocalRuntime()
 
-   def safe_git_exec(args: list[str], cwd: str) -> subprocess.CompletedProcess:
-       """Execute git command with global lock (legacy wrapper)."""
-       return _local_runtime.execute(["git"] + args, cwd)
+   # =============================================================================
+   # Factory
+   # =============================================================================
+
+   def create_runtime() -> Runtime:
+       """Create runtime based on environment configuration.
+
+       Environment variables:
+           HARNESS_RUNTIME: "local" (default) or "docker"
+           HARNESS_DOCKER_CONTAINER: Container name/ID (required for docker)
+           HARNESS_DOCKER_HOST_PATH: Host path prefix for volume mapping
+           HARNESS_DOCKER_CONTAINER_PATH: Container path prefix for volume mapping
+       """
+       runtime_type = os.environ.get("HARNESS_RUNTIME", "local")
+
+       if runtime_type == "docker":
+           container = os.environ.get("HARNESS_DOCKER_CONTAINER")
+           if not container:
+               raise ValueError("HARNESS_DOCKER_CONTAINER required for docker runtime")
+
+           host_path = os.environ.get("HARNESS_DOCKER_HOST_PATH", "")
+           container_path = os.environ.get("HARNESS_DOCKER_CONTAINER_PATH", "")
+
+           path_mapper: PathMapper
+           if host_path and container_path:
+               path_mapper = VolumeMapper(host_path, container_path)
+           else:
+               path_mapper = IdentityMapper()
+
+           return DockerRuntime(container=container, path_mapper=path_mapper)
+
+       return LocalRuntime()
    ```
 
 4. **Run test, verify PASS:**
    ```bash
-   uv run pytest tests/harness/test_git.py -v
+   uv run pytest tests/harness/test_runtime.py -v
    ```
    Expected: PASS (all tests green)
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(runtime): add LocalRuntime and DockerRuntime with env and path mapping"
+   git add -A && git commit -m "feat(runtime): add runtime.py with LocalRuntime, DockerRuntime, and PathMapper"
    ```
 
 ---
 
-### Task 2: Trajectory Logger (state.py)
+### Task 2: Trajectory Logger (trajectory.py) - NEW FILE
 
 **Effort:** standard (10-15 tool calls)
 
 **Files:**
-- Modify: `src/harness/state.py`
-- Test: `tests/harness/test_state.py`
+- Create: `src/harness/trajectory.py`
+- Create: `tests/harness/test_trajectory.py`
 
 **Architectural Fixes Applied:**
-- **I/O Suicide:** Implement efficient reverse-seek `tail()` that reads from end of file, NOT entire file into RAM
+- **Infinite Tail:** Implement O(1) `tail()` using `seek(0, 2)` (SEEK_END) and buffered reverse reading
 
 **TDD Instructions (MANDATORY):**
 
 1. **Write test FIRST:**
    ```python
-   # tests/harness/test_state.py (add to existing file)
-
+   # tests/harness/test_trajectory.py
    import json
    import time
    import threading
+   import pytest
    from concurrent.futures import ThreadPoolExecutor
 
 
-   def test_trajectory_logger_creates_file(tmp_path):
-       """TrajectoryLogger creates .claude/trajectory.jsonl on first log."""
-       from harness.state import TrajectoryLogger
+   class TestTrajectoryLogger:
+       """Tests for TrajectoryLogger."""
 
-       logger = TrajectoryLogger(tmp_path)
-       logger.log({"event": "test", "data": 123})
+       def test_creates_file_on_first_log(self, tmp_path):
+           """TrajectoryLogger creates .claude/trajectory.jsonl on first log."""
+           from harness.trajectory import TrajectoryLogger
 
-       log_file = tmp_path / ".claude" / "trajectory.jsonl"
-       assert log_file.exists()
+           logger = TrajectoryLogger(tmp_path)
+           logger.log({"event": "test", "data": 123})
 
+           log_file = tmp_path / ".claude" / "trajectory.jsonl"
+           assert log_file.exists()
 
-   def test_trajectory_logger_appends_jsonl(tmp_path):
-       """TrajectoryLogger appends JSON lines, not replaces."""
-       from harness.state import TrajectoryLogger
+       def test_appends_jsonl(self, tmp_path):
+           """TrajectoryLogger appends JSON lines, not replaces."""
+           from harness.trajectory import TrajectoryLogger
 
-       logger = TrajectoryLogger(tmp_path)
-       logger.log({"event": "first"})
-       logger.log({"event": "second"})
+           logger = TrajectoryLogger(tmp_path)
+           logger.log({"event": "first"})
+           logger.log({"event": "second"})
 
-       log_file = tmp_path / ".claude" / "trajectory.jsonl"
-       lines = log_file.read_text().strip().split("\n")
+           log_file = tmp_path / ".claude" / "trajectory.jsonl"
+           lines = log_file.read_text().strip().split("\n")
 
-       assert len(lines) == 2
-       assert json.loads(lines[0])["event"] == "first"
-       assert json.loads(lines[1])["event"] == "second"
+           assert len(lines) == 2
+           assert json.loads(lines[0])["event"] == "first"
+           assert json.loads(lines[1])["event"] == "second"
 
+       def test_thread_safe(self, tmp_path):
+           """TrajectoryLogger handles concurrent writes without corruption."""
+           from harness.trajectory import TrajectoryLogger
 
-   def test_trajectory_logger_thread_safe(tmp_path):
-       """TrajectoryLogger handles concurrent writes without corruption."""
-       from harness.state import TrajectoryLogger
+           logger = TrajectoryLogger(tmp_path)
 
-       logger = TrajectoryLogger(tmp_path)
+           def write_event(i):
+               logger.log({"event": "concurrent", "id": i})
 
-       def write_event(i):
-           logger.log({"event": "concurrent", "id": i})
+           with ThreadPoolExecutor(max_workers=10) as executor:
+               list(executor.map(write_event, range(100)))
 
-       with ThreadPoolExecutor(max_workers=10) as executor:
-           list(executor.map(write_event, range(100)))
+           log_file = tmp_path / ".claude" / "trajectory.jsonl"
+           lines = log_file.read_text().strip().split("\n")
 
-       log_file = tmp_path / ".claude" / "trajectory.jsonl"
-       lines = log_file.read_text().strip().split("\n")
+           assert len(lines) == 100
+           for line in lines:
+               parsed = json.loads(line)
+               assert parsed["event"] == "concurrent"
 
-       assert len(lines) == 100
-       # Each line should be valid JSON
-       for line in lines:
-           parsed = json.loads(line)
-           assert parsed["event"] == "concurrent"
+       def test_tail_returns_last_n(self, tmp_path):
+           """tail(n) returns last n events in chronological order."""
+           from harness.trajectory import TrajectoryLogger
 
+           logger = TrajectoryLogger(tmp_path)
+           for i in range(10):
+               logger.log({"event": "test", "id": i})
 
-   def test_trajectory_logger_tail(tmp_path):
-       """TrajectoryLogger.tail(n) returns last n events."""
-       from harness.state import TrajectoryLogger
+           tail = logger.tail(3)
 
-       logger = TrajectoryLogger(tmp_path)
-       for i in range(10):
-           logger.log({"event": "test", "id": i})
+           assert len(tail) == 3
+           assert tail[0]["id"] == 7
+           assert tail[1]["id"] == 8
+           assert tail[2]["id"] == 9
 
-       tail = logger.tail(3)
+       def test_tail_empty_file(self, tmp_path):
+           """tail() handles empty/missing file."""
+           from harness.trajectory import TrajectoryLogger
 
-       assert len(tail) == 3
-       assert tail[0]["id"] == 7
-       assert tail[1]["id"] == 8
-       assert tail[2]["id"] == 9
+           logger = TrajectoryLogger(tmp_path)
+           assert logger.tail(5) == []
 
+       def test_tail_fewer_than_n(self, tmp_path):
+           """tail(n) returns all if fewer than n entries."""
+           from harness.trajectory import TrajectoryLogger
 
-   def test_trajectory_logger_tail_empty_file(tmp_path):
-       """TrajectoryLogger.tail() handles empty/missing file."""
-       from harness.state import TrajectoryLogger
+           logger = TrajectoryLogger(tmp_path)
+           logger.log({"event": "one"})
+           logger.log({"event": "two"})
 
-       logger = TrajectoryLogger(tmp_path)
+           tail = logger.tail(10)
 
-       # File doesn't exist yet
-       assert logger.tail(5) == []
+           assert len(tail) == 2
+           assert tail[0]["event"] == "one"
+           assert tail[1]["event"] == "two"
 
+       def test_tail_large_file_performance(self, tmp_path):
+           """tail(n) on large file is O(1), not O(file_size)."""
+           from harness.trajectory import TrajectoryLogger
 
-   def test_trajectory_logger_tail_fewer_than_n(tmp_path):
-       """TrajectoryLogger.tail(n) returns all if fewer than n entries."""
-       from harness.state import TrajectoryLogger
+           logger = TrajectoryLogger(tmp_path)
 
-       logger = TrajectoryLogger(tmp_path)
-       logger.log({"event": "one"})
-       logger.log({"event": "two"})
+           # Create ~1MB log file (10000 entries, ~100 bytes each)
+           for i in range(10000):
+               logger.log({"event": "bulk", "id": i, "padding": "x" * 50})
 
-       tail = logger.tail(10)
+           log_file = tmp_path / ".claude" / "trajectory.jsonl"
+           file_size = log_file.stat().st_size
+           assert file_size > 500_000  # At least 500KB
 
-       assert len(tail) == 2
-       assert tail[0]["event"] == "one"
-       assert tail[1]["event"] == "two"
+           # tail(5) should complete in < 50ms (not read whole file)
+           start = time.perf_counter()
+           tail = logger.tail(5)
+           elapsed = time.perf_counter() - start
 
+           assert len(tail) == 5
+           assert tail[-1]["id"] == 9999
+           assert elapsed < 0.05, f"tail() took {elapsed:.3f}s, should be < 50ms"
 
-   def test_trajectory_tail_large_file_performance(tmp_path):
-       """tail(n) on large file completes fast without reading entire file."""
-       from harness.state import TrajectoryLogger
+       def test_crash_resilient_jsonl_format(self, tmp_path):
+           """JSONL format survives partial writes (last line may be corrupt)."""
+           from harness.trajectory import TrajectoryLogger
 
-       logger = TrajectoryLogger(tmp_path)
+           logger = TrajectoryLogger(tmp_path)
+           logger.log({"event": "one"})
+           logger.log({"event": "two"})
 
-       # Create ~1MB log file (10000 entries, ~100 bytes each)
-       for i in range(10000):
-           logger.log({"event": "bulk", "id": i, "padding": "x" * 50})
+           # Simulate crash: append partial JSON
+           log_file = tmp_path / ".claude" / "trajectory.jsonl"
+           with log_file.open("a") as f:
+               f.write('{"event": "corrupt')  # No closing brace or newline
 
-       # Verify file is substantial
-       log_file = tmp_path / ".claude" / "trajectory.jsonl"
-       file_size = log_file.stat().st_size
-       assert file_size > 500_000  # At least 500KB
-
-       # tail(5) should complete in < 50ms (not read whole file)
-       start = time.perf_counter()
-       tail = logger.tail(5)
-       elapsed = time.perf_counter() - start
-
-       assert len(tail) == 5
-       assert tail[-1]["id"] == 9999
-       # Must complete quickly - reading whole file would take much longer
-       assert elapsed < 0.05, f"tail() took {elapsed:.3f}s, should be < 50ms"
+           # tail should return valid entries, skip corrupt last line
+           tail = logger.tail(5)
+           assert len(tail) == 2
+           assert tail[0]["event"] == "one"
+           assert tail[1]["event"] == "two"
    ```
 
 2. **Run test, verify FAILURE:**
    ```bash
-   uv run pytest tests/harness/test_state.py -v -k "trajectory"
+   uv run pytest tests/harness/test_trajectory.py -v
    ```
-   Expected: FAIL (TrajectoryLogger not defined)
+   Expected: FAIL (module harness.trajectory not found)
 
 3. **Implement MINIMAL code:**
 
-   In `src/harness/state.py`, add after imports:
+   Create `src/harness/trajectory.py`:
    ```python
+   """Trajectory logging for agent event history.
+
+   Uses JSONL format for crash resilience and efficient reverse-seek tail()
+   for O(1) reads regardless of log size.
+   """
+
+   from __future__ import annotations
+
+   import json
+   import threading
+   from pathlib import Path
+
+
    class TrajectoryLogger:
        """JSONL append-only log at .claude/trajectory.jsonl.
 
-       Uses efficient reverse-seek for tail() to avoid O(N) memory on large files.
+       Features:
+       - Thread-safe writes with lock
+       - O(1) tail() using reverse-seek (reads from end of file)
+       - JSONL format for crash resilience (only last line lost on crash)
        """
 
        # Block size for reverse reading (4KB is good for SSD)
        _BLOCK_SIZE = 4096
 
        def __init__(self, worktree_root: Path):
-           self.log_file = worktree_root / ".claude" / "trajectory.jsonl"
+           self.log_file = Path(worktree_root) / ".claude" / "trajectory.jsonl"
            self._lock = threading.Lock()
 
        def log(self, event: dict) -> None:
@@ -483,7 +651,8 @@ This plan addresses four critical issues identified during architecture review:
        def tail(self, n: int) -> list[dict]:
            """Return last n events using efficient reverse-seek.
 
-           Reads from end of file in blocks, avoiding O(N) memory usage.
+           Reads from end of file in blocks, O(1) regardless of file size.
+           Skips corrupt lines (crash resilience).
            """
            if not self.log_file.exists():
                return []
@@ -493,12 +662,12 @@ This plan addresses four critical issues identified during architecture review:
 
        def _tail_reverse_seek(self, n: int) -> list[dict]:
            """Read last n lines by seeking from end of file."""
-           lines = []
+           lines: list[bytes] = []
            remaining_bytes = b""
 
            with self.log_file.open("rb") as f:
-               # Get file size
-               f.seek(0, 2)  # Seek to end
+               # Seek to end, get file size
+               f.seek(0, 2)
                file_size = f.tell()
 
                if file_size == 0:
@@ -527,7 +696,7 @@ This plan addresses four critical issues identified during architecture review:
                        remaining_bytes = b""
                        complete_lines = split_lines
 
-                   # Add complete lines (in reverse order, will reverse at end)
+                   # Add complete lines (in reverse order)
                    for line in reversed(complete_lines):
                        if line.strip():
                            lines.append(line)
@@ -541,19 +710,27 @@ This plan addresses four critical issues identified during architecture review:
            # Reverse to get chronological order and take last n
            lines = list(reversed(lines[-n:]))
 
-           # Parse JSON
-           return [json.loads(line.decode()) for line in lines if line.strip()]
+           # Parse JSON, skip corrupt lines
+           result = []
+           for line in lines:
+               try:
+                   result.append(json.loads(line.decode()))
+               except (json.JSONDecodeError, UnicodeDecodeError):
+                   # Skip corrupt lines (crash resilience)
+                   continue
+
+           return result
    ```
 
 4. **Run test, verify PASS:**
    ```bash
-   uv run pytest tests/harness/test_state.py -v
+   uv run pytest tests/harness/test_trajectory.py -v
    ```
    Expected: PASS (all tests green, including performance test)
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(trajectory): add TrajectoryLogger with efficient reverse-seek tail"
+   git add -A && git commit -m "feat(trajectory): add trajectory.py with efficient reverse-seek tail"
    ```
 
 ---
@@ -564,10 +741,10 @@ This plan addresses four critical issues identified during architecture review:
 
 **Files:**
 - Modify: `src/harness/state.py`
-- Test: `tests/harness/test_state.py`
+- Modify: `tests/harness/test_state.py`
 
 **Architectural Fixes Applied:**
-- **Zombie Deadlock:** Add `timeout_seconds` to Task model and detect timed-out RUNNING tasks as reclaimable in `get_claimable_task()`
+- **Zombie Deadlock:** Add `timeout_seconds` to Task model and Dead Task Recovery in `get_claimable_task()`
 
 **TDD Instructions (MANDATORY):**
 
@@ -575,7 +752,8 @@ This plan addresses four critical issues identified during architecture review:
    ```python
    # tests/harness/test_state.py (add/update)
 
-   from datetime import datetime, timezone
+   from datetime import datetime, timezone, timedelta
+   import pytest
    from harness.state import Task, TaskStatus, WorkflowState
 
 
@@ -1111,14 +1289,17 @@ This plan addresses four critical issues identified during architecture review:
    ```python
    import time
    from datetime import datetime, timezone
-   from harness.state import TrajectoryLogger, TaskStatus
+   from harness.state import TaskStatus
+   from harness.trajectory import TrajectoryLogger
+   from harness.runtime import create_runtime, Runtime
    ```
 
-   Update HarnessDaemon.__init__ to add trajectory logger:
+   Update HarnessDaemon.__init__ to add trajectory logger and runtime:
    ```python
    def __init__(self, worktree_root: Path, ...):
        ...
        self.trajectory_logger = TrajectoryLogger(worktree_root)
+       self.runtime = create_runtime()
    ```
 
    Add handlers to dispatch dict:
@@ -1127,6 +1308,7 @@ This plan addresses four critical issues identified during architecture review:
        ...
        "task_claim": self._handle_task_claim,
        "task_complete": self._handle_task_complete,
+       "exec": self._handle_exec,
    }
    ```
 
@@ -1217,6 +1399,51 @@ This plan addresses four critical issues identified during architecture review:
        })
 
        return {"status": "ok", "data": {"task_id": task_id}}
+
+   def _handle_exec(self, request: dict, server: "HarnessDaemon") -> dict:
+       """Execute command through safe runtime.
+
+       All agent shell commands route through here for unified sandboxing.
+       """
+       args = request.get("args", [])
+       cwd = request.get("cwd")
+       env = request.get("env")
+       timeout = request.get("timeout", 60)
+
+       if not args:
+           return {"status": "error", "message": "args required"}
+       if not cwd:
+           return {"status": "error", "message": "cwd required"}
+
+       try:
+           result = server.runtime.execute(
+               args=args,
+               cwd=cwd,
+               timeout=timeout,
+               env=env,
+           )
+
+           # Log to trajectory
+           server.trajectory_logger.log({
+               "event": "exec",
+               "args": args,
+               "cwd": cwd,
+               "returncode": result.returncode,
+               "timestamp": time.time(),
+           })
+
+           return {
+               "status": "ok",
+               "data": {
+                   "returncode": result.returncode,
+                   "stdout": result.stdout,
+                   "stderr": result.stderr,
+               },
+           }
+       except subprocess.TimeoutExpired:
+           return {"status": "error", "message": f"Command timed out after {timeout}s"}
+       except Exception as e:
+           return {"status": "error", "message": str(e)}
    ```
 
 4. **Run test, verify PASS:**
@@ -1227,18 +1454,20 @@ This plan addresses four critical issues identified during architecture review:
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(daemon): add task_claim and task_complete handlers with zombie reclaim"
+   git add -A && git commit -m "feat(daemon): add task_claim, task_complete, and exec handlers"
    ```
 
 ---
 
-### Task 5: Client Task Commands (client.py)
+### Task 5: Client Task and Exec Commands (client.py)
 
 **Effort:** standard (10-15 tool calls)
 
 **Files:**
 - Modify: `src/harness/client.py`
-- Test: `tests/harness/test_client.py`
+- Modify: `tests/harness/test_client.py`
+
+**Key Feature:** Add `harness exec -- <command>` for unified sandboxing. Developers can run `harness exec -- ls -la` to see exactly what the agent sees.
 
 **TDD Instructions (MANDATORY):**
 
@@ -1247,67 +1476,109 @@ This plan addresses four critical issues identified during architecture review:
    # tests/harness/test_client.py (add to existing file)
 
    import json
+   import os
    import subprocess
+   import pytest
 
 
-   def test_task_claim_command(harness_cli, daemon_process):
-       """harness task claim returns claimable task JSON."""
-       # Setup: daemon already has state with tasks
-       result = subprocess.run(
-           [harness_cli, "task", "claim"],
-           capture_output=True,
-           text=True,
-       )
+   class TestTaskCommands:
+       """Tests for task claim/complete commands."""
 
-       assert result.returncode == 0
-       data = json.loads(result.stdout)
-       assert "task_id" in data or data is None
-
-
-   def test_task_complete_command(harness_cli, daemon_process):
-       """harness task complete --id <id> marks task done."""
-       # First claim a task
-       claim_result = subprocess.run(
-           [harness_cli, "task", "claim"],
-           capture_output=True,
-           text=True,
-       )
-       if claim_result.returncode == 0 and claim_result.stdout.strip() != "null":
-           data = json.loads(claim_result.stdout)
-           task_id = data["task_id"]
-
-           # Complete it
+       def test_task_claim_returns_json(self, harness_cli, daemon_process):
+           """harness task claim returns claimable task JSON."""
            result = subprocess.run(
-               [harness_cli, "task", "complete", "--id", task_id],
+               [harness_cli, "task", "claim"],
                capture_output=True,
                text=True,
            )
 
            assert result.returncode == 0
+           data = json.loads(result.stdout)
+           assert data is None or "task_id" in data
+
+       def test_task_complete_marks_done(self, harness_cli, daemon_with_tasks):
+           """harness task complete --id <id> marks task done."""
+           # First claim a task
+           claim_result = subprocess.run(
+               [harness_cli, "task", "claim"],
+               capture_output=True,
+               text=True,
+           )
+
+           if claim_result.stdout.strip() != "null":
+               data = json.loads(claim_result.stdout)
+               task_id = data["task_id"]
+
+               result = subprocess.run(
+                   [harness_cli, "task", "complete", "--id", task_id],
+                   capture_output=True,
+                   text=True,
+               )
+
+               assert result.returncode == 0
 
 
-   def test_task_claim_no_daemon(harness_cli, tmp_path, monkeypatch):
-       """harness task claim auto-spawns daemon."""
-       # Point to non-existent socket (fresh env)
-       monkeypatch.setenv("HARNESS_SOCKET", str(tmp_path / "test.sock"))
+   class TestExecCommand:
+       """Tests for harness exec command."""
 
-       # Should either spawn daemon or fail gracefully
-       result = subprocess.run(
-           [harness_cli, "task", "claim"],
-           capture_output=True,
-           text=True,
-           timeout=10,
-       )
+       def test_exec_runs_command(self, harness_cli, daemon_process, tmp_path):
+           """harness exec -- echo hello runs command through runtime."""
+           result = subprocess.run(
+               [harness_cli, "exec", "--cwd", str(tmp_path), "--", "echo", "hello"],
+               capture_output=True,
+               text=True,
+           )
 
-       # Accept either success (spawned) or error (no state)
-       assert result.returncode in [0, 1]
+           assert result.returncode == 0
+           output = json.loads(result.stdout)
+           assert output["returncode"] == 0
+           assert "hello" in output["stdout"]
+
+       def test_exec_returns_stderr(self, harness_cli, daemon_process, tmp_path):
+           """harness exec captures stderr."""
+           result = subprocess.run(
+               [harness_cli, "exec", "--cwd", str(tmp_path), "--",
+                "sh", "-c", "echo error >&2"],
+               capture_output=True,
+               text=True,
+           )
+
+           assert result.returncode == 0
+           output = json.loads(result.stdout)
+           assert "error" in output["stderr"]
+
+       def test_exec_with_env(self, harness_cli, daemon_process, tmp_path):
+           """harness exec -e VAR=value passes env vars."""
+           result = subprocess.run(
+               [harness_cli, "exec", "--cwd", str(tmp_path),
+                "-e", "MY_VAR=secret",
+                "--", "sh", "-c", "echo $MY_VAR"],
+               capture_output=True,
+               text=True,
+           )
+
+           assert result.returncode == 0
+           output = json.loads(result.stdout)
+           assert "secret" in output["stdout"]
+
+       def test_exec_logs_to_trajectory(self, harness_cli, daemon_process, tmp_path):
+           """harness exec logs event to trajectory."""
+           subprocess.run(
+               [harness_cli, "exec", "--cwd", str(tmp_path), "--", "echo", "test"],
+               capture_output=True,
+               text=True,
+           )
+
+           # Check trajectory file was written
+           trajectory_file = tmp_path / ".claude" / "trajectory.jsonl"
+           # Note: May need fixture adjustment for trajectory path
    ```
 
 2. **Run test, verify FAILURE:**
    ```bash
-   uv run pytest tests/harness/test_client.py -v -k "task"
+   uv run pytest tests/harness/test_client.py -v -k "task or exec"
    ```
-   Expected: FAIL (task subcommand not defined)
+   Expected: FAIL (commands not defined)
 
 3. **Implement MINIMAL code:**
 
@@ -1317,12 +1588,25 @@ This plan addresses four critical issues identified during architecture review:
    task_parser = subparsers.add_parser("task", help="Task management commands")
    task_subparsers = task_parser.add_subparsers(dest="task_command", required=True)
 
-   # harness task claim
    task_claim = task_subparsers.add_parser("claim", help="Claim next available task")
 
-   # harness task complete
    task_complete = task_subparsers.add_parser("complete", help="Mark task as completed")
    task_complete.add_argument("--id", required=True, help="Task ID to complete")
+
+   # Exec command - unified sandboxing
+   exec_parser = subparsers.add_parser(
+       "exec",
+       help="Execute command through safe runtime"
+   )
+   exec_parser.add_argument("--cwd", required=True, help="Working directory")
+   exec_parser.add_argument(
+       "-e", "--env",
+       action="append",
+       dest="env_vars",
+       help="Environment variable (VAR=value), can be repeated"
+   )
+   exec_parser.add_argument("--timeout", type=int, default=60, help="Timeout in seconds")
+   exec_parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to execute")
    ```
 
    Add command handlers:
@@ -1354,6 +1638,45 @@ This plan addresses four critical issues identified during architecture review:
 
        print(json.dumps(response.get("data")))
        return 0
+
+
+   def _cmd_exec(args, socket_path: str, worktree_root: str) -> int:
+       """Execute command through safe runtime."""
+       # Parse command (everything after --)
+       command = args.command
+       if command and command[0] == "--":
+           command = command[1:]
+
+       if not command:
+           print("Error: No command specified", file=sys.stderr)
+           return 1
+
+       # Parse env vars
+       env = {}
+       for env_var in (args.env_vars or []):
+           if "=" in env_var:
+               key, value = env_var.split("=", 1)
+               env[key] = value
+
+       response = send_rpc(
+           socket_path,
+           {
+               "command": "exec",
+               "args": command,
+               "cwd": args.cwd,
+               "env": env if env else None,
+               "timeout": args.timeout,
+           },
+           worktree_root,
+       )
+
+       if response.get("status") == "error":
+           print(f"Error: {response.get('message')}", file=sys.stderr)
+           return 1
+
+       data = response.get("data")
+       print(json.dumps(data))
+       return data.get("returncode", 0)
    ```
 
    Add dispatch in main:
@@ -1363,6 +1686,8 @@ This plan addresses four critical issues identified during architecture review:
            return _cmd_task_claim(args, socket_path, worktree_root)
        elif args.task_command == "complete":
            return _cmd_task_complete(args, socket_path, worktree_root)
+   elif args.command == "exec":
+       return _cmd_exec(args, socket_path, worktree_root)
    ```
 
 4. **Run test, verify PASS:**
@@ -1373,12 +1698,145 @@ This plan addresses four critical issues identified during architecture review:
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(client): add task claim and task complete commands"
+   git add -A && git commit -m "feat(client): add task claim/complete and exec commands"
    ```
 
 ---
 
-### Task 6: Integration Tests
+### Task 6: Git Module Delegation (git.py)
+
+**Effort:** simple (3-10 tool calls)
+
+**Files:**
+- Modify: `src/harness/git.py`
+- Modify: `tests/harness/test_git.py`
+
+**Goal:** Delegate git.py execution to the new runtime.py module. Remove GLOBAL_GIT_LOCK (moved to runtime.py as GLOBAL_EXEC_LOCK).
+
+**TDD Instructions (MANDATORY):**
+
+1. **Write test FIRST:**
+   ```python
+   # tests/harness/test_git.py (update existing tests)
+
+   import subprocess
+   import pytest
+
+
+   def test_safe_git_exec_uses_runtime(tmp_path, mocker):
+       """safe_git_exec delegates to LocalRuntime."""
+       from harness.git import safe_git_exec
+
+       # Create a git repo
+       subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+
+       result = safe_git_exec(["status"], cwd=str(tmp_path))
+
+       assert result.returncode == 0
+       assert "On branch" in result.stdout or "No commits yet" in result.stdout
+
+
+   def test_safe_commit_uses_runtime(tmp_path):
+       """safe_commit delegates to LocalRuntime."""
+       from harness.git import safe_commit
+
+       # Create a git repo with a file
+       subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+       subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path)
+       subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path)
+       (tmp_path / "test.txt").write_text("hello")
+       subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
+
+       result = safe_commit("test commit", cwd=str(tmp_path))
+
+       assert result.returncode == 0
+
+
+   def test_global_git_lock_removed():
+       """GLOBAL_GIT_LOCK should be removed (use GLOBAL_EXEC_LOCK from runtime)."""
+       import harness.git as git_module
+
+       # GLOBAL_GIT_LOCK should not exist anymore
+       assert not hasattr(git_module, "GLOBAL_GIT_LOCK")
+   ```
+
+2. **Run test, verify FAILURE:**
+   ```bash
+   uv run pytest tests/harness/test_git.py -v
+   ```
+   Expected: FAIL (GLOBAL_GIT_LOCK still exists)
+
+3. **Implement MINIMAL code:**
+
+   Update `src/harness/git.py`:
+   ```python
+   """Git operations using safe runtime execution.
+
+   All execution delegated to runtime.py for unified sandboxing.
+   """
+
+   from __future__ import annotations
+
+   import subprocess
+   from harness.runtime import LocalRuntime
+
+
+   # Use singleton LocalRuntime for git operations
+   _runtime = LocalRuntime()
+
+
+   def safe_git_exec(args: list[str], cwd: str) -> subprocess.CompletedProcess:
+       """Execute git command through safe runtime.
+
+       Args:
+           args: Git command arguments (without 'git' prefix)
+           cwd: Working directory
+
+       Returns:
+           CompletedProcess with stdout, stderr, returncode
+       """
+       return _runtime.execute(["git"] + args, cwd=cwd)
+
+
+   def safe_commit(message: str, cwd: str) -> subprocess.CompletedProcess:
+       """Create a git commit through safe runtime.
+
+       Args:
+           message: Commit message
+           cwd: Working directory
+
+       Returns:
+           CompletedProcess from git commit
+       """
+       return _runtime.execute(["git", "commit", "-m", message], cwd=cwd)
+
+
+   def get_head_sha(cwd: str) -> str | None:
+       """Get current HEAD SHA.
+
+       Returns:
+           SHA string or None if not a git repo
+       """
+       result = safe_git_exec(["rev-parse", "HEAD"], cwd=cwd)
+       if result.returncode == 0:
+           return result.stdout.strip()
+       return None
+   ```
+
+4. **Run test, verify PASS:**
+   ```bash
+   uv run pytest tests/harness/test_git.py -v
+   ```
+   Expected: PASS (all tests green)
+
+5. **Commit:**
+   ```bash
+   git add -A && git commit -m "refactor(git): delegate git.py to runtime.py, remove GLOBAL_GIT_LOCK"
+   ```
+
+---
+
+### Task 7: Integration Tests
 
 **Effort:** standard (10-15 tool calls)
 
@@ -1509,7 +1967,7 @@ This plan addresses four critical issues identified during architecture review:
 
 ---
 
-### Task 7: Code Review
+### Task 8: Code Review
 
 **Effort:** simple (3-10 tool calls)
 
@@ -1537,15 +1995,16 @@ This plan addresses four critical issues identified during architecture review:
 
 | Task | Effort | Files | Commit Message | Arch Fix |
 |------|--------|-------|----------------|----------|
-| 1. Runtime Abstraction | standard | git.py, test_git.py | `feat(runtime): add LocalRuntime and DockerRuntime with env and path mapping` | Secret-Less, Path Mismatch |
-| 2. Trajectory Logger | standard | state.py, test_state.py | `feat(trajectory): add TrajectoryLogger with efficient reverse-seek tail` | I/O Suicide |
-| 3. DAG-Based State | complex | state.py, test_state.py | `feat(state): add Task model with timeout and zombie detection in get_claimable_task` | Zombie Deadlock |
-| 4. Daemon Handlers | standard | daemon.py, test_daemon.py | `feat(daemon): add task_claim and task_complete handlers with zombie reclaim` | Zombie Deadlock |
-| 5. Client Commands | standard | client.py, test_client.py | `feat(client): add task claim and task complete commands` | - |
-| 6. Integration Tests | standard | test_integration.py | `test(integration): add end-to-end tests for task workflow` | - |
-| 7. Code Review | simple | all | (no commit, review only) | - |
+| 1. Runtime Abstraction | standard | runtime.py (NEW), test_runtime.py | `feat(runtime): add runtime.py with LocalRuntime, DockerRuntime, and PathMapper` | Blind Execution, Host Leak |
+| 2. Trajectory Logger | standard | trajectory.py (NEW), test_trajectory.py | `feat(trajectory): add trajectory.py with efficient reverse-seek tail` | Infinite Tail |
+| 3. DAG-Based State | complex | state.py, test_state.py | `feat(state): add Task model with timeout and Dead Task Recovery` | Zombie Deadlock |
+| 4. Daemon Handlers | standard | daemon.py, test_daemon.py | `feat(daemon): add task_claim, task_complete, and exec handlers` | Zombie Deadlock |
+| 5. Client Commands | standard | client.py, test_client.py | `feat(client): add task claim/complete and exec commands` | - |
+| 6. Git Delegation | simple | git.py, test_git.py | `refactor(git): delegate git.py to runtime.py` | - |
+| 7. Integration Tests | standard | test_integration.py | `test(integration): add end-to-end tests for task workflow` | - |
+| 8. Code Review | simple | all | (no commit, review only) | - |
 
-**Total estimated tool calls:** 75-100
+**Total estimated tool calls:** 80-110
 
 ---
 
@@ -1553,7 +2012,29 @@ This plan addresses four critical issues identified during architecture review:
 
 | Issue | Task(s) | Solution |
 |-------|---------|----------|
-| **I/O Suicide** | Task 2 | Efficient reverse-seek `tail()` reads from end in 4KB blocks |
-| **Path Mismatch** | Task 1 | `DockerRuntime.mount_map` translates host→container paths |
-| **Zombie Deadlock** | Task 3, 4 | `Task.timeout_seconds` + `is_timed_out()` + reclaim logic |
-| **Secret-Less Agent** | Task 1 | `env` parameter on `execute()`, merged with os.environ for LocalRuntime, -e flags for DockerRuntime |
+| **Infinite Tail** | Task 2 | O(1) `tail()` using `seek(0, 2)` and buffered reverse reading in dedicated `trajectory.py` |
+| **Host Leak** | Task 1 | `PathMapper` ABC with `VolumeMapper` for host→container path translation |
+| **Zombie Deadlock** | Task 3, 4 | `Task.timeout_seconds` + `is_timed_out()` + Dead Task Recovery in `get_claimable_task` |
+| **Blind Execution** | Task 1 | `env` parameter on `execute()`, merged with os.environ for LocalRuntime, `-e` flags for DockerRuntime |
+
+---
+
+## New Module Structure
+
+```
+src/harness/
+├── runtime.py      # NEW: PathMapper, LocalRuntime, DockerRuntime, create_runtime()
+├── trajectory.py   # NEW: TrajectoryLogger with O(1) tail()
+├── state.py        # Task model, WorkflowState with DAG
+├── daemon.py       # task_claim, task_complete, exec handlers
+├── client.py       # task claim/complete, exec commands
+└── git.py          # Delegates to runtime.py
+```
+
+## Key Features
+
+1. **Unified Sandboxing:** All shell commands route through `harness exec -- <cmd>` via runtime.py
+2. **Docker Support:** `HARNESS_RUNTIME=docker` enables container execution with path mapping
+3. **Dead Task Recovery:** Timed-out RUNNING tasks automatically become reclaimable
+4. **Crash Resilience:** JSONL trajectory format loses only last line on crash
+5. **O(1) Log Reads:** `tail()` reads from end regardless of file size
