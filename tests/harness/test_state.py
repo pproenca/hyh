@@ -521,6 +521,38 @@ def test_claim_task_renews_lease_on_retry(tmp_path):
     assert task.started_at >= before_claim, "Lease was not renewed on retry"
 
 
+def test_claim_task_lease_renewal_prevents_stealing(tmp_path):
+    """Verify that lease renewal prevents another worker from stealing a task."""
+    from datetime import timedelta
+
+    manager = StateManager(tmp_path)
+    # Task with nearly-expired lease (9 minutes old, 10 min timeout)
+    nearly_expired = datetime.now() - timedelta(minutes=9)
+    state = WorkflowState(
+        tasks={
+            "task-1": Task(
+                id="task-1",
+                description="Task 1",
+                status=TaskStatus.RUNNING,
+                dependencies=[],
+                claimed_by="worker-A",
+                started_at=nearly_expired,
+                timeout_seconds=600,  # 10 minutes
+            ),
+        }
+    )
+    manager.save(state)
+
+    # Worker A retries (simulating crash recovery)
+    task_a = manager.claim_task("worker-A")
+    assert task_a is not None
+    assert task_a.started_at > nearly_expired, "Lease must be renewed"
+
+    # Worker B tries to claim - should get None (no claimable tasks)
+    task_b = manager.claim_task("worker-B")
+    assert task_b is None, "Worker B should not steal task after lease renewal"
+
+
 def test_claim_task_race_condition_prevented(tmp_path):
     """claim_task should prevent race conditions with threading."""
     manager = StateManager(tmp_path)
