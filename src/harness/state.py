@@ -193,22 +193,26 @@ class StateManager:
             if not task:
                 return None
 
-            # If this is a new claim (not already owned by this worker)
-            if task.claimed_by != worker_id:
-                # Update task
+            is_new_claim = task.claimed_by != worker_id
+
+            # ALWAYS renew the lease (prevents task stealing on retry)
+            now = datetime.now()
+            task.started_at = now
+
+            if is_new_claim:
+                # New claim: set ownership
                 task.status = TaskStatus.RUNNING
                 task.claimed_by = worker_id
-                task.started_at = datetime.now()
 
-                # Update state and save
-                self._state.tasks[task.id] = task
-                content = self._state.model_dump_json(indent=2)
-                temp_file = self.state_file.with_suffix(".tmp")
-                with open(temp_file, "w") as f:
-                    f.write(content)
-                    f.flush()
-                    os.fsync(f.fileno())
-                temp_file.rename(self.state_file)
+            # Update state and save (both new claims AND renewals)
+            self._state.tasks[task.id] = task
+            content = self._state.model_dump_json(indent=2)
+            temp_file = self.state_file.with_suffix(".tmp")
+            with open(temp_file, "w") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+            temp_file.rename(self.state_file)
 
             return task
 
