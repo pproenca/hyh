@@ -215,6 +215,20 @@ class LocalRuntime:
         else:
             return _execute()
 
+    def check_capabilities(self) -> None:
+        """
+        Verify git is available.
+
+        Raises:
+            RuntimeError: If git is not found in PATH
+        """
+        result = subprocess.run(
+            ["git", "--version"],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError("git not found in PATH")
+
 
 class DockerRuntime:
     """Runtime for executing commands inside a Docker container."""
