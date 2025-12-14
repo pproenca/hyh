@@ -105,3 +105,74 @@ def get_plan_schema() -> str:
     """
     schema = PlanDefinition.model_json_schema()
     return json.dumps(schema, indent=2)
+
+
+def get_plan_template() -> str:
+    """Generate Markdown template for plan format.
+
+    Provides LLM-friendly documentation with:
+    1. Template structure showing all fields
+    2. Complete realistic example
+    """
+    return """\
+# Plan Template
+
+Submit plans as a JSON block inside markdown fences.
+
+## Template Structure
+
+```json
+{
+  "goal": "<one-sentence description of what this plan achieves>",
+  "tasks": {
+    "<task_id>": {
+      "description": "<what this task does>",
+      "dependencies": ["<task_id>", "..."],
+      "timeout_seconds": 600,
+      "instructions": "<detailed step-by-step instructions or null>",
+      "role": "<specialist role like 'backend' or 'frontend' or null>"
+    }
+  }
+}
+```
+
+**Field Reference:**
+- `goal`: High-level objective (required)
+- `tasks`: Dictionary keyed by unique task IDs (required)
+- `description`: Brief task summary (required)
+- `dependencies`: List of task IDs that must complete first (default: [])
+- `timeout_seconds`: Max execution time in seconds (default: 600)
+- `instructions`: Detailed guidance for the agent (optional)
+- `role`: Specialist designation for task routing (optional)
+
+## Complete Example
+
+```json
+{
+  "goal": "Add user authentication with JWT tokens",
+  "tasks": {
+    "models": {
+      "description": "Create User model with password hashing",
+      "dependencies": [],
+      "timeout_seconds": 300,
+      "instructions": "Use bcrypt for password hashing. Include email, hashed_password fields.",
+      "role": "backend"
+    },
+    "auth-endpoints": {
+      "description": "Implement /login and /register endpoints",
+      "dependencies": ["models"],
+      "timeout_seconds": 600,
+      "instructions": "Return JWT on successful login. Validate email format on register.",
+      "role": "backend"
+    },
+    "auth-tests": {
+      "description": "Write integration tests for auth flow",
+      "dependencies": ["auth-endpoints"],
+      "timeout_seconds": 300,
+      "instructions": "Test: valid login, invalid password, duplicate registration, token expiry.",
+      "role": "backend"
+    }
+  }
+}
+```
+"""

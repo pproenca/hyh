@@ -123,3 +123,33 @@ def test_get_plan_schema_includes_task_fields():
     assert "timeout_seconds" in task_schema
     assert "instructions" in task_schema
     assert "role" in task_schema
+
+
+def test_get_plan_template_returns_markdown():
+    """Template generation produces Markdown with structure and example."""
+    from harness.plan import get_plan_template
+
+    template = get_plan_template()
+
+    # Verify it's Markdown with expected sections
+    assert "# Plan Template" in template
+    assert "## Template Structure" in template
+    assert "## Complete Example" in template
+    # Verify JSON blocks are present
+    assert "```json" in template
+    assert '"goal":' in template
+    assert '"tasks":' in template
+    assert '"description":' in template
+    assert '"dependencies":' in template
+
+
+def test_get_plan_template_includes_all_fields():
+    """Template documents all PlanTaskDefinition fields."""
+    from harness.plan import get_plan_template
+
+    template = get_plan_template()
+
+    # All task fields should be mentioned
+    assert "timeout_seconds" in template
+    assert "instructions" in template
+    assert "role" in template
