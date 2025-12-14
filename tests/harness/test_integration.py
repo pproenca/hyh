@@ -622,3 +622,94 @@ def test_lease_renewal_on_reclaim(workflow_with_tasks):
     state2 = manager.load()
     started_at_2 = state2.tasks["task-1"].started_at
     assert started_at_2 > started_at_1  # Timestamp advanced
+
+
+@pytest.fixture
+def workflow_with_short_timeout(integration_worktree):
+    """Set up workflow with very short task timeout for reclaim testing."""
+    import socket as socket_module
+    import threading
+
+    from harness.daemon import HarnessDaemon
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+
+    worktree = integration_worktree["worktree"]
+    socket_path = integration_worktree["socket"]
+
+    # Create task with 1 second timeout
+    manager = StateManager(worktree)
+    state = WorkflowState(
+        tasks={
+            "task-1": Task(
+                id="task-1",
+                description="Short timeout task",
+                status=TaskStatus.PENDING,
+                dependencies=[],
+                timeout_seconds=1,  # Very short for testing
+            ),
+        }
+    )
+    manager.save(state)
+
+    daemon = HarnessDaemon(socket_path, str(worktree))
+    server_thread = threading.Thread(target=daemon.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+    time.sleep(0.2)
+
+    def send_command(cmd, max_retries=3):
+        for attempt in range(max_retries):
+            sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
+            sock.settimeout(10.0)
+            try:
+                sock.connect(socket_path)
+                sock.sendall(json.dumps(cmd).encode() + b"\n")
+                response = b""
+                while True:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+                    if b"\n" in response:
+                        break
+                return json.loads(response.decode().strip())
+            except ConnectionRefusedError:
+                if attempt < max_retries - 1:
+                    time.sleep(0.1 * (attempt + 1))
+                    continue
+                raise
+            finally:
+                sock.close()
+
+    yield {
+        "worktree": worktree,
+        "socket": socket_path,
+        "manager": manager,
+        "daemon": daemon,
+        "send_command": send_command,
+    }
+
+    daemon.shutdown()
+    server_thread.join(timeout=1)
+
+
+def test_timeout_reclaim_by_different_worker(workflow_with_short_timeout):
+    """Timed-out task can be reclaimed by different worker with is_reclaim=True."""
+    import time
+
+    send_command = workflow_with_short_timeout["send_command"]
+
+    # Worker-1 claims task
+    resp1 = send_command({"command": "task_claim", "worker_id": "worker-1"})
+    assert resp1["status"] == "ok"
+    assert resp1["data"]["task"]["id"] == "task-1"
+
+    # Wait for timeout (1 second + buffer)
+    time.sleep(1.5)
+
+    # Worker-2 can now reclaim the timed-out task
+    resp2 = send_command({"command": "task_claim", "worker_id": "worker-2"})
+    assert resp2["status"] == "ok"
+    assert resp2["data"]["task"]["id"] == "task-1"
+    assert resp2["data"]["is_reclaim"] is True  # Flagged as reclaim
+    assert resp2["data"]["task"]["claimed_by"] == "worker-2"
