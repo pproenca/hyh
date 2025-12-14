@@ -337,7 +337,10 @@ class HarnessHandler(socketserver.StreamRequestHandler):
 
             return {"status": "ok", "data": {"goal": plan.goal, "task_count": len(plan.tasks)}}
         except ValueError as e:
-            return {"status": "error", "message": str(e)}
+            msg = str(e)
+            if "No JSON plan block found" in msg:
+                msg += ". Run 'harness plan template' to see the required JSON schema."
+            return {"status": "error", "message": msg}
 
 
 class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):

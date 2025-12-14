@@ -91,3 +91,35 @@ def test_plan_validate_dag_rejects_missing_dep():
     )
     with pytest.raises(ValueError, match="[Mm]issing"):
         plan.validate_dag()
+
+
+def test_get_plan_schema_returns_valid_json():
+    """Schema generation produces parseable JSON with expected keys."""
+    import json
+
+    from harness.plan import get_plan_schema
+
+    schema = get_plan_schema()
+    data = json.loads(schema)
+
+    assert "properties" in data
+    assert "goal" in data["properties"]
+    assert "tasks" in data["properties"]
+
+
+def test_get_plan_schema_includes_task_fields():
+    """Schema includes all PlanTaskDefinition fields."""
+    import json
+
+    from harness.plan import get_plan_schema
+
+    schema = get_plan_schema()
+    data = json.loads(schema)
+
+    # Navigate to task definition
+    task_schema = data["$defs"]["PlanTaskDefinition"]["properties"]
+    assert "description" in task_schema
+    assert "dependencies" in task_schema
+    assert "timeout_seconds" in task_schema
+    assert "instructions" in task_schema
+    assert "role" in task_schema

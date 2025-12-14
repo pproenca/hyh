@@ -95,3 +95,13 @@ def parse_plan_content(content: str) -> PlanDefinition:
     plan = PlanDefinition(**data)
     plan.validate_dag()
     return plan
+
+
+def get_plan_schema() -> str:
+    """Generate JSON schema for plan format.
+
+    Provides the 'instruction manual' for agents to understand
+    how to structure valid JSON plans.
+    """
+    schema = PlanDefinition.model_json_schema()
+    return json.dumps(schema, indent=2)
