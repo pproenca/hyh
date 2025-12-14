@@ -593,3 +593,32 @@ def test_task_claim_idempotency(workflow_with_tasks):
     assert resp2["status"] == "ok"
     assert resp2["data"]["task"]["id"] == "task-1"  # Same task
     assert resp2["data"]["is_retry"] is True  # Flagged as retry
+
+
+def test_lease_renewal_on_reclaim(workflow_with_tasks):
+    """Re-claiming updates started_at timestamp (lease renewal)."""
+    import time
+
+    send_command = workflow_with_tasks["send_command"]
+    manager = workflow_with_tasks["manager"]
+
+    # First claim
+    resp1 = send_command({"command": "task_claim", "worker_id": "worker-1"})
+    assert resp1["status"] == "ok"
+
+    # Get initial started_at
+    state1 = manager.load()
+    started_at_1 = state1.tasks["task-1"].started_at
+    assert started_at_1 is not None
+
+    # Brief delay to ensure timestamp difference
+    time.sleep(0.1)
+
+    # Re-claim (lease renewal)
+    resp2 = send_command({"command": "task_claim", "worker_id": "worker-1"})
+    assert resp2["status"] == "ok"
+
+    # Verify started_at was updated
+    state2 = manager.load()
+    started_at_2 = state2.tasks["task-1"].started_at
+    assert started_at_2 > started_at_1  # Timestamp advanced
