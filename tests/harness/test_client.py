@@ -432,7 +432,7 @@ def test_plan_import_file_not_found():
     assert "not found" in r.stderr.lower()
 
 
-def test_plan_template_outputs_schema(capsys):
+def test_plan_template_outputs_schema():
     """harness plan template prints valid JSON schema."""
     import json
     import subprocess
@@ -451,10 +451,11 @@ def test_plan_template_outputs_schema(capsys):
 
 
 def test_client_plan_template_does_not_break_import_constraints():
-    """Adding plan import doesn't violate stdlib-only rule.
+    """Verify lazy import pattern preserves client startup time.
 
-    The get_plan_schema import is allowed because it's from harness.plan,
-    not from pydantic directly.
+    The harness.plan import must be INSIDE _cmd_plan_template(), not at
+    module level. This lazy import prevents pydantic from loading during
+    normal client operations, preserving the <50ms startup constraint.
     """
     import ast
     from pathlib import Path
