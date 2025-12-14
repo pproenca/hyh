@@ -773,3 +773,145 @@ def test_daemon_stale_socket_removed_on_init(worktree):
     assert Path(socket_path).exists()  # Real socket now
 
     daemon.server_close()
+
+
+def test_handle_empty_request_line(daemon_manager):
+    """Handler should gracefully handle empty request."""
+    daemon, _ = daemon_manager
+    from tests.harness.conftest import send_command
+
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(daemon.socket_path)
+    sock.sendall(b"\n")  # Empty line
+    sock.close()
+    # Should not crash daemon - verify with ping
+    resp = send_command(daemon.socket_path, {"command": "ping"})
+    assert resp["status"] == "ok"
+
+
+def test_handle_malformed_json_request(daemon_manager):
+    """Handler should return error for malformed JSON."""
+    daemon, _ = daemon_manager
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(daemon.socket_path)
+    sock.sendall(b"not json\n")
+    response = sock.recv(4096)
+    sock.close()
+    data = json.loads(response.decode().strip())
+    assert data["status"] == "error"
+
+
+def test_handle_missing_command(daemon_manager):
+    """Handler should return error when command field missing."""
+    daemon, _ = daemon_manager
+    from tests.harness.conftest import send_command
+
+    resp = send_command(daemon.socket_path, {"not_command": "value"})
+    assert resp["status"] == "error"
+    assert "Missing command" in resp["message"]
+
+
+def test_handle_unknown_command(daemon_manager):
+    """Handler should return error for unknown command."""
+    daemon, _ = daemon_manager
+    from tests.harness.conftest import send_command
+
+    resp = send_command(daemon.socket_path, {"command": "unknown_cmd"})
+    assert resp["status"] == "error"
+    assert "Unknown command" in resp["message"]
+
+
+def test_daemon_sigterm_triggers_shutdown(tmp_path):
+    """SIGTERM should trigger graceful daemon shutdown."""
+    import signal
+    import subprocess
+    import sys
+    import time
+    import uuid
+    from pathlib import Path
+
+    # Initialize git repo
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=tmp_path,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True, check=True
+    )
+    (tmp_path / "f.txt").write_text("x")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True, check=True)
+
+    socket_path = f"/tmp/harness-sigtest-{uuid.uuid4().hex[:8]}.sock"
+
+    # Start daemon via subprocess
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "harness.daemon", socket_path, str(tmp_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    # Wait for socket
+    for _ in range(50):
+        if Path(socket_path).exists():
+            break
+        time.sleep(0.1)
+
+    # Send SIGTERM
+    proc.send_signal(signal.SIGTERM)
+
+    # Wait for graceful exit
+    proc.wait(timeout=5)
+
+    # Should exit cleanly (code 0)
+    assert proc.returncode == 0
+
+    # Socket should be cleaned up
+    assert not Path(socket_path).exists()
+
+
+def test_daemon_sigint_triggers_shutdown(tmp_path):
+    """SIGINT should trigger graceful daemon shutdown."""
+    import signal
+    import subprocess
+    import sys
+    import time
+    import uuid
+    from pathlib import Path
+
+    # Initialize git repo
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=tmp_path,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True, check=True
+    )
+    (tmp_path / "f.txt").write_text("x")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True, check=True)
+
+    socket_path = f"/tmp/harness-sigint-{uuid.uuid4().hex[:8]}.sock"
+
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "harness.daemon", socket_path, str(tmp_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    for _ in range(50):
+        if Path(socket_path).exists():
+            break
+        time.sleep(0.1)
+
+    proc.send_signal(signal.SIGINT)
+    proc.wait(timeout=5)
+
+    assert proc.returncode == 0
+    assert not Path(socket_path).exists()

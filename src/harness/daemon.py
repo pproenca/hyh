@@ -423,7 +423,8 @@ def run_daemon(socket_path: str, worktree_root: str) -> None:
     daemon = HarnessDaemon(socket_path, worktree_root)
 
     def handle_sigterm(_signum: int, _frame: FrameType | None) -> None:
-        daemon.shutdown()
+        # shutdown() must be called from a different thread than serve_forever()
+        threading.Thread(target=daemon.shutdown, daemon=True).start()
 
     signal_module.signal(signal_module.SIGTERM, handle_sigterm)
     signal_module.signal(signal_module.SIGINT, handle_sigterm)
@@ -432,6 +433,7 @@ def run_daemon(socket_path: str, worktree_root: str) -> None:
         daemon.serve_forever()
     finally:
         daemon.server_close()
+        sys.exit(0)
 
 
 if __name__ == "__main__":
