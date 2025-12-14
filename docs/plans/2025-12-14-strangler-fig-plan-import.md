@@ -14,8 +14,8 @@
 | Task | Description | Effort |
 |------|-------------|--------|
 | 1 | Add `instructions`, `role` to Task model | simple |
-| 2 | Create plan.py (regex JSON extractor + DAG validation) | simple |
-| 3 | Create thin ACP emitter (fire-and-forget) | simple |
+| 2 | Create plan.py (regex: `r"```(?:json)?\s*(\{.*?\})\s*```"` + DAG validation) | simple |
+| 3 | Create ACP emitter (queue-based non-blocking dispatch) | simple |
 | 4 | Wire client commands + daemon handler | standard |
 
 **Execution:** Sequential (1 → 2 → 3 → 4)
@@ -117,6 +117,14 @@
 **Files:**
 - Create: `src/harness/plan.py`
 - Test: `tests/harness/test_plan.py`
+
+**Mandatory Regex Pattern:**
+```python
+re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+```
+- Handles `json` tag or no tag
+- Captures only the JSON object `{...}`
+- Ignores thinking tokens before/after the block
 
 **TDD Instructions (MANDATORY):**
 
@@ -343,6 +351,13 @@
 - Create: `src/harness/acp.py`
 - Test: `tests/harness/test_acp.py`
 
+**Non-Blocking Contract (MANDATORY):**
+- `emit()` MUST be strictly non-blocking (< 1ms)
+- Use `queue.Queue` with background `threading.Thread` for dispatch
+- Daemon handlers call `emit()` which pushes to queue and returns immediately
+- Background thread drains queue and sends over socket
+- If connection fails, log once to stderr and disable (no retries, no crashes)
+
 **TDD Instructions (MANDATORY):**
 
 1. **Write test FIRST:**
@@ -432,16 +447,17 @@
    ```python
    # src/harness/acp.py
    """
-   ACP Emitter - Fire-and-forget telemetry to Claude Code.
+   ACP Emitter - Queue-based non-blocking telemetry to Claude Code.
 
    Design:
-   - Single connection attempt on first emit
+   - emit() pushes to queue and returns immediately (< 1ms)
+   - Background thread drains queue and sends over socket
    - If connect fails, log once to stderr and disable
-   - No retry logic, no queues (YAGNI)
-   - Thread-safe for daemon handler calls
+   - Daemon never stalls on socket operations
    """
 
    import json
+   import queue
    import socket
    import sys
    import threading
@@ -449,59 +465,69 @@
 
 
    class ACPEmitter:
-       """Fire-and-forget telemetry emitter."""
+       """Queue-based non-blocking telemetry emitter."""
 
        def __init__(self, host: str = "127.0.0.1", port: int = 9100) -> None:
            self._host = host
            self._port = port
-           self._socket: socket.socket | None = None
-           self._lock = threading.Lock()
+           self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
            self._disabled = False
            self._warned = False
+           self._thread = threading.Thread(target=self._worker, daemon=True)
+           self._thread.start()
 
        def emit(self, entry: dict[str, Any]) -> None:
-           """Send log entry. Fails silently if not connected."""
-           with self._lock:
-               if self._disabled:
-                   return
+           """Push to queue and return immediately. Strictly non-blocking."""
+           if not self._disabled:
+               self._queue.put_nowait(entry)
 
-               # Lazy connect on first emit
-               if self._socket is None:
+       def _worker(self) -> None:
+           """Background thread: drain queue, send over socket."""
+           sock: socket.socket | None = None
+           while True:
+               entry = self._queue.get()
+               if entry is None:  # Shutdown signal
+                   break
+               if self._disabled:
+                   continue
+
+               # Lazy connect
+               if sock is None:
                    try:
-                       self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                       self._socket.settimeout(2.0)
-                       self._socket.connect((self._host, self._port))
+                       sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                       sock.settimeout(2.0)
+                       sock.connect((self._host, self._port))
                    except OSError:
                        self._disabled = True
-                       self._socket = None
+                       sock = None
                        if not self._warned:
                            print(f"ACP: Claude Code not available on port {self._port}", file=sys.stderr)
                            self._warned = True
-                       return
+                       continue
 
-               # Fire-and-forget send
+               # Send
                try:
                    msg = json.dumps(entry) + "\n"
-                   self._socket.sendall(msg.encode())
+                   sock.sendall(msg.encode())
                except OSError:
-                   # Connection lost - disable future attempts
                    self._disabled = True
                    try:
-                       self._socket.close()
+                       sock.close()
                    except OSError:
                        pass
-                   self._socket = None
+                   sock = None
+
+           # Cleanup on shutdown
+           if sock:
+               try:
+                   sock.close()
+               except OSError:
+                   pass
 
        def close(self) -> None:
-           """Clean shutdown."""
-           with self._lock:
-               if self._socket:
-                   try:
-                       self._socket.close()
-                   except OSError:
-                       pass
-                   self._socket = None
-               self._disabled = True
+           """Clean shutdown - signal worker thread to exit."""
+           self._queue.put(None)
+           self._thread.join(timeout=1.0)
    ```
 
 4. **Run test, verify PASS:**
