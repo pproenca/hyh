@@ -448,3 +448,29 @@ def test_plan_template_outputs_schema(capsys):
     data = json.loads(result.stdout)
     assert "properties" in data
     assert "goal" in data["properties"]
+
+
+def test_client_plan_template_does_not_break_import_constraints():
+    """Adding plan import doesn't violate stdlib-only rule.
+
+    The get_plan_schema import is allowed because it's from harness.plan,
+    not from pydantic directly.
+    """
+    import ast
+    from pathlib import Path
+
+    client_source = Path("src/harness/client.py").read_text()
+    tree = ast.parse(client_source)
+
+    imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports.append(alias.name)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imports.append(node.module)
+
+    # harness.plan is allowed (it's our code)
+    # pydantic direct import is NOT allowed
+    assert "pydantic" not in imports
+    assert "harness.plan" in imports
