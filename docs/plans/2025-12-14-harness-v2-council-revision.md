@@ -1,6 +1,6 @@
 # Harness v2.0: The Pull Engine (Council Revision)
 
-**Goal:** Transform the Harness from a "Task Counter" to an Autonomous Research Kernel with runtime abstraction, trajectory logging, DAG-based state, and a pull protocol—while addressing four critical architectural issues identified by the Council.
+**Goal:** Transform the Harness from a "Task Counter" to an Autonomous Research Kernel with runtime abstraction, trajectory logging, DAG-based state, and a pull protocol—while addressing seven critical architectural issues identified by the Council.
 
 **Architecture:** Clean Architecture with proper separation of concerns. New modules: `runtime.py` (execution abstraction with UID mapping), `trajectory.py` (JSONL event logging). State persisted as **JSON** (not Markdown frontmatter). Locking redesigned to avoid convoy effects. Worker ID idempotency for crash recovery.
 
@@ -15,6 +15,8 @@
 | **Lost Ack** | David Soria Parra | Network failures leave tasks RUNNING forever | `worker_id` idempotency: return existing task on retry |
 | **Root Escape** | Justin Spahr-Summers | Docker exec creates root-owned files | `--user $(id -u):$(id -g)` in DockerRuntime |
 | **Missing Signal** | Justin Spahr-Summers | Negative return codes (-9, -11) are cryptic to LLM | Decode signals to names (SIGKILL, SIGSEGV) in logs |
+| **Global Lock Suicide** | Sam Gross | GLOBAL_EXEC_LOCK on every execute() serializes entire swarm | `exclusive` flag, only lock for git operations |
+| **Check-Then-Act Race** | David Soria Parra | load() → check → update() is not atomic, causes double-claim | Push logic into `StateManager.claim_task()` atomic method |
 
 ---
 
@@ -55,6 +57,7 @@ src/harness/
 - **Root Escape:** DockerRuntime passes `--user $(id -u):$(id -g)` to docker exec
 - **Blind Execution:** Add `env` parameter to `execute()` for API keys
 - **Missing Signal:** Add `decode_signal()` helper to translate negative return codes to signal names
+- **Global Lock Suicide:** Add `exclusive: bool = False` parameter - only acquire lock when `True`
 
 **TDD Instructions (MANDATORY):**
 
@@ -186,12 +189,58 @@ src/harness/
            assert result.returncode == 0
            assert "works" in result.stdout
 
-       def test_uses_global_lock(self, tmp_path):
-           """LocalRuntime uses GLOBAL_EXEC_LOCK for thread safety."""
+       def test_no_lock_by_default(self, tmp_path):
+           """LocalRuntime does NOT acquire lock by default (Council: Global Lock Suicide fix)."""
            from harness.runtime import LocalRuntime, GLOBAL_EXEC_LOCK
+           import time
 
            runtime = LocalRuntime()
-           assert isinstance(GLOBAL_EXEC_LOCK, type(threading.Lock()))
+
+           # Run two commands concurrently - they should NOT block each other
+           results = []
+           def run_cmd(name):
+               start = time.perf_counter()
+               runtime.execute(["sleep", "0.1"], cwd=str(tmp_path))
+               elapsed = time.perf_counter() - start
+               results.append((name, elapsed))
+
+           t1 = threading.Thread(target=run_cmd, args=("A",))
+           t2 = threading.Thread(target=run_cmd, args=("B",))
+           t1.start()
+           t2.start()
+           t1.join()
+           t2.join()
+
+           # Both should complete in ~0.1s (parallel), not ~0.2s (serial)
+           total_time = max(r[1] for r in results)
+           assert total_time < 0.15, f"Commands ran serially: {total_time:.2f}s"
+
+       def test_exclusive_acquires_lock(self, tmp_path):
+           """LocalRuntime acquires lock when exclusive=True (for git)."""
+           from harness.runtime import LocalRuntime, GLOBAL_EXEC_LOCK
+           import time
+
+           runtime = LocalRuntime()
+
+           # Run two exclusive commands - they SHOULD block each other
+           results = []
+           def run_exclusive(name):
+               start = time.perf_counter()
+               runtime.execute(["sleep", "0.1"], cwd=str(tmp_path), exclusive=True)
+               elapsed = time.perf_counter() - start
+               results.append((name, elapsed))
+
+           t1 = threading.Thread(target=run_exclusive, args=("A",))
+           t2 = threading.Thread(target=run_exclusive, args=("B",))
+           t1.start()
+           t2.start()
+           t1.join()
+           t2.join()
+
+           # One should wait for the other: total time ~0.2s (serial)
+           # The second thread should see elapsed > 0.1s
+           max_time = max(r[1] for r in results)
+           assert max_time >= 0.15, f"Commands ran in parallel: {max_time:.2f}s"
 
 
    class TestDockerRuntime:
@@ -425,13 +474,23 @@ src/harness/
            cwd: str,
            timeout: int = 60,
            env: dict[str, str] | None = None,
+           exclusive: bool = False,
        ) -> subprocess.CompletedProcess:
-           """Execute command and return result."""
+           """Execute command and return result.
+
+           Args:
+               exclusive: If True, acquire GLOBAL_EXEC_LOCK (for git operations).
+                         If False (default), run without locking (parallel OK).
+           """
            ...
 
 
    class LocalRuntime:
-       """Execute commands locally with global lock."""
+       """Execute commands locally.
+
+       Council Fix (Global Lock Suicide): Does NOT lock by default.
+       Only acquires GLOBAL_EXEC_LOCK when exclusive=True (for git).
+       """
 
        def __init__(self, path_mapper: PathMapper | None = None):
            self.path_mapper = path_mapper or IdentityMapper()
@@ -442,12 +501,13 @@ src/harness/
            cwd: str,
            timeout: int = 60,
            env: dict[str, str] | None = None,
+           exclusive: bool = False,
        ) -> subprocess.CompletedProcess:
            # Merge custom env with os.environ (need PATH, etc.)
            merged_env = {**os.environ, **(env or {})}
            exec_cwd = self.path_mapper.to_execution(cwd)
 
-           with GLOBAL_EXEC_LOCK:
+           def run_subprocess():
                return subprocess.run(
                    args,
                    cwd=exec_cwd,
@@ -457,12 +517,20 @@ src/harness/
                    env=merged_env,
                )
 
+           # Council Fix: Only lock when exclusive=True (git operations)
+           if exclusive:
+               with GLOBAL_EXEC_LOCK:
+                   return run_subprocess()
+           else:
+               return run_subprocess()
+
 
    class DockerRuntime:
        """Execute commands in existing Docker container.
 
-       Council Fix (Root Escape): Passes --user $(id -u):$(id -g) by default
-       to prevent root-owned files from being created in mounted volumes.
+       Council Fixes:
+       - Root Escape: Passes --user $(id -u):$(id -g) by default
+       - Global Lock Suicide: Only locks when exclusive=True
        """
 
        def __init__(
@@ -474,7 +542,6 @@ src/harness/
            self.container = container
            self.path_mapper = path_mapper or IdentityMapper()
            self.map_uid = map_uid
-           # Cache UID:GID at init time
            self._uid_gid = f"{os.getuid()}:{os.getgid()}" if map_uid else None
 
        def execute(
@@ -483,6 +550,7 @@ src/harness/
            cwd: str,
            timeout: int = 60,
            env: dict[str, str] | None = None,
+           exclusive: bool = False,
        ) -> subprocess.CompletedProcess:
            container_cwd = self.path_mapper.to_execution(cwd)
 
@@ -500,13 +568,20 @@ src/harness/
            cmd.extend(["-w", container_cwd, self.container])
            cmd.extend(args)
 
-           with GLOBAL_EXEC_LOCK:
+           def run_docker():
                return subprocess.run(
                    cmd,
                    capture_output=True,
                    text=True,
                    timeout=timeout,
                )
+
+           # Council Fix: Only lock when exclusive=True (git operations)
+           if exclusive:
+               with GLOBAL_EXEC_LOCK:
+                   return run_docker()
+           else:
+               return run_docker()
 
 
    # =============================================================================
@@ -870,6 +945,7 @@ src/harness/
 - **Markdown Database:** Delete `_parse_frontmatter` and `_to_frontmatter`, use JSON
 - **Lost Ack:** Add `claimed_by` field to Task for worker_id idempotency
 - **Zombie Deadlock:** Add `timeout_seconds` and `is_timed_out()` for dead task recovery
+- **Check-Then-Act Race:** Add atomic `claim_task()` and `complete_task()` methods to StateManager
 
 **TDD Instructions (MANDATORY):**
 
@@ -879,6 +955,7 @@ src/harness/
 
    from datetime import datetime, timezone, timedelta
    import json
+   import threading
    import pytest
    from harness.state import Task, TaskStatus, WorkflowState, StateManager
 
@@ -1195,6 +1272,146 @@ src/harness/
 
            assert not hasattr(manager, "_parse_frontmatter")
            assert not hasattr(manager, "_to_frontmatter")
+
+
+   class TestStateManagerAtomicMethods:
+       """Tests for atomic claim_task/complete_task (Council: Check-Then-Act Race fix)."""
+
+       def test_claim_task_atomic(self, tmp_path):
+           """StateManager.claim_task() is atomic - find, update, save in one lock."""
+           manager = StateManager(tmp_path)
+           state = WorkflowState(
+               workflow="execute-plan",
+               plan="test.md",
+               worktree=str(tmp_path),
+               base_sha="abc123",
+               tasks={
+                   "task-1": Task(id="task-1", description="First", status=TaskStatus.PENDING, dependencies=[]),
+               },
+           )
+           manager.save(state)
+
+           result = manager.claim_task("worker-123")
+
+           assert result is not None
+           assert result.id == "task-1"
+           assert result.status == TaskStatus.RUNNING
+           assert result.claimed_by == "worker-123"
+
+           # Verify persisted
+           loaded = manager.load()
+           assert loaded.tasks["task-1"].status == TaskStatus.RUNNING
+
+       def test_claim_task_returns_existing_for_same_worker(self, tmp_path):
+           """claim_task returns existing task for same worker (idempotency)."""
+           manager = StateManager(tmp_path)
+           now = datetime.now(timezone.utc).isoformat()
+           state = WorkflowState(
+               workflow="execute-plan",
+               plan="test.md",
+               worktree=str(tmp_path),
+               base_sha="abc123",
+               tasks={
+                   "task-1": Task(
+                       id="task-1",
+                       description="Already claimed",
+                       status=TaskStatus.RUNNING,
+                       dependencies=[],
+                       claimed_by="worker-123",
+                       started_at=now,
+                   ),
+                   "task-2": Task(id="task-2", description="Pending", status=TaskStatus.PENDING, dependencies=[]),
+               },
+           )
+           manager.save(state)
+
+           # Same worker should get same task back
+           result = manager.claim_task("worker-123")
+           assert result.id == "task-1"
+
+       def test_claim_task_race_condition_prevented(self, tmp_path):
+           """Concurrent claim_task calls don't double-assign (Council fix)."""
+           manager = StateManager(tmp_path)
+           state = WorkflowState(
+               workflow="execute-plan",
+               plan="test.md",
+               worktree=str(tmp_path),
+               base_sha="abc123",
+               tasks={
+                   "task-1": Task(id="task-1", description="Only one", status=TaskStatus.PENDING, dependencies=[]),
+               },
+           )
+           manager.save(state)
+
+           results = []
+           def claim_as_worker(worker_id):
+               result = manager.claim_task(worker_id)
+               results.append((worker_id, result))
+
+           # Two workers try to claim simultaneously
+           t1 = threading.Thread(target=claim_as_worker, args=("worker-A",))
+           t2 = threading.Thread(target=claim_as_worker, args=("worker-B",))
+           t1.start()
+           t2.start()
+           t1.join()
+           t2.join()
+
+           # Only ONE should get the task, the other gets None
+           claimed = [r for r in results if r[1] is not None]
+           assert len(claimed) == 1, f"Double-claim detected: {results}"
+
+       def test_complete_task_atomic(self, tmp_path):
+           """StateManager.complete_task() is atomic."""
+           manager = StateManager(tmp_path)
+           state = WorkflowState(
+               workflow="execute-plan",
+               plan="test.md",
+               worktree=str(tmp_path),
+               base_sha="abc123",
+               tasks={
+                   "task-1": Task(
+                       id="task-1",
+                       description="Running",
+                       status=TaskStatus.RUNNING,
+                       dependencies=[],
+                       claimed_by="worker-123",
+                   ),
+               },
+           )
+           manager.save(state)
+
+           result = manager.complete_task("task-1", "worker-123")
+
+           assert result is not None
+           assert result.status == TaskStatus.COMPLETED
+
+           # Verify persisted
+           loaded = manager.load()
+           assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
+
+       def test_complete_task_validates_ownership(self, tmp_path):
+           """complete_task fails if worker doesn't own task."""
+           manager = StateManager(tmp_path)
+           state = WorkflowState(
+               workflow="execute-plan",
+               plan="test.md",
+               worktree=str(tmp_path),
+               base_sha="abc123",
+               tasks={
+                   "task-1": Task(
+                       id="task-1",
+                       description="Running",
+                       status=TaskStatus.RUNNING,
+                       dependencies=[],
+                       claimed_by="worker-123",
+                   ),
+               },
+           )
+           manager.save(state)
+
+           # Different worker tries to complete
+           result = manager.complete_task("task-1", "worker-other")
+           assert result is None  # Should fail
    ```
 
 2. **Run test, verify FAILURE:**
@@ -1400,6 +1617,103 @@ src/harness/
                temp_file.write_text(content)
                temp_file.rename(self.state_file)
                return self._state
+
+       def claim_task(self, worker_id: str) -> Task | None:
+           """Atomically claim next available task for worker.
+
+           Council Fix (Check-Then-Act Race): This method performs find, update,
+           and save in ONE critical section. No load-then-update pattern.
+
+           Args:
+               worker_id: Unique identifier for the claiming worker
+
+           Returns:
+               The claimed Task (now RUNNING), or None if no tasks available
+           """
+           with self._lock:
+               # Load fresh state
+               if not self.state_file.exists():
+                   return None
+               content = self.state_file.read_text()
+               data = json.loads(content)
+               self._state = WorkflowState.model_validate(data)
+
+               # Check for existing task owned by this worker (idempotency)
+               for task_id, task in self._state.tasks.items():
+                   if task.status == TaskStatus.RUNNING and task.claimed_by == worker_id:
+                       if not task.is_timed_out():
+                           return task  # Return existing, don't modify
+
+               # Find claimable task
+               task_id = self._state.get_claimable_task()
+               if not task_id:
+                   return None
+
+               # Update task atomically
+               task = self._state.tasks[task_id]
+               now = datetime.now(timezone.utc).isoformat()
+               updated_task = task.model_copy(update={
+                   "status": TaskStatus.RUNNING,
+                   "started_at": now,
+                   "claimed_by": worker_id,
+               })
+               self._state.tasks[task_id] = updated_task
+
+               # Save atomically
+               self.state_file.parent.mkdir(parents=True, exist_ok=True)
+               content = self._state.model_dump_json(indent=2)
+               temp_file = self.state_file.with_suffix(".tmp")
+               temp_file.write_text(content)
+               temp_file.rename(self.state_file)
+
+               return updated_task
+
+       def complete_task(self, task_id: str, worker_id: str) -> Task | None:
+           """Atomically mark task as completed.
+
+           Council Fix (Check-Then-Act Race): Validates ownership and updates
+           in ONE critical section.
+
+           Args:
+               task_id: ID of task to complete
+               worker_id: Worker claiming completion (must own the task)
+
+           Returns:
+               The completed Task, or None if validation fails
+           """
+           with self._lock:
+               # Load fresh state
+               if not self.state_file.exists():
+                   return None
+               content = self.state_file.read_text()
+               data = json.loads(content)
+               self._state = WorkflowState.model_validate(data)
+
+               if task_id not in self._state.tasks:
+                   return None
+
+               task = self._state.tasks[task_id]
+
+               # Validate ownership
+               if task.claimed_by != worker_id:
+                   return None
+
+               # Update task atomically
+               now = datetime.now(timezone.utc).isoformat()
+               updated_task = task.model_copy(update={
+                   "status": TaskStatus.COMPLETED,
+                   "completed_at": now,
+               })
+               self._state.tasks[task_id] = updated_task
+
+               # Save atomically
+               self.state_file.parent.mkdir(parents=True, exist_ok=True)
+               content = self._state.model_dump_json(indent=2)
+               temp_file = self.state_file.with_suffix(".tmp")
+               temp_file.write_text(content)
+               temp_file.rename(self.state_file)
+
+               return updated_task
    ```
 
 4. **Run test, verify PASS:**
@@ -1410,7 +1724,7 @@ src/harness/
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(state): migrate to JSON persistence, add Task model with worker_id and timeout"
+   git add -A && git commit -m "feat(state): migrate to JSON, add atomic claim_task/complete_task methods"
    ```
 
 ---
@@ -1427,6 +1741,7 @@ src/harness/
 - **Lock Convoy:** Release state lock BEFORE acquiring trajectory lock
 - **Lost Ack:** `task_claim` requires `worker_id` and returns existing task for retries
 - **Missing Signal:** `exec` handler decodes negative return codes to signal names in logs and response
+- **Check-Then-Act Race:** Handlers call atomic `state_manager.claim_task()` / `complete_task()` methods
 
 **TDD Instructions (MANDATORY):**
 
@@ -1717,58 +2032,37 @@ src/harness/
        """Claim next available task from the DAG.
 
        Council Fixes:
-       - Lost Ack: Requires worker_id, returns existing task for retries
-       - Lock Convoy: Releases state lock before logging to trajectory
+       - Check-Then-Act Race: Uses atomic state_manager.claim_task()
+       - Lock Convoy: State lock released before logging to trajectory
        """
        worker_id = request.get("worker_id")
        if not worker_id:
            return {"status": "error", "message": "worker_id required"}
 
-       # CRITICAL: State update in separate critical section from trajectory
-       state = server.state_manager.load()
-       if not state:
-           return {"status": "error", "message": "No workflow active"}
+       # Council Fix (Check-Then-Act Race): Use atomic claim_task method
+       # This performs find, update, save in ONE critical section
+       task = server.state_manager.claim_task(worker_id)
 
-       # Council Fix (Lost Ack): Check for existing task first
-       task_id = state.get_task_for_worker(worker_id)
-       if not task_id:
+       if not task:
            return {"status": "ok", "data": None}
 
-       task = state.tasks[task_id]
-       is_retry = task.status == TaskStatus.RUNNING and task.claimed_by == worker_id
-       is_reclaim = task.status == TaskStatus.RUNNING and task.is_timed_out()
-
-       if not is_retry:
-           # Mark as running with fresh timestamp
-           now = datetime.now(timezone.utc).isoformat()
-           updated_task = task.model_copy(update={
-               "status": TaskStatus.RUNNING,
-               "started_at": now,
-               "claimed_by": worker_id,
-           })
-           updated_tasks = {**state.tasks, task_id: updated_task}
-           server.state_manager.update(tasks=updated_tasks)
-
-       # Council Fix (Lock Convoy): State lock released, now log trajectory
-       event_type = "reclaim" if is_reclaim else ("retry" if is_retry else "claim")
+       # Council Fix (Lock Convoy): State lock already released, now log trajectory
        server.trajectory_logger.log({
-           "event": event_type if not is_retry else "claim",
-           "task_id": task_id,
+           "event": "claim",
+           "task_id": task.id,
            "worker_id": worker_id,
            "timestamp": time.time(),
        })
 
        return {"status": "ok", "data": {
-           "task_id": task_id,
+           "task_id": task.id,
            "description": task.description,
-           "is_retry": is_retry,
-           "is_reclaim": is_reclaim,
        }}
 
    def _handle_task_complete(self, request: dict, server: "HarnessDaemon") -> dict:
        """Mark a task as completed.
 
-       Council Fix (Lost Ack): Validates worker ownership before completing.
+       Council Fix (Check-Then-Act Race): Uses atomic state_manager.complete_task().
        """
        task_id = request.get("task_id")
        worker_id = request.get("worker_id")
@@ -1778,29 +2072,14 @@ src/harness/
        if not worker_id:
            return {"status": "error", "message": "worker_id required"}
 
-       state = server.state_manager.load()
-       if not state:
-           return {"status": "error", "message": "No workflow active"}
+       # Council Fix (Check-Then-Act Race): Use atomic complete_task method
+       # This handles find, ownership validation, and update in one critical section
+       task = server.state_manager.complete_task(task_id, worker_id)
 
-       if task_id not in state.tasks:
-           return {"status": "error", "message": f"Task {task_id} not found"}
+       if not task:
+           return {"status": "error", "message": f"Task {task_id} not found or not owned by {worker_id}"}
 
-       task = state.tasks[task_id]
-
-       # Council Fix (Lost Ack): Validate ownership
-       if task.claimed_by != worker_id:
-           return {"status": "error", "message": f"Task {task_id} not claimed by {worker_id}"}
-
-       # Mark as completed
-       now = datetime.now(timezone.utc).isoformat()
-       updated_task = task.model_copy(update={
-           "status": TaskStatus.COMPLETED,
-           "completed_at": now,
-       })
-       updated_tasks = {**state.tasks, task_id: updated_task}
-       server.state_manager.update(tasks=updated_tasks)
-
-       # Council Fix (Lock Convoy): Log after state update
+       # Council Fix (Lock Convoy): Log AFTER state lock is released
        server.trajectory_logger.log({
            "event": "complete",
            "task_id": task_id,
@@ -2120,7 +2399,9 @@ src/harness/
 - Modify: `src/harness/git.py`
 - Modify: `tests/harness/test_git.py`
 
-**Goal:** Delegate git.py execution to runtime.py. Remove GLOBAL_GIT_LOCK (now in runtime.py as GLOBAL_EXEC_LOCK).
+**Goal:** Delegate git.py execution to runtime.py with `exclusive=True`. Remove GLOBAL_GIT_LOCK.
+
+**Council Fix Applied:** Global Lock Performance Suicide - Git operations MUST use `exclusive=True` because they modify shared .git directory. Non-git commands run lock-free.
 
 **TDD Instructions (MANDATORY):**
 
@@ -2174,6 +2455,30 @@ src/harness/
        import threading
 
        assert isinstance(GLOBAL_EXEC_LOCK, type(threading.Lock()))
+
+
+   def test_git_uses_exclusive_locking(tmp_path, monkeypatch):
+       """Council Fix (Global Lock): Git operations must use exclusive=True."""
+       from harness.git import safe_git_exec
+       from harness import runtime
+
+       # Track calls to execute
+       calls = []
+       original_execute = runtime.LocalRuntime.execute
+
+       def tracking_execute(self, args, cwd, timeout=60, env=None, exclusive=False):
+           calls.append({"args": args, "exclusive": exclusive})
+           return original_execute(self, args, cwd, timeout, env, exclusive)
+
+       monkeypatch.setattr(runtime.LocalRuntime, "execute", tracking_execute)
+
+       # Create git repo and run git command
+       subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+       safe_git_exec(["status"], cwd=str(tmp_path))
+
+       # Verify exclusive=True was passed
+       assert len(calls) == 1
+       assert calls[0]["exclusive"] is True, "Git commands MUST use exclusive=True"
    ```
 
 2. **Run test, verify FAILURE:**
@@ -2210,6 +2515,9 @@ src/harness/
    ) -> subprocess.CompletedProcess:
        """Execute git command through safe runtime.
 
+       Council Fix (Global Lock): Uses exclusive=True because git commands
+       modify the shared .git directory and must be serialized.
+
        Args:
            args: Git command arguments (without 'git' prefix)
            cwd: Working directory
@@ -2217,21 +2525,23 @@ src/harness/
        Returns:
            CompletedProcess with stdout, stderr, returncode
        """
-       return _runtime.execute(["git"] + args, cwd=cwd, timeout=timeout)
+       # Council Fix: exclusive=True for git (modifies .git directory)
+       return _runtime.execute(["git"] + args, cwd=cwd, timeout=timeout, exclusive=True)
 
 
    def safe_commit(message: str, cwd: str) -> subprocess.CompletedProcess:
        """Atomic add + commit operation.
 
-       The runtime's GLOBAL_EXEC_LOCK ensures these execute atomically.
+       Council Fix (Global Lock): Uses exclusive=True because these are git
+       commands that modify the shared .git directory.
        """
-       # Stage all changes
-       add_result = _runtime.execute(["git", "add", "-A"], cwd=cwd)
+       # Stage all changes (exclusive=True)
+       add_result = _runtime.execute(["git", "add", "-A"], cwd=cwd, exclusive=True)
        if add_result.returncode != 0:
            return add_result
 
-       # Commit
-       return _runtime.execute(["git", "commit", "-m", message], cwd=cwd)
+       # Commit (exclusive=True)
+       return _runtime.execute(["git", "commit", "-m", message], cwd=cwd, exclusive=True)
 
 
    def get_head_sha(cwd: str) -> str | None:
@@ -2464,6 +2774,8 @@ Before marking the plan as complete, verify:
 - [ ] **Lost Ack:** `task_claim` requires `worker_id`, returns existing task for same worker, `Task.claimed_by` tracks ownership
 - [ ] **Root Escape:** `DockerRuntime` passes `--user UID:GID` by default, configurable via `map_uid` parameter
 - [ ] **Missing Signal:** `decode_signal()` in runtime.py, `_handle_exec` includes `signal_name` in log and response for negative return codes
+- [ ] **Global Lock Suicide:** `LocalRuntime.execute()` defaults to `exclusive=False`; git.py passes `exclusive=True` for all git operations
+- [ ] **Check-Then-Act Race:** `StateManager.claim_task()` and `complete_task()` are atomic methods that perform find-validate-update in one critical section; daemon handlers use these instead of load-then-update pattern
 
 ---
 
@@ -2478,3 +2790,5 @@ Before marking the plan as complete, verify:
 | Docker | No UID mapping | `--user $(id -u):$(id -g)` by default |
 | Trajectory | Same lock as state | Separate lock, written after state update |
 | Signal Handling | Raw negative return codes | Decoded to signal names (SIGKILL, SIGSEGV) |
+| Execute Lock | Always lock on execute() | `exclusive=False` by default, `True` only for git |
+| State Operations | Load-then-update pattern | Atomic `claim_task()` / `complete_task()` methods |
