@@ -3,35 +3,80 @@
 Pydantic state models for workflow management.
 
 WorkflowState is the canonical schema for dev-workflow state.
-StateManager handles persistence to markdown frontmatter format.
+StateManager handles persistence to JSON format.
 """
 
 from pydantic import BaseModel, Field
 from typing import Literal
 from pathlib import Path
-import re
+from datetime import datetime, timedelta
+from enum import Enum
+import json
 import threading
 
 
-class WorkflowState(BaseModel):
-    """State for an active workflow execution."""
+class TaskStatus(str, Enum):
+    """Task execution status."""
 
-    workflow: Literal["execute-plan", "subagent"] = Field(
-        ..., description="Execution mode"
-    )
-    plan: str = Field(..., description="Absolute path to plan file")
-    current_task: int = Field(ge=0, description="Last completed task (0=not started)")
-    total_tasks: int = Field(gt=0, description="Total tasks in plan")
-    worktree: str = Field(..., description="Absolute path to worktree")
-    base_sha: str = Field(..., description="Base commit SHA before workflow")
-    last_commit: str | None = Field(None, description="Last commit SHA")
-    current_group: int = Field(1, ge=1, description="Current parallel group")
-    total_groups: int = Field(1, ge=1, description="Total parallel groups")
-    parallel_mode: bool = Field(True, description="Enable parallel execution")
-    batch_size: int = Field(5, ge=0, description="Tasks per batch (0=unbatched)")
-    retry_count: int = Field(0, ge=0, le=2, description="Retries for current task")
-    failed_tasks: str = Field("", description="Comma-separated failed task numbers")
-    enabled: bool = Field(True, description="Workflow active")
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class Task(BaseModel):
+    """Individual task in workflow DAG."""
+
+    id: str = Field(..., description="Unique task identifier")
+    description: str = Field(..., description="Task description")
+    status: TaskStatus = Field(..., description="Current task status")
+    dependencies: list[str] = Field(..., description="List of task IDs that must complete first")
+    started_at: datetime | None = Field(None, description="Task start timestamp")
+    completed_at: datetime | None = Field(None, description="Task completion timestamp")
+    claimed_by: str | None = Field(None, description="Worker ID that claimed this task")
+    timeout_seconds: int = Field(600, description="Timeout for task execution")
+
+    def is_timed_out(self) -> bool:
+        """Check if task has exceeded timeout window."""
+        if self.status != TaskStatus.RUNNING:
+            return False
+        if not self.started_at:
+            return False
+        elapsed = datetime.now() - self.started_at
+        return elapsed.total_seconds() > self.timeout_seconds
+
+
+class WorkflowState(BaseModel):
+    """State for an active workflow execution with task DAG."""
+
+    tasks: dict[str, Task] = Field(default_factory=dict, description="Task DAG")
+
+    def get_claimable_task(self) -> Task | None:
+        """Find a task that can be claimed (pending or timed out with satisfied deps)."""
+        for task in self.tasks.values():
+            # Check if task is pending or timed out
+            if task.status == TaskStatus.PENDING or (
+                task.status == TaskStatus.RUNNING and task.is_timed_out()
+            ):
+                # Check if all dependencies are completed
+                deps_satisfied = all(
+                    self.tasks[dep_id].status == TaskStatus.COMPLETED
+                    for dep_id in task.dependencies
+                    if dep_id in self.tasks
+                )
+                if deps_satisfied:
+                    return task
+        return None
+
+    def get_task_for_worker(self, worker_id: str) -> Task | None:
+        """Get task for specific worker (idempotent - returns existing or assigns new)."""
+        # Check if worker already has a task
+        for task in self.tasks.values():
+            if task.claimed_by == worker_id and task.status == TaskStatus.RUNNING:
+                return task
+
+        # Assign new task
+        return self.get_claimable_task()
 
 
 class PendingHandoff(BaseModel):
@@ -49,7 +94,7 @@ class StateManager:
 
     def __init__(self, worktree_root: Path):
         self.worktree_root = Path(worktree_root)
-        self.state_file = self.worktree_root / ".claude" / "dev-workflow-state.local.md"
+        self.state_file = self.worktree_root / ".claude" / "dev-workflow-state.json"
         self._state: WorkflowState | None = None
         self._lock = threading.Lock()
 
@@ -60,11 +105,8 @@ class StateManager:
                 return None
 
             content = self.state_file.read_text()
-            frontmatter = self._parse_frontmatter(content)
-            if not frontmatter:
-                return None
-
-            self._state = WorkflowState(**frontmatter)
+            data = json.loads(content)
+            self._state = WorkflowState(**data)
             return self._state
 
     def save(self, state: WorkflowState) -> None:
@@ -73,7 +115,7 @@ class StateManager:
             self._state = state
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
 
-            content = self._to_frontmatter(state)
+            content = state.model_dump_json(indent=2)
             temp_file = self.state_file.with_suffix(".tmp")
             temp_file.write_text(content)
             temp_file.rename(self.state_file)
@@ -88,49 +130,82 @@ class StateManager:
                 # Auto-load if state not in memory
                 if self.state_file.exists():
                     content = self.state_file.read_text()
-                    frontmatter = self._parse_frontmatter(content)
-                    if frontmatter:
-                        self._state = WorkflowState(**frontmatter)
+                    data = json.loads(content)
+                    self._state = WorkflowState(**data)
                 if not self._state:
                     raise ValueError("No state loaded and no state file exists")
 
             self._state = self._state.model_copy(update=kwargs)
             # Save without lock (we already hold it)
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
-            content = self._to_frontmatter(self._state)
+            content = self._state.model_dump_json(indent=2)
             temp_file = self.state_file.with_suffix(".tmp")
             temp_file.write_text(content)
             temp_file.rename(self.state_file)
             return self._state
 
-    def _parse_frontmatter(self, content: str) -> dict | None:
-        """Parse YAML frontmatter from markdown."""
-        match = re.match(r"^---\n(.+?)\n---", content, re.DOTALL)
-        if not match:
-            return None
+    def claim_task(self, worker_id: str) -> Task | None:
+        """Atomically claim a task for worker (find + update + save in one critical section)."""
+        with self._lock:
+            # Auto-load if state not in memory
+            if not self._state:
+                if self.state_file.exists():
+                    content = self.state_file.read_text()
+                    data = json.loads(content)
+                    self._state = WorkflowState(**data)
+                if not self._state:
+                    raise ValueError("No state loaded and no state file exists")
 
-        result = {}
-        for line in match.group(1).split("\n"):
-            # Handle malformed lines gracefully
-            if ":" not in line:
-                continue
+            # Check if worker already has a task (idempotency)
+            task = self._state.get_task_for_worker(worker_id)
+            if not task:
+                return None
 
-            key, value = line.split(":", 1)
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
+            # If this is a new claim (not already owned by this worker)
+            if task.claimed_by != worker_id:
+                # Update task
+                task.status = TaskStatus.RUNNING
+                task.claimed_by = worker_id
+                task.started_at = datetime.now()
 
-            # Pydantic handles str -> int/bool conversion
-            result[key] = value
+                # Update state and save
+                self._state.tasks[task.id] = task
+                content = self._state.model_dump_json(indent=2)
+                temp_file = self.state_file.with_suffix(".tmp")
+                temp_file.write_text(content)
+                temp_file.rename(self.state_file)
 
-        return result
+            return task
 
-    def _to_frontmatter(self, state: WorkflowState) -> str:
-        """Convert state to markdown frontmatter."""
-        lines = ["---"]
-        for key, value in state.model_dump().items():
-            if isinstance(value, bool):
-                value = str(value).lower()
-            lines.append(f"{key}: {value}")
-        lines.append("---")
-        lines.append("")
-        return "\n".join(lines)
+    def complete_task(self, task_id: str, worker_id: str) -> None:
+        """Atomically complete a task with ownership validation."""
+        with self._lock:
+            # Auto-load if state not in memory
+            if not self._state:
+                if self.state_file.exists():
+                    content = self.state_file.read_text()
+                    data = json.loads(content)
+                    self._state = WorkflowState(**data)
+                if not self._state:
+                    raise ValueError("No state loaded and no state file exists")
+
+            # Validate task exists
+            if task_id not in self._state.tasks:
+                raise ValueError(f"Task {task_id} not found")
+
+            task = self._state.tasks[task_id]
+
+            # Validate ownership
+            if task.claimed_by != worker_id:
+                raise ValueError(f"Task {task_id} is not claimed by {worker_id}")
+
+            # Update task
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now()
+
+            # Update state and save
+            self._state.tasks[task_id] = task
+            content = self._state.model_dump_json(indent=2)
+            temp_file = self.state_file.with_suffix(".tmp")
+            temp_file.write_text(content)
+            temp_file.rename(self.state_file)
