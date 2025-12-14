@@ -247,10 +247,149 @@ print_explanation "Tasks can only run when ALL their dependencies are completed"
 wait_for_user
 
 # ============================================================================
+# WORKER IDENTITY
+# ============================================================================
+
+print_header "Step 2: Worker Identity"
+
+print_step "Each worker has a stable identity"
+print_info "Worker IDs persist across CLI invocations using atomic writes"
+echo ""
+
+run_command "harness worker-id"
+
+print_explanation "This ID is used for task ownership (lease renewal)"
+print_explanation "Multiple invocations return the same ID"
+
+wait_for_user
+
+# ============================================================================
+# PLAN IMPORT
+# ============================================================================
+
+print_header "Step 3: Importing Plans from LLM Output"
+
+print_step "LLM orchestrators emit plans in markdown with JSON blocks"
+print_info "The 'plan import' command extracts and validates the DAG"
+echo ""
+
+# Create a sample LLM-style plan file
+cat > "$DEMO_DIR/llm-output.md" << 'PLANEOF'
+I'll create a plan for building the API:
+
+```json
+{
+  "goal": "Build REST API with authentication",
+  "tasks": {
+    "setup-db": {
+      "description": "Initialize database schema",
+      "dependencies": [],
+      "timeout_seconds": 300,
+      "instructions": "Create tables for users and sessions",
+      "role": "backend"
+    },
+    "auth-endpoints": {
+      "description": "Implement login/logout endpoints",
+      "dependencies": ["setup-db"],
+      "timeout_seconds": 600,
+      "instructions": "Use JWT tokens with 24h expiry",
+      "role": "backend"
+    },
+    "api-tests": {
+      "description": "Write integration tests",
+      "dependencies": ["auth-endpoints"],
+      "timeout_seconds": 300,
+      "role": "backend"
+    }
+  }
+}
+```
+
+This plan ensures proper sequencing.
+PLANEOF
+
+echo -e "  ${BOLD}Sample LLM output file:${NC}"
+echo ""
+run_command "cat '$DEMO_DIR/llm-output.md'"
+
+print_step "Import the plan"
+echo ""
+
+run_command "harness plan import --file '$DEMO_DIR/llm-output.md'"
+
+print_step "View the imported state"
+echo ""
+
+run_command "harness get-state | jq '.tasks | to_entries[] | {id: .key, status: .value.status, deps: .value.dependencies, role: .value.role}'"
+
+print_explanation "Notice the 'instructions' and 'role' fields - metadata for LLM agents"
+print_explanation "The parser extracts JSON from markdown, ignoring thinking tokens"
+
+wait_for_user
+
+# Restore original workflow for the rest of the demo
+cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
+{
+  "tasks": {
+    "setup": {
+      "id": "setup",
+      "description": "Set up project scaffolding",
+      "status": "pending",
+      "dependencies": [],
+      "started_at": null,
+      "completed_at": null,
+      "claimed_by": null,
+      "timeout_seconds": 600
+    },
+    "backend": {
+      "id": "backend",
+      "description": "Implement backend API",
+      "status": "pending",
+      "dependencies": ["setup"],
+      "started_at": null,
+      "completed_at": null,
+      "claimed_by": null,
+      "timeout_seconds": 600
+    },
+    "frontend": {
+      "id": "frontend",
+      "description": "Implement frontend UI",
+      "status": "pending",
+      "dependencies": ["setup"],
+      "started_at": null,
+      "completed_at": null,
+      "claimed_by": null,
+      "timeout_seconds": 600
+    },
+    "integration": {
+      "id": "integration",
+      "description": "Integration testing",
+      "status": "pending",
+      "dependencies": ["backend", "frontend"],
+      "started_at": null,
+      "completed_at": null,
+      "claimed_by": null,
+      "timeout_seconds": 600
+    },
+    "deploy": {
+      "id": "deploy",
+      "description": "Deploy to production",
+      "status": "pending",
+      "dependencies": ["integration"],
+      "started_at": null,
+      "completed_at": null,
+      "claimed_by": null,
+      "timeout_seconds": 600
+    }
+  }
+}
+EOF
+
+# ============================================================================
 # BASIC COMMANDS
 # ============================================================================
 
-print_header "Step 2: Basic Daemon Commands"
+print_header "Step 4: Basic Daemon Commands"
 
 print_step "Ping the daemon"
 print_info "The daemon auto-spawns on first command if not running"
@@ -277,7 +416,7 @@ wait_for_user
 # TASK WORKFLOW
 # ============================================================================
 
-print_header "Step 3: Task Claiming and Completion"
+print_header "Step 5: Task Claiming and Completion"
 
 print_step "Claim the first available task"
 print_info "Each worker gets a unique ID and claims tasks atomically"
@@ -385,7 +524,7 @@ wait_for_user
 # GIT MUTEX
 # ============================================================================
 
-print_header "Step 4: Git Operations with Mutex"
+print_header "Step 6: Git Operations with Mutex"
 
 print_step "The problem: parallel git operations corrupt .git/index"
 print_info "Two workers running 'git add' simultaneously = data loss"
@@ -408,10 +547,78 @@ print_explanation "Result: safe git operations, no corruption"
 wait_for_user
 
 # ============================================================================
+# HOOK INTEGRATION
+# ============================================================================
+
+print_header "Step 7: Claude Code Hook Integration"
+
+print_step "Harness provides hooks for Claude Code plugins"
+print_info "Three hooks: session-start, check-state, check-commit"
+echo ""
+
+echo -e "  ${BOLD}1. SessionStart Hook${NC} - Shows workflow progress on session resume"
+echo ""
+run_command "harness session-start | jq ."
+
+print_explanation "This output gets injected into Claude's context at session start"
+echo ""
+
+print_step "2. Stop Hook (check-state)"
+print_info "Prevents ending session while workflow is incomplete"
+echo ""
+
+# First, reset to a fresh workflow with pending tasks
+cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
+{
+  "tasks": {
+    "incomplete-task": {
+      "id": "incomplete-task",
+      "description": "This task is not done",
+      "status": "pending",
+      "dependencies": []
+    }
+  }
+}
+EOF
+
+echo -e "  ${DIM}Created workflow with 1 pending task${NC}"
+echo ""
+run_command "harness check-state || true"
+
+print_explanation "Exit code 1 + 'deny' = Claude Code blocks the session end"
+echo ""
+
+# Now complete the task
+harness task claim >/dev/null
+harness task complete --id incomplete-task >/dev/null
+echo -e "  ${DIM}Task completed...${NC}"
+echo ""
+
+run_command "harness check-state"
+
+print_explanation "Exit code 0 + 'allow' = Session can end"
+echo ""
+
+print_step "3. SubagentStop Hook (check-commit)"
+print_info "Requires agents to make git commits after work"
+echo ""
+
+# Set up last_commit in state
+CURRENT_HEAD=$(git rev-parse HEAD)
+harness update-state --field last_commit "$CURRENT_HEAD" >/dev/null
+
+run_command "harness check-commit || true"
+
+print_explanation "If HEAD matches last_commit, agent hasn't committed new work"
+print_explanation "Useful to ensure code changes are persisted"
+
+wait_for_user
+
+# ============================================================================
 # EXEC & TRAJECTORY
 # ============================================================================
 
-print_header "Step 5: Command Execution and Observability"
+print_header "Step 8: Command Execution and Observability"
 
 print_step "Execute arbitrary commands"
 print_info "The 'exec' command runs any shell command through the daemon"
@@ -441,7 +648,7 @@ wait_for_user
 # STATE UPDATE
 # ============================================================================
 
-print_header "Step 6: Direct State Updates"
+print_header "Step 9: Direct State Updates"
 
 print_step "Update state fields directly"
 print_info "Useful for orchestration metadata"
@@ -459,7 +666,7 @@ wait_for_user
 # ARCHITECTURE
 # ============================================================================
 
-print_header "Step 7: Architecture Overview"
+print_header "Step 10: Architecture Overview"
 
 echo -e "  ${BOLD}Client-Daemon Split${NC}"
 echo ""
@@ -527,6 +734,12 @@ print_header "Recap: Key Commands"
 echo -e "  ${BOLD}Daemon Control${NC}"
 echo -e "    ${YELLOW}harness ping${NC}              Check if daemon is running"
 echo -e "    ${YELLOW}harness shutdown${NC}          Stop the daemon"
+echo ""
+echo -e "  ${BOLD}Worker Identity${NC}"
+echo -e "    ${YELLOW}harness worker-id${NC}         Print stable worker ID"
+echo ""
+echo -e "  ${BOLD}Plan Management${NC}"
+echo -e "    ${YELLOW}harness plan import --file${NC}  Import LLM-generated plan"
 echo ""
 echo -e "  ${BOLD}State Management${NC}"
 echo -e "    ${YELLOW}harness get-state${NC}         Get current workflow state"
