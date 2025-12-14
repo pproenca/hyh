@@ -110,18 +110,17 @@ class StateManager:
 
         result = {}
         for line in match.group(1).split("\n"):
-            if ":" in line:
-                key, value = line.split(":", 1)
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                # Type coercion
-                if value.lower() == "true":
-                    value = True
-                elif value.lower() == "false":
-                    value = False
-                elif value.isdigit():
-                    value = int(value)
-                result[key] = value
+            # Handle malformed lines gracefully
+            if ":" not in line:
+                continue
+
+            key, value = line.split(":", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+
+            # Pydantic handles str -> int/bool conversion
+            result[key] = value
+
         return result
 
     def _to_frontmatter(self, state: WorkflowState) -> str:

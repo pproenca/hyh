@@ -123,9 +123,14 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         if os.path.exists(socket_path):
             os.unlink(socket_path)
 
-        super().__init__(socket_path, HarnessHandler)
+        # Create socket with restrictive permissions from the start
+        old_umask = os.umask(0o077)
+        try:
+            super().__init__(socket_path, HarnessHandler)
+        finally:
+            os.umask(old_umask)
 
-        # Set socket permissions (user only)
+        # Ensure socket permissions (user only)
         os.chmod(socket_path, 0o600)
 
         # Load initial state

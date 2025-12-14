@@ -42,7 +42,10 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
 
     # Wait for socket to appear (default 5 seconds for CI reliability)
     # Configurable via HARNESS_TIMEOUT env var
-    timeout_seconds = int(os.getenv("HARNESS_TIMEOUT", "5"))
+    try:
+        timeout_seconds = int(os.getenv("HARNESS_TIMEOUT", "5"))
+    except (ValueError, TypeError):
+        timeout_seconds = 5
     iterations = timeout_seconds * 10  # 0.1s per iteration
 
     # Check if process died during startup (zombie detection)

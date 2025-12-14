@@ -39,6 +39,8 @@ def safe_git_exec(
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
 
@@ -52,6 +54,8 @@ def safe_commit(cwd: str, message: str) -> subprocess.CompletedProcess:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if add_result.returncode != 0:
             return add_result
@@ -62,6 +66,8 @@ def safe_commit(cwd: str, message: str) -> subprocess.CompletedProcess:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
 
 
