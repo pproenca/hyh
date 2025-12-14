@@ -432,9 +432,8 @@ def test_plan_import_file_not_found():
     assert "not found" in r.stderr.lower()
 
 
-def test_plan_template_outputs_schema():
-    """harness plan template prints valid JSON schema."""
-    import json
+def test_plan_template_outputs_markdown():
+    """harness plan template prints Markdown with template and example."""
     import subprocess
     import sys
 
@@ -445,9 +444,10 @@ def test_plan_template_outputs_schema():
     )
 
     assert result.returncode == 0
-    data = json.loads(result.stdout)
-    assert "properties" in data
-    assert "goal" in data["properties"]
+    assert "# Plan Template" in result.stdout
+    assert "## Template Structure" in result.stdout
+    assert "## Complete Example" in result.stdout
+    assert "```json" in result.stdout
 
 
 def test_client_plan_template_does_not_break_import_constraints():
