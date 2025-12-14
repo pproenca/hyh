@@ -728,3 +728,116 @@ def test_ownership_validation_on_complete(workflow_with_tasks):
     resp = send_command({"command": "task_complete", "task_id": "task-1", "worker_id": "worker-2"})
     assert resp["status"] == "error"
     assert "not claimed by" in resp["message"].lower()
+
+
+@pytest.fixture
+def workflow_with_parallel_tasks(integration_worktree):
+    """Set up workflow with multiple independent tasks for parallel claiming."""
+    import socket as socket_module
+    import threading
+
+    from harness.daemon import HarnessDaemon
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+
+    worktree = integration_worktree["worktree"]
+    socket_path = integration_worktree["socket"]
+
+    # Create 3 independent tasks (no dependencies)
+    manager = StateManager(worktree)
+    state = WorkflowState(
+        tasks={
+            "task-1": Task(
+                id="task-1",
+                description="Independent 1",
+                status=TaskStatus.PENDING,
+                dependencies=[],
+            ),
+            "task-2": Task(
+                id="task-2",
+                description="Independent 2",
+                status=TaskStatus.PENDING,
+                dependencies=[],
+            ),
+            "task-3": Task(
+                id="task-3",
+                description="Independent 3",
+                status=TaskStatus.PENDING,
+                dependencies=[],
+            ),
+        }
+    )
+    manager.save(state)
+
+    daemon = HarnessDaemon(socket_path, str(worktree))
+    server_thread = threading.Thread(target=daemon.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+    time.sleep(0.2)
+
+    def send_command(cmd, max_retries=3):
+        for attempt in range(max_retries):
+            sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
+            sock.settimeout(10.0)
+            try:
+                sock.connect(socket_path)
+                sock.sendall(json.dumps(cmd).encode() + b"\n")
+                response = b""
+                while True:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+                    if b"\n" in response:
+                        break
+                return json.loads(response.decode().strip())
+            except ConnectionRefusedError:
+                if attempt < max_retries - 1:
+                    time.sleep(0.1 * (attempt + 1))
+                    continue
+                raise
+            finally:
+                sock.close()
+
+    yield {
+        "worktree": worktree,
+        "socket": socket_path,
+        "manager": manager,
+        "daemon": daemon,
+        "send_command": send_command,
+    }
+
+    daemon.shutdown()
+    server_thread.join(timeout=1)
+
+
+def test_parallel_workers_get_unique_tasks(workflow_with_parallel_tasks):
+    """Multiple workers claiming in parallel get different tasks."""
+    import threading
+
+    send_command = workflow_with_parallel_tasks["send_command"]
+
+    claimed_tasks = []
+    errors = []
+    lock = threading.Lock()
+
+    def claim_task(worker_id):
+        try:
+            resp = send_command({"command": "task_claim", "worker_id": worker_id})
+            if resp["status"] == "ok" and resp["data"]["task"]:
+                with lock:
+                    claimed_tasks.append(resp["data"]["task"]["id"])
+        except Exception as e:
+            with lock:
+                errors.append(str(e))
+
+    # Launch 3 workers in parallel
+    threads = [threading.Thread(target=claim_task, args=(f"worker-{i}",)) for i in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(errors) == 0, f"Errors: {errors}"
+    assert len(claimed_tasks) == 3
+    # All tasks should be unique
+    assert len(set(claimed_tasks)) == 3
