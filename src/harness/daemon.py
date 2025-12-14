@@ -18,8 +18,10 @@ import sys
 import threading
 from pathlib import Path
 
-from .state import StateManager
+from .state import StateManager, TaskStatus
 from .git import safe_git_exec
+from .trajectory import TrajectoryLogger
+from .runtime import create_runtime, decode_signal
 
 
 class HarnessHandler(socketserver.StreamRequestHandler):
@@ -54,6 +56,9 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             "git": self._handle_git,
             "ping": self._handle_ping,
             "shutdown": self._handle_shutdown,
+            "task_claim": self._handle_task_claim,
+            "task_complete": self._handle_task_complete,
+            "exec": self._handle_exec,
         }
 
         handler = handlers.get(command)
@@ -100,6 +105,164 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         threading.Thread(target=server.shutdown, daemon=True).start()
         return {"status": "ok", "data": {"shutdown": True}}
 
+    def _handle_task_claim(self, request: dict, server: "HarnessDaemon") -> dict:
+        """Claim a task for a worker (atomic operation with idempotency)."""
+        worker_id = request.get("worker_id")
+        if not worker_id:
+            return {"status": "error", "message": "worker_id is required"}
+
+        try:
+            # Check state BEFORE claiming to determine retry/reclaim flags
+            state_before = server.state_manager.load()
+            existing_task_id = None
+            task_was_timed_out = False
+
+            if state_before:
+                # Check if worker already has a running task (for retry detection)
+                for task in state_before.tasks.values():
+                    if (
+                        task.claimed_by == worker_id
+                        and task.status == TaskStatus.RUNNING
+                    ):
+                        existing_task_id = task.id
+                        break
+
+                # Check if the claimable task is a timed-out task
+                claimable = state_before.get_claimable_task()
+                if claimable and claimable.status == TaskStatus.RUNNING and claimable.is_timed_out():
+                    task_was_timed_out = True
+
+            # Atomically claim task (state lock released inside this call)
+            task = server.state_manager.claim_task(worker_id)
+
+            if not task:
+                return {"status": "ok", "data": {"task": None}}
+
+            # Determine flags
+            is_retry = existing_task_id == task.id
+            is_reclaim = task_was_timed_out and not is_retry
+
+            # Log to trajectory AFTER state lock is released (lock convoy fix)
+            server.trajectory_logger.log(
+                {
+                    "event_type": "task_claim",
+                    "task_id": task.id,
+                    "worker_id": worker_id,
+                    "is_retry": is_retry,
+                    "is_reclaim": is_reclaim,
+                }
+            )
+
+            return {
+                "status": "ok",
+                "data": {
+                    "task": task.model_dump(mode='json'),
+                    "is_retry": is_retry,
+                    "is_reclaim": is_reclaim,
+                },
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def _handle_task_complete(self, request: dict, server: "HarnessDaemon") -> dict:
+        """Complete a task with ownership validation."""
+        task_id = request.get("task_id")
+        worker_id = request.get("worker_id")
+
+        if not task_id:
+            return {"status": "error", "message": "task_id is required"}
+        if not worker_id:
+            return {"status": "error", "message": "worker_id is required"}
+
+        try:
+            # Atomically complete task (validates ownership, state lock released inside)
+            server.state_manager.complete_task(task_id, worker_id)
+
+            # Log to trajectory AFTER state lock is released (lock convoy fix)
+            server.trajectory_logger.log(
+                {
+                    "event_type": "task_complete",
+                    "task_id": task_id,
+                    "worker_id": worker_id,
+                }
+            )
+
+            return {"status": "ok", "data": {"task_id": task_id}}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def _handle_exec(self, request: dict, server: "HarnessDaemon") -> dict:
+        """Execute a command using the runtime."""
+        import subprocess
+
+        cmd = request.get("cmd", [])
+        cwd = request.get("cwd")
+        env = request.get("env")
+        timeout = request.get("timeout")
+        exclusive = request.get("exclusive", False)
+
+        if not cmd:
+            return {"status": "error", "message": "cmd is required"}
+
+        try:
+            # Execute command
+            result = server.runtime.execute(
+                command=cmd,
+                cwd=cwd,
+                env=env,
+                timeout=timeout,
+                exclusive=exclusive,
+            )
+
+            # Decode signal if returncode is negative
+            signal_name = decode_signal(result.returncode) if result.returncode < 0 else None
+
+            # Log to trajectory
+            server.trajectory_logger.log(
+                {
+                    "event_type": "exec",
+                    "cmd": cmd,
+                    "returncode": result.returncode,
+                    "signal_name": signal_name,
+                    "stdout": result.stdout[:200] if result.stdout else "",  # Truncate for log
+                    "stderr": result.stderr[:200] if result.stderr else "",
+                }
+            )
+
+            response_data = {
+                "returncode": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }
+            if signal_name:
+                response_data["signal_name"] = signal_name
+
+            return {"status": "ok", "data": response_data}
+        except subprocess.TimeoutExpired as e:
+            # Timeout is a normal case - return success with timeout info
+            # Process was killed with SIGTERM (-15)
+            signal_name = "SIGTERM"
+            server.trajectory_logger.log(
+                {
+                    "event_type": "exec",
+                    "cmd": cmd,
+                    "returncode": -15,
+                    "signal_name": signal_name,
+                    "timeout": True,
+                }
+            )
+            return {
+                "status": "ok",
+                "data": {
+                    "returncode": -15,
+                    "stdout": e.stdout.decode() if e.stdout else "",
+                    "stderr": e.stderr.decode() if e.stderr else "",
+                    "signal_name": signal_name,
+                },
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
 
 class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     """
@@ -115,6 +278,10 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         self.socket_path = socket_path
         self.worktree_root = Path(worktree_root)
         self.state_manager = StateManager(self.worktree_root)
+        self.trajectory_logger = TrajectoryLogger(
+            self.worktree_root / ".claude" / "trajectory.jsonl"
+        )
+        self.runtime = create_runtime()
         self._lock_fd = None
 
         # Acquire exclusive lock to prevent multiple daemons
