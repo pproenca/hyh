@@ -52,6 +52,30 @@ class WorkflowState(BaseModel):
 
     tasks: dict[str, Task] = Field(default_factory=dict, description="Task DAG")
 
+    def validate_dag(self) -> None:
+        """Ensure no circular dependencies exist.
+
+        Raises:
+            ValueError: If a dependency cycle is detected.
+        """
+        visited: set[str] = set()
+        path: set[str] = set()
+
+        def visit(node: str) -> None:
+            if node in path:
+                raise ValueError(f"Cycle detected at {node}")
+            if node in visited:
+                return
+            visited.add(node)
+            path.add(node)
+            if node in self.tasks:
+                for dep in self.tasks[node].dependencies:
+                    visit(dep)
+            path.remove(node)
+
+        for task_id in self.tasks:
+            visit(task_id)
+
     def get_claimable_task(self) -> Task | None:
         """Find a task that can be claimed (pending or timed out with satisfied deps)."""
         for task in self.tasks.values():

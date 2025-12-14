@@ -586,3 +586,110 @@ def test_pending_handoff_model():
     """PendingHandoff model should validate mode and plan."""
     handoff = PendingHandoff(mode="sequential", plan="/path/to/plan.md")
     assert handoff.mode == "sequential"
+    assert handoff.plan == "/path/to/plan.md"
+
+
+# ============================================================================
+# TestValidateDAG: cycle detection tests (Amendment C)
+# ============================================================================
+
+
+def test_validate_dag_no_cycle():
+    """validate_dag should not raise for valid DAG."""
+    state = WorkflowState(
+        tasks={
+            "task-1": Task(
+                id="task-1",
+                description="Task 1",
+                status=TaskStatus.PENDING,
+                dependencies=[],
+            ),
+            "task-2": Task(
+                id="task-2",
+                description="Task 2",
+                status=TaskStatus.PENDING,
+                dependencies=["task-1"],
+            ),
+            "task-3": Task(
+                id="task-3",
+                description="Task 3",
+                status=TaskStatus.PENDING,
+                dependencies=["task-1", "task-2"],
+            ),
+        }
+    )
+    # Should not raise
+    state.validate_dag()
+
+
+def test_validate_dag_detects_simple_cycle():
+    """validate_dag should raise ValueError for A -> B -> A cycle."""
+    state = WorkflowState(
+        tasks={
+            "task-a": Task(
+                id="task-a",
+                description="Task A",
+                status=TaskStatus.PENDING,
+                dependencies=["task-b"],
+            ),
+            "task-b": Task(
+                id="task-b",
+                description="Task B",
+                status=TaskStatus.PENDING,
+                dependencies=["task-a"],
+            ),
+        }
+    )
+    with pytest.raises(ValueError, match="[Cc]ycle"):
+        state.validate_dag()
+
+
+def test_validate_dag_detects_self_cycle():
+    """validate_dag should raise ValueError for self-referencing task."""
+    state = WorkflowState(
+        tasks={
+            "task-a": Task(
+                id="task-a",
+                description="Task A",
+                status=TaskStatus.PENDING,
+                dependencies=["task-a"],
+            ),
+        }
+    )
+    with pytest.raises(ValueError, match="[Cc]ycle"):
+        state.validate_dag()
+
+
+def test_validate_dag_detects_long_cycle():
+    """validate_dag should raise ValueError for A -> B -> C -> A cycle."""
+    state = WorkflowState(
+        tasks={
+            "task-a": Task(
+                id="task-a",
+                description="Task A",
+                status=TaskStatus.PENDING,
+                dependencies=["task-c"],
+            ),
+            "task-b": Task(
+                id="task-b",
+                description="Task B",
+                status=TaskStatus.PENDING,
+                dependencies=["task-a"],
+            ),
+            "task-c": Task(
+                id="task-c",
+                description="Task C",
+                status=TaskStatus.PENDING,
+                dependencies=["task-b"],
+            ),
+        }
+    )
+    with pytest.raises(ValueError, match="[Cc]ycle"):
+        state.validate_dag()
+
+
+def test_validate_dag_empty_tasks():
+    """validate_dag should not raise for empty task dict."""
+    state = WorkflowState(tasks={})
+    # Should not raise
+    state.validate_dag()
