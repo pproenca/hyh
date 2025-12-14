@@ -16,6 +16,8 @@ Council Fixes Applied:
 - Global Lock Suicide: Add exclusive: bool = False parameter - only acquire lock when True
 """
 
+from __future__ import annotations
+
 import subprocess
 import threading
 import signal
@@ -152,6 +154,15 @@ class Runtime(Protocol):
         """
         ...
 
+    def check_capabilities(self) -> None:
+        """
+        Verify required tools are available.
+
+        Raises:
+            RuntimeError: If required tools are not available
+        """
+        ...
+
 
 class LocalRuntime:
     """Runtime for executing commands directly on the host system."""
@@ -218,6 +229,12 @@ class DockerRuntime:
         """
         self.container_id = container_id
         self.path_mapper = path_mapper
+
+    def check_capabilities(self) -> None:
+        """Verify Docker daemon is running and accessible."""
+        result = subprocess.run(["docker", "info"], capture_output=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Docker not available: {result.stderr.decode()}")
 
     def execute(
         self,

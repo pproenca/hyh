@@ -16,6 +16,7 @@ import signal
 import socketserver
 import sys
 import threading
+import time
 from pathlib import Path
 
 from .state import StateManager, TaskStatus
@@ -206,6 +207,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
 
         try:
             # Execute command
+            start_time = time.monotonic()
             result = server.runtime.execute(
                 command=args,
                 cwd=cwd,
@@ -213,6 +215,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                 timeout=timeout,
                 exclusive=exclusive,
             )
+            duration_ms = int((time.monotonic() - start_time) * 1000)
 
             # Decode signal if returncode is negative
             signal_name = decode_signal(result.returncode) if result.returncode < 0 else None
@@ -226,6 +229,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                     "signal_name": signal_name,
                     "stdout": result.stdout[:200] if result.stdout else "",  # Truncate for log
                     "stderr": result.stderr[:200] if result.stderr else "",
+                    "duration_ms": duration_ms,
                 }
             )
 
@@ -241,6 +245,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         except subprocess.TimeoutExpired as e:
             # Timeout is a normal case - return success with timeout info
             # Process was killed with SIGTERM (-15)
+            duration_ms = int((time.monotonic() - start_time) * 1000)
             signal_name = "SIGTERM"
             server.trajectory_logger.log(
                 {
@@ -249,6 +254,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                     "returncode": -15,
                     "signal_name": signal_name,
                     "timeout": True,
+                    "duration_ms": duration_ms,
                 }
             )
             return {

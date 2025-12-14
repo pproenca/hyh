@@ -445,3 +445,68 @@ class TestRuntimeFactory:
 
         runtime = create_runtime()
         assert isinstance(runtime, LocalRuntime)
+
+
+class TestRuntimeCapabilityCheck:
+    """Test check_capabilities() method on Runtime implementations."""
+
+    def test_local_runtime_has_check_capabilities(self):
+        """LocalRuntime should have check_capabilities method."""
+        from harness.runtime import LocalRuntime
+
+        runtime = LocalRuntime()
+        assert hasattr(runtime, "check_capabilities")
+        assert callable(runtime.check_capabilities)
+
+    def test_local_runtime_check_capabilities_verifies_git(self):
+        """LocalRuntime.check_capabilities should verify git is available."""
+        from harness.runtime import LocalRuntime
+
+        runtime = LocalRuntime()
+        # Should not raise if git is installed (it is in test env)
+        runtime.check_capabilities()
+
+    @patch("subprocess.run")
+    def test_local_runtime_check_capabilities_raises_on_missing_git(self, mock_run):
+        """LocalRuntime.check_capabilities should raise if git not found."""
+        from harness.runtime import LocalRuntime
+
+        mock_run.return_value = MagicMock(returncode=1)
+
+        runtime = LocalRuntime()
+        with pytest.raises(RuntimeError, match="git"):
+            runtime.check_capabilities()
+
+    @patch("subprocess.run")
+    def test_docker_runtime_has_check_capabilities(self, mock_run):
+        """DockerRuntime should have check_capabilities method."""
+        from harness.runtime import DockerRuntime, IdentityMapper
+
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        runtime = DockerRuntime("test-container", IdentityMapper())
+        assert hasattr(runtime, "check_capabilities")
+        assert callable(runtime.check_capabilities)
+
+    @patch("subprocess.run")
+    def test_docker_runtime_check_capabilities_verifies_docker(self, mock_run):
+        """DockerRuntime.check_capabilities should run docker info."""
+        from harness.runtime import DockerRuntime, IdentityMapper
+
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        runtime = DockerRuntime("test-container", IdentityMapper())
+        runtime.check_capabilities()
+
+        # Verify docker info was called
+        calls = [c[0][0] for c in mock_run.call_args_list]
+        assert any("docker" in str(c) and "info" in str(c) for c in calls)
+
+    @patch("subprocess.run")
+    def test_docker_runtime_check_capabilities_raises_on_docker_failure(self, mock_run):
+        """DockerRuntime.check_capabilities should raise if docker not running."""
+        from harness.runtime import DockerRuntime, IdentityMapper
+
+        mock_run.return_value = MagicMock(returncode=1, stderr="Cannot connect to Docker daemon")
+        runtime = DockerRuntime("test-container", IdentityMapper())
+
+        with pytest.raises(RuntimeError, match="[Dd]ocker"):
+            runtime.check_capabilities()

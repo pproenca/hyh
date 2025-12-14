@@ -542,3 +542,32 @@ def test_exec_decodes_signal_on_negative_returncode(daemon_with_state, socket_pa
         assert "signal_name" in response["data"]
         # Common signals for timeout: SIGTERM (-15) or SIGKILL (-9)
         assert response["data"]["signal_name"] in ["SIGTERM", "SIGKILL"]
+
+
+def test_exec_logs_duration_ms(daemon_with_state, socket_path, worktree):
+    """exec should log duration_ms in trajectory."""
+    daemon, worktree_path = daemon_with_state
+
+    response = send_command(
+        socket_path,
+        {
+            "command": "exec",
+            "args": ["echo", "hello"],
+        },
+    )
+
+    assert response["status"] == "ok"
+
+    # Verify trajectory has duration_ms
+    import json
+    trajectory_file = worktree_path / ".claude" / "trajectory.jsonl"
+    with open(trajectory_file, "r") as f:
+        lines = f.readlines()
+        # Find the exec event
+        exec_events = [json.loads(line) for line in lines if "exec" in line]
+        assert len(exec_events) >= 1
+        event = exec_events[-1]
+        assert event["event_type"] == "exec"
+        assert "duration_ms" in event
+        assert isinstance(event["duration_ms"], int)
+        assert event["duration_ms"] >= 0
