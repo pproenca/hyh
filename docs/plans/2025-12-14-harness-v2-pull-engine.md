@@ -6,6 +6,19 @@
 
 ---
 
+## Architectural Fixes (Council Review)
+
+This plan addresses four critical issues identified during architecture review:
+
+| Issue | Problem | Fix |
+|-------|---------|-----|
+| **I/O Suicide** | `tail()` reads entire file into RAM | Efficient reverse-seek implementation |
+| **Path Mismatch** | DockerRuntime passes host paths to container | `mount_map` for host→container translation |
+| **Zombie Deadlock** | Crashed workers leave tasks RUNNING forever | Task timeout + reclaim in `get_claimable_task` |
+| **Secret-Less Agent** | No env var passing to Runtime | Add `env` parameter to `execute()` |
+
+---
+
 ## Task Groups
 
 | Task Group | Tasks | Rationale |
@@ -25,11 +38,19 @@
 - Modify: `src/harness/git.py`
 - Test: `tests/harness/test_git.py`
 
+**Architectural Fixes Applied:**
+- **Secret-Less Agent:** Add `env` parameter to `execute()` for API keys
+- **Path Mismatch:** Add `mount_map` to DockerRuntime for host→container path translation
+
 **TDD Instructions (MANDATORY):**
 
 1. **Write test FIRST:**
    ```python
    # tests/harness/test_git.py
+   import os
+   import subprocess
+   import pytest
+
 
    def test_local_runtime_execute_success(tmp_path):
        """LocalRuntime executes command and returns CompletedProcess."""
@@ -54,7 +75,6 @@
 
    def test_local_runtime_timeout(tmp_path):
        """LocalRuntime raises TimeoutExpired for slow commands."""
-       import subprocess
        from harness.git import LocalRuntime
 
        runtime = LocalRuntime()
@@ -63,11 +83,42 @@
            runtime.execute(["sleep", "10"], cwd=str(tmp_path), timeout=0.1)
 
 
+   def test_local_runtime_env_vars(tmp_path):
+       """LocalRuntime passes env vars to subprocess."""
+       from harness.git import LocalRuntime
+
+       runtime = LocalRuntime()
+       result = runtime.execute(
+           ["sh", "-c", "echo $TEST_API_KEY"],
+           cwd=str(tmp_path),
+           env={"TEST_API_KEY": "secret123"},
+       )
+
+       assert result.returncode == 0
+       assert "secret123" in result.stdout
+
+
+   def test_local_runtime_env_merges_with_os_environ(tmp_path):
+       """LocalRuntime merges custom env with os.environ (PATH needed)."""
+       from harness.git import LocalRuntime
+
+       runtime = LocalRuntime()
+       # Without PATH merge, 'echo' wouldn't be found
+       result = runtime.execute(
+           ["echo", "works"],
+           cwd=str(tmp_path),
+           env={"CUSTOM_VAR": "value"},
+       )
+
+       assert result.returncode == 0
+       assert "works" in result.stdout
+
+
    def test_docker_runtime_execute(tmp_path, mocker):
        """DockerRuntime calls docker exec with correct args."""
        from harness.git import DockerRuntime
 
-       mock_run = mocker.patch("subprocess.run")
+       mock_run = mocker.patch("harness.git.subprocess.run")
        mock_run.return_value = subprocess.CompletedProcess(
            args=[], returncode=0, stdout="output", stderr=""
        )
@@ -77,9 +128,58 @@
 
        mock_run.assert_called_once()
        call_args = mock_run.call_args[0][0]
-       assert call_args[:4] == ["docker", "exec", "-w", "/app"]
-       assert call_args[4] == "test-container"
-       assert call_args[5:] == ["pytest", "tests/"]
+       assert "docker" in call_args
+       assert "exec" in call_args
+       assert "-w" in call_args
+       assert "test-container" in call_args
+
+
+   def test_docker_runtime_path_mapping(mocker):
+       """DockerRuntime translates host paths to container paths via mount_map."""
+       from harness.git import DockerRuntime
+
+       mock_run = mocker.patch("harness.git.subprocess.run")
+       mock_run.return_value = subprocess.CompletedProcess(
+           args=[], returncode=0, stdout="", stderr=""
+       )
+
+       runtime = DockerRuntime(
+           container="test-container",
+           mount_map={"/Users/dev/project": "/app"},
+       )
+       runtime.execute(["ls"], cwd="/Users/dev/project/src")
+
+       call_args = mock_run.call_args[0][0]
+       # Should translate /Users/dev/project/src -> /app/src
+       assert "/app/src" in call_args
+       assert "/Users/dev/project" not in " ".join(call_args)
+
+
+   def test_docker_runtime_env_vars(mocker):
+       """DockerRuntime passes env vars via -e flags."""
+       from harness.git import DockerRuntime
+
+       mock_run = mocker.patch("harness.git.subprocess.run")
+       mock_run.return_value = subprocess.CompletedProcess(
+           args=[], returncode=0, stdout="", stderr=""
+       )
+
+       runtime = DockerRuntime(container="test-container")
+       runtime.execute(
+           ["echo", "test"],
+           cwd="/app",
+           env={"API_KEY": "secret", "DEBUG": "1"},
+       )
+
+       call_args = mock_run.call_args[0][0]
+       # Should have -e API_KEY=secret -e DEBUG=1
+       assert "-e" in call_args
+       env_args = []
+       for i, arg in enumerate(call_args):
+           if arg == "-e" and i + 1 < len(call_args):
+               env_args.append(call_args[i + 1])
+       assert "API_KEY=secret" in env_args
+       assert "DEBUG=1" in env_args
 
 
    def test_runtime_protocol():
@@ -88,7 +188,6 @@
 
        for runtime_cls in [LocalRuntime, DockerRuntime]:
            assert hasattr(runtime_cls, "execute")
-           # Check signature accepts args, cwd, timeout
    ```
 
 2. **Run test, verify FAILURE:**
@@ -101,6 +200,7 @@
 
    In `src/harness/git.py`, add after GLOBAL_GIT_LOCK:
    ```python
+   import os
    from typing import Protocol
 
 
@@ -108,7 +208,11 @@
        """Protocol for command execution runtimes."""
 
        def execute(
-           self, args: list[str], cwd: str, timeout: int = 60
+           self,
+           args: list[str],
+           cwd: str,
+           timeout: int = 60,
+           env: dict[str, str] | None = None,
        ) -> subprocess.CompletedProcess:
            """Execute command and return result."""
            ...
@@ -118,8 +222,15 @@
        """Execute commands locally with global lock."""
 
        def execute(
-           self, args: list[str], cwd: str, timeout: int = 60
+           self,
+           args: list[str],
+           cwd: str,
+           timeout: int = 60,
+           env: dict[str, str] | None = None,
        ) -> subprocess.CompletedProcess:
+           # Merge custom env with os.environ (need PATH, etc.)
+           merged_env = {**os.environ, **(env or {})}
+
            with GLOBAL_GIT_LOCK:
                return subprocess.run(
                    args,
@@ -127,20 +238,49 @@
                    capture_output=True,
                    text=True,
                    timeout=timeout,
+                   env=merged_env,
                )
 
 
    class DockerRuntime:
        """Execute commands in existing Docker container."""
 
-       def __init__(self, container: str):
+       def __init__(
+           self,
+           container: str,
+           mount_map: dict[str, str] | None = None,
+       ):
            self.container = container
+           # mount_map: {"/host/path": "/container/path"}
+           self.mount_map = mount_map or {}
+
+       def _translate_path(self, host_path: str) -> str:
+           """Translate host path to container path using mount_map."""
+           for host_prefix, container_prefix in self.mount_map.items():
+               if host_path.startswith(host_prefix):
+                   return host_path.replace(host_prefix, container_prefix, 1)
+           return host_path
 
        def execute(
-           self, args: list[str], cwd: str, timeout: int = 60
+           self,
+           args: list[str],
+           cwd: str,
+           timeout: int = 60,
+           env: dict[str, str] | None = None,
        ) -> subprocess.CompletedProcess:
+           container_cwd = self._translate_path(cwd)
+
+           # Build docker exec command
+           cmd = ["docker", "exec"]
+
+           # Add env vars via -e flags
+           for key, value in (env or {}).items():
+               cmd.extend(["-e", f"{key}={value}"])
+
+           cmd.extend(["-w", container_cwd, self.container])
+           cmd.extend(args)
+
            with GLOBAL_GIT_LOCK:
-               cmd = ["docker", "exec", "-w", cwd, self.container] + args
                return subprocess.run(
                    cmd,
                    capture_output=True,
@@ -166,7 +306,7 @@
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(runtime): add LocalRuntime and DockerRuntime abstractions"
+   git add -A && git commit -m "feat(runtime): add LocalRuntime and DockerRuntime with env and path mapping"
    ```
 
 ---
@@ -179,6 +319,9 @@
 - Modify: `src/harness/state.py`
 - Test: `tests/harness/test_state.py`
 
+**Architectural Fixes Applied:**
+- **I/O Suicide:** Implement efficient reverse-seek `tail()` that reads from end of file, NOT entire file into RAM
+
 **TDD Instructions (MANDATORY):**
 
 1. **Write test FIRST:**
@@ -186,6 +329,7 @@
    # tests/harness/test_state.py (add to existing file)
 
    import json
+   import time
    import threading
    from concurrent.futures import ThreadPoolExecutor
 
@@ -253,6 +397,57 @@
        assert tail[0]["id"] == 7
        assert tail[1]["id"] == 8
        assert tail[2]["id"] == 9
+
+
+   def test_trajectory_logger_tail_empty_file(tmp_path):
+       """TrajectoryLogger.tail() handles empty/missing file."""
+       from harness.state import TrajectoryLogger
+
+       logger = TrajectoryLogger(tmp_path)
+
+       # File doesn't exist yet
+       assert logger.tail(5) == []
+
+
+   def test_trajectory_logger_tail_fewer_than_n(tmp_path):
+       """TrajectoryLogger.tail(n) returns all if fewer than n entries."""
+       from harness.state import TrajectoryLogger
+
+       logger = TrajectoryLogger(tmp_path)
+       logger.log({"event": "one"})
+       logger.log({"event": "two"})
+
+       tail = logger.tail(10)
+
+       assert len(tail) == 2
+       assert tail[0]["event"] == "one"
+       assert tail[1]["event"] == "two"
+
+
+   def test_trajectory_tail_large_file_performance(tmp_path):
+       """tail(n) on large file completes fast without reading entire file."""
+       from harness.state import TrajectoryLogger
+
+       logger = TrajectoryLogger(tmp_path)
+
+       # Create ~1MB log file (10000 entries, ~100 bytes each)
+       for i in range(10000):
+           logger.log({"event": "bulk", "id": i, "padding": "x" * 50})
+
+       # Verify file is substantial
+       log_file = tmp_path / ".claude" / "trajectory.jsonl"
+       file_size = log_file.stat().st_size
+       assert file_size > 500_000  # At least 500KB
+
+       # tail(5) should complete in < 50ms (not read whole file)
+       start = time.perf_counter()
+       tail = logger.tail(5)
+       elapsed = time.perf_counter() - start
+
+       assert len(tail) == 5
+       assert tail[-1]["id"] == 9999
+       # Must complete quickly - reading whole file would take much longer
+       assert elapsed < 0.05, f"tail() took {elapsed:.3f}s, should be < 50ms"
    ```
 
 2. **Run test, verify FAILURE:**
@@ -266,7 +461,13 @@
    In `src/harness/state.py`, add after imports:
    ```python
    class TrajectoryLogger:
-       """JSONL append-only log at .claude/trajectory.jsonl."""
+       """JSONL append-only log at .claude/trajectory.jsonl.
+
+       Uses efficient reverse-seek for tail() to avoid O(N) memory on large files.
+       """
+
+       # Block size for reverse reading (4KB is good for SSD)
+       _BLOCK_SIZE = 4096
 
        def __init__(self, worktree_root: Path):
            self.log_file = worktree_root / ".claude" / "trajectory.jsonl"
@@ -280,24 +481,79 @@
                    f.write(json.dumps(event) + "\n")
 
        def tail(self, n: int) -> list[dict]:
-           """Return last n events from trajectory."""
+           """Return last n events using efficient reverse-seek.
+
+           Reads from end of file in blocks, avoiding O(N) memory usage.
+           """
            if not self.log_file.exists():
                return []
 
            with self._lock:
-               lines = self.log_file.read_text().strip().split("\n")
-               return [json.loads(line) for line in lines[-n:] if line]
+               return self._tail_reverse_seek(n)
+
+       def _tail_reverse_seek(self, n: int) -> list[dict]:
+           """Read last n lines by seeking from end of file."""
+           lines = []
+           remaining_bytes = b""
+
+           with self.log_file.open("rb") as f:
+               # Get file size
+               f.seek(0, 2)  # Seek to end
+               file_size = f.tell()
+
+               if file_size == 0:
+                   return []
+
+               position = file_size
+
+               while len(lines) < n and position > 0:
+                   # Calculate how much to read
+                   read_size = min(self._BLOCK_SIZE, position)
+                   position -= read_size
+
+                   # Seek and read block
+                   f.seek(position)
+                   block = f.read(read_size)
+
+                   # Prepend to remaining bytes and split into lines
+                   data = block + remaining_bytes
+                   split_lines = data.split(b"\n")
+
+                   # First element is partial (unless at start of file)
+                   if position > 0:
+                       remaining_bytes = split_lines[0]
+                       complete_lines = split_lines[1:]
+                   else:
+                       remaining_bytes = b""
+                       complete_lines = split_lines
+
+                   # Add complete lines (in reverse order, will reverse at end)
+                   for line in reversed(complete_lines):
+                       if line.strip():
+                           lines.append(line)
+                           if len(lines) >= n:
+                               break
+
+           # Handle any remaining bytes at start of file
+           if remaining_bytes.strip() and len(lines) < n:
+               lines.append(remaining_bytes)
+
+           # Reverse to get chronological order and take last n
+           lines = list(reversed(lines[-n:]))
+
+           # Parse JSON
+           return [json.loads(line.decode()) for line in lines if line.strip()]
    ```
 
 4. **Run test, verify PASS:**
    ```bash
    uv run pytest tests/harness/test_state.py -v
    ```
-   Expected: PASS (all tests green)
+   Expected: PASS (all tests green, including performance test)
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(trajectory): add TrajectoryLogger for JSONL event logging"
+   git add -A && git commit -m "feat(trajectory): add TrajectoryLogger with efficient reverse-seek tail"
    ```
 
 ---
@@ -310,12 +566,16 @@
 - Modify: `src/harness/state.py`
 - Test: `tests/harness/test_state.py`
 
+**Architectural Fixes Applied:**
+- **Zombie Deadlock:** Add `timeout_seconds` to Task model and detect timed-out RUNNING tasks as reclaimable in `get_claimable_task()`
+
 **TDD Instructions (MANDATORY):**
 
 1. **Write test FIRST:**
    ```python
    # tests/harness/test_state.py (add/update)
 
+   from datetime import datetime, timezone
    from harness.state import Task, TaskStatus, WorkflowState
 
 
@@ -330,6 +590,32 @@
 
        assert task.id == "task-1"
        assert task.status == TaskStatus.PENDING
+
+
+   def test_task_model_has_timeout():
+       """Task model has timeout_seconds field with default."""
+       task = Task(
+           id="task-1",
+           description="Test",
+           status=TaskStatus.PENDING,
+           dependencies=[],
+       )
+
+       # Default timeout is 10 minutes (600 seconds)
+       assert task.timeout_seconds == 600
+
+
+   def test_task_model_custom_timeout():
+       """Task model accepts custom timeout."""
+       task = Task(
+           id="task-1",
+           description="Long task",
+           status=TaskStatus.PENDING,
+           dependencies=[],
+           timeout_seconds=3600,  # 1 hour
+       )
+
+       assert task.timeout_seconds == 3600
 
 
    def test_workflow_state_v2_schema():
@@ -407,14 +693,21 @@
 
 
    def test_get_claimable_task_none_available():
-       """get_claimable_task returns None when all running/blocked."""
+       """get_claimable_task returns None when all running/blocked (not timed out)."""
+       now = datetime.now(timezone.utc).isoformat()
        state = WorkflowState(
            workflow="execute-plan",
            plan="test.md",
            worktree="/tmp",
            base_sha="abc",
            tasks={
-               "task-1": Task(id="task-1", description="A", status=TaskStatus.RUNNING, dependencies=[]),
+               "task-1": Task(
+                   id="task-1",
+                   description="A",
+                   status=TaskStatus.RUNNING,
+                   dependencies=[],
+                   started_at=now,  # Just started, not timed out
+               ),
                "task-2": Task(id="task-2", description="B", status=TaskStatus.PENDING, dependencies=["task-1"]),
            },
        )
@@ -437,6 +730,86 @@
 
        claimable = state.get_claimable_task()
        assert claimable is None
+
+
+   def test_get_claimable_task_reclaims_timed_out():
+       """get_claimable_task returns timed-out RUNNING task as claimable."""
+       # Task started 2 hours ago with 1 hour timeout - should be reclaimable
+       from datetime import timedelta
+       old_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+
+       state = WorkflowState(
+           workflow="execute-plan",
+           plan="test.md",
+           worktree="/tmp",
+           base_sha="abc",
+           tasks={
+               "task-1": Task(
+                   id="task-1",
+                   description="Zombie task",
+                   status=TaskStatus.RUNNING,
+                   dependencies=[],
+                   started_at=old_time,
+                   timeout_seconds=3600,  # 1 hour timeout
+               ),
+           },
+       )
+
+       claimable = state.get_claimable_task()
+       assert claimable == "task-1"  # Timed out, can be reclaimed
+
+
+   def test_get_claimable_task_running_not_timed_out():
+       """get_claimable_task skips RUNNING task that hasn't timed out."""
+       # Task started 30 minutes ago with 1 hour timeout - NOT reclaimable
+       from datetime import timedelta
+       recent_time = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+
+       state = WorkflowState(
+           workflow="execute-plan",
+           plan="test.md",
+           worktree="/tmp",
+           base_sha="abc",
+           tasks={
+               "task-1": Task(
+                   id="task-1",
+                   description="Active task",
+                   status=TaskStatus.RUNNING,
+                   dependencies=[],
+                   started_at=recent_time,
+                   timeout_seconds=3600,  # 1 hour timeout
+               ),
+               "task-2": Task(id="task-2", description="B", status=TaskStatus.PENDING, dependencies=["task-1"]),
+           },
+       )
+
+       claimable = state.get_claimable_task()
+       assert claimable is None  # task-1 still running, task-2 blocked
+
+
+   def test_task_is_timed_out_method():
+       """Task.is_timed_out() correctly identifies expired tasks."""
+       from datetime import timedelta
+
+       # Not started - not timed out
+       task_pending = Task(id="t1", description="", status=TaskStatus.PENDING, dependencies=[])
+       assert not task_pending.is_timed_out()
+
+       # Just started - not timed out
+       now = datetime.now(timezone.utc).isoformat()
+       task_recent = Task(
+           id="t2", description="", status=TaskStatus.RUNNING,
+           dependencies=[], started_at=now, timeout_seconds=60
+       )
+       assert not task_recent.is_timed_out()
+
+       # Started long ago - timed out
+       old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+       task_old = Task(
+           id="t3", description="", status=TaskStatus.RUNNING,
+           dependencies=[], started_at=old, timeout_seconds=60
+       )
+       assert task_old.is_timed_out()
    ```
 
 2. **Run test, verify FAILURE:**
@@ -449,6 +822,7 @@
 
    In `src/harness/state.py`, update imports and add models:
    ```python
+   from datetime import datetime, timezone
    from enum import Enum
    from pydantic import BaseModel, Field
 
@@ -469,6 +843,32 @@
        dependencies: list[str] = Field(default_factory=list)
        started_at: str | None = None
        completed_at: str | None = None
+       # Default 10 minute timeout for zombie detection
+       timeout_seconds: int = 600
+
+       def is_timed_out(self) -> bool:
+           """Check if task has exceeded its timeout.
+
+           Returns True if:
+           - Task is RUNNING
+           - started_at exists
+           - Current time > started_at + timeout_seconds
+           """
+           if self.status != TaskStatus.RUNNING:
+               return False
+           if not self.started_at:
+               return False
+
+           try:
+               started = datetime.fromisoformat(self.started_at)
+               # Ensure timezone-aware comparison
+               if started.tzinfo is None:
+                   started = started.replace(tzinfo=timezone.utc)
+               now = datetime.now(timezone.utc)
+               elapsed = (now - started).total_seconds()
+               return elapsed > self.timeout_seconds
+           except (ValueError, TypeError):
+               return False
    ```
 
    Update WorkflowState class (replace old task counter fields):
@@ -492,13 +892,18 @@
 
            Returns task_id or None if no tasks ready.
            A task is claimable if:
-           - status is PENDING
-           - all dependencies have status COMPLETED
+           - status is PENDING and all dependencies COMPLETED, OR
+           - status is RUNNING but has timed out (zombie recovery)
            """
            for task_id, task in self.tasks.items():
+               # Case 1: Timed-out RUNNING task (zombie recovery)
+               if task.status == TaskStatus.RUNNING and task.is_timed_out():
+                   return task_id
+
+               # Case 2: PENDING task with all deps completed
                if task.status != TaskStatus.PENDING:
                    continue
-               # Check if all dependencies completed
+
                deps_ready = all(
                    self.tasks[dep].status == TaskStatus.COMPLETED
                    for dep in task.dependencies
@@ -506,6 +911,7 @@
                )
                if deps_ready:
                    return task_id
+
            return None
    ```
 
@@ -517,7 +923,7 @@
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(state): add Task model and DAG-based get_claimable_task"
+   git add -A && git commit -m "feat(state): add Task model with timeout and zombie detection in get_claimable_task"
    ```
 
 ---
@@ -530,6 +936,9 @@
 - Modify: `src/harness/daemon.py`
 - Test: `tests/harness/test_daemon.py`
 
+**Architectural Fixes Applied:**
+- **Zombie Deadlock:** Claim handler detects timed-out tasks (via `get_claimable_task`) and logs "reclaim" event with retry_count
+
 **TDD Instructions (MANDATORY):**
 
 1. **Write test FIRST:**
@@ -537,6 +946,7 @@
    # tests/harness/test_daemon.py (add to existing file)
 
    import time
+   from datetime import datetime, timezone, timedelta
    from harness.state import Task, TaskStatus, WorkflowState
 
 
@@ -572,10 +982,18 @@
 
 
    def test_handle_task_claim_none_available(daemon_with_state, send_command):
-       """task_claim returns None when no tasks claimable."""
+       """task_claim returns None when no tasks claimable (active task not timed out)."""
+       now = datetime.now(timezone.utc).isoformat()
        daemon_with_state.state_manager.update(
            tasks={
-               "task-1": Task(id="task-1", description="First", status=TaskStatus.RUNNING, dependencies=[]),
+               "task-1": Task(
+                   id="task-1",
+                   description="First",
+                   status=TaskStatus.RUNNING,
+                   dependencies=[],
+                   started_at=now,
+                   timeout_seconds=3600,
+               ),
            }
        )
 
@@ -583,6 +1001,34 @@
 
        assert response["status"] == "ok"
        assert response["data"] is None
+
+
+   def test_handle_task_claim_reclaims_timed_out(daemon_with_state, send_command):
+       """task_claim reclaims a timed-out zombie task."""
+       old_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+       daemon_with_state.state_manager.update(
+           tasks={
+               "task-1": Task(
+                   id="task-1",
+                   description="Zombie task",
+                   status=TaskStatus.RUNNING,
+                   dependencies=[],
+                   started_at=old_time,
+                   timeout_seconds=3600,  # 1 hour timeout, started 2 hours ago
+               ),
+           }
+       )
+
+       response = send_command({"command": "task_claim"})
+
+       assert response["status"] == "ok"
+       assert response["data"]["task_id"] == "task-1"
+       assert response["data"]["is_reclaim"] is True
+
+       # Verify started_at was reset
+       state = daemon_with_state.state_manager.load()
+       new_started = datetime.fromisoformat(state.tasks["task-1"].started_at)
+       assert new_started > datetime.fromisoformat(old_time)
 
 
    def test_handle_task_complete_marks_completed(daemon_with_state, send_command):
@@ -628,6 +1074,29 @@
        assert len(trajectory) == 1
        assert trajectory[0]["event"] == "claim"
        assert trajectory[0]["task_id"] == "task-1"
+
+
+   def test_task_reclaim_logs_trajectory_with_retry_count(daemon_with_state, send_command):
+       """Reclaiming a timed-out task logs 'reclaim' event with retry_count."""
+       old_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+       daemon_with_state.state_manager.update(
+           tasks={
+               "task-1": Task(
+                   id="task-1",
+                   description="Zombie",
+                   status=TaskStatus.RUNNING,
+                   dependencies=[],
+                   started_at=old_time,
+                   timeout_seconds=3600,
+               ),
+           }
+       )
+
+       send_command({"command": "task_claim"})
+
+       trajectory = daemon_with_state.trajectory_logger.tail(1)
+       assert trajectory[0]["event"] == "reclaim"
+       assert trajectory[0]["retry_count"] == 1
    ```
 
 2. **Run test, verify FAILURE:**
@@ -641,6 +1110,7 @@
    In `src/harness/daemon.py`, add to imports:
    ```python
    import time
+   from datetime import datetime, timezone
    from harness.state import TrajectoryLogger, TaskStatus
    ```
 
@@ -663,7 +1133,10 @@
    Add handler methods:
    ```python
    def _handle_task_claim(self, request: dict, server: "HarnessDaemon") -> dict:
-       """Claim next available task from the DAG."""
+       """Claim next available task from the DAG.
+
+       Handles both fresh claims and reclaims of timed-out zombie tasks.
+       """
        state = server.state_manager.load()
        if not state:
            return {"status": "error", "message": "No workflow active"}
@@ -672,25 +1145,45 @@
        if not task_id:
            return {"status": "ok", "data": None}
 
-       # Mark as running
        task = state.tasks[task_id]
+
+       # Detect if this is a reclaim (zombie recovery)
+       is_reclaim = task.status == TaskStatus.RUNNING and task.is_timed_out()
+
+       # Calculate retry count for reclaims
+       retry_count = 0
+       if is_reclaim:
+           # Count previous reclaim events for this task
+           trajectory = server.trajectory_logger.tail(100)
+           retry_count = sum(
+               1 for e in trajectory
+               if e.get("task_id") == task_id and e.get("event") in ("claim", "reclaim")
+           )
+
+       # Mark as running with fresh timestamp
+       now = datetime.now(timezone.utc).isoformat()
        updated_task = task.model_copy(update={
            "status": TaskStatus.RUNNING,
-           "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "started_at": now,
        })
        updated_tasks = {**state.tasks, task_id: updated_task}
        server.state_manager.update(tasks=updated_tasks)
 
-       # Log trajectory
-       server.trajectory_logger.log({
-           "event": "claim",
+       # Log trajectory (different event type for reclaims)
+       event_type = "reclaim" if is_reclaim else "claim"
+       event = {
+           "event": event_type,
            "task_id": task_id,
            "timestamp": time.time(),
-       })
+       }
+       if is_reclaim:
+           event["retry_count"] = retry_count
+       server.trajectory_logger.log(event)
 
        return {"status": "ok", "data": {
            "task_id": task_id,
            "description": task.description,
+           "is_reclaim": is_reclaim,
        }}
 
    def _handle_task_complete(self, request: dict, server: "HarnessDaemon") -> dict:
@@ -708,9 +1201,10 @@
 
        # Mark as completed
        task = state.tasks[task_id]
+       now = datetime.now(timezone.utc).isoformat()
        updated_task = task.model_copy(update={
            "status": TaskStatus.COMPLETED,
-           "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "completed_at": now,
        })
        updated_tasks = {**state.tasks, task_id: updated_task}
        server.state_manager.update(tasks=updated_tasks)
@@ -733,7 +1227,7 @@
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(daemon): add task_claim and task_complete handlers"
+   git add -A && git commit -m "feat(daemon): add task_claim and task_complete handlers with zombie reclaim"
    ```
 
 ---
@@ -1041,14 +1535,25 @@
 
 ## Summary
 
-| Task | Effort | Files | Commit Message |
-|------|--------|-------|----------------|
-| 1. Runtime Abstraction | standard | git.py, test_git.py | `feat(runtime): add LocalRuntime and DockerRuntime abstractions` |
-| 2. Trajectory Logger | standard | state.py, test_state.py | `feat(trajectory): add TrajectoryLogger for JSONL event logging` |
-| 3. DAG-Based State | complex | state.py, test_state.py | `feat(state): add Task model and DAG-based get_claimable_task` |
-| 4. Daemon Handlers | standard | daemon.py, test_daemon.py | `feat(daemon): add task_claim and task_complete handlers` |
-| 5. Client Commands | standard | client.py, test_client.py | `feat(client): add task claim and task complete commands` |
-| 6. Integration Tests | standard | test_integration.py | `test(integration): add end-to-end tests for task workflow` |
-| 7. Code Review | simple | all | (no commit, review only) |
+| Task | Effort | Files | Commit Message | Arch Fix |
+|------|--------|-------|----------------|----------|
+| 1. Runtime Abstraction | standard | git.py, test_git.py | `feat(runtime): add LocalRuntime and DockerRuntime with env and path mapping` | Secret-Less, Path Mismatch |
+| 2. Trajectory Logger | standard | state.py, test_state.py | `feat(trajectory): add TrajectoryLogger with efficient reverse-seek tail` | I/O Suicide |
+| 3. DAG-Based State | complex | state.py, test_state.py | `feat(state): add Task model with timeout and zombie detection in get_claimable_task` | Zombie Deadlock |
+| 4. Daemon Handlers | standard | daemon.py, test_daemon.py | `feat(daemon): add task_claim and task_complete handlers with zombie reclaim` | Zombie Deadlock |
+| 5. Client Commands | standard | client.py, test_client.py | `feat(client): add task claim and task complete commands` | - |
+| 6. Integration Tests | standard | test_integration.py | `test(integration): add end-to-end tests for task workflow` | - |
+| 7. Code Review | simple | all | (no commit, review only) | - |
 
 **Total estimated tool calls:** 75-100
+
+---
+
+## Architectural Fixes Summary
+
+| Issue | Task(s) | Solution |
+|-------|---------|----------|
+| **I/O Suicide** | Task 2 | Efficient reverse-seek `tail()` reads from end in 4KB blocks |
+| **Path Mismatch** | Task 1 | `DockerRuntime.mount_map` translates host→container paths |
+| **Zombie Deadlock** | Task 3, 4 | `Task.timeout_seconds` + `is_timed_out()` + reclaim logic |
+| **Secret-Less Agent** | Task 1 | `env` parameter on `execute()`, merged with os.environ for LocalRuntime, -e flags for DockerRuntime |
