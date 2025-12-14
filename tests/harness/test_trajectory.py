@@ -185,7 +185,7 @@ def test_trajectory_tail_handles_decode_error(tmp_path):
     # Write mix of valid and invalid lines
     with trajectory_file.open("w") as f:
         f.write('{"event": "valid1"}\n')
-        f.write("invalid json line\n")
+        f.write('invalid json line\n')
         f.write('{"event": "valid2"}\n')
 
     logger = TrajectoryLogger(trajectory_file)

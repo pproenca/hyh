@@ -1,5 +1,6 @@
 """Tests for ACP fire-and-forget emitter."""
 
+import contextlib
 import json
 import socket
 import threading
@@ -70,3 +71,78 @@ def test_emitter_logs_once_on_failure(capsys):
     captured = capsys.readouterr()
     # Should only see one warning, not three
     assert captured.err.count("ACP") <= 1
+
+
+def test_acp_worker_send_error_disables():
+    """Worker should disable emitter after send failure."""
+    # Create server that accepts then closes immediately
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    port = server.getsockname()[1]
+    server.listen(1)
+
+    emitter = ACPEmitter(host="127.0.0.1", port=port)
+
+    # Accept connection then close it to trigger send error
+    def accept_and_close():
+        conn, _ = server.accept()
+        time.sleep(0.1)  # Let emitter connect
+        conn.close()
+
+    threading.Thread(target=accept_and_close, daemon=True).start()
+
+    # Emit while connection is being established
+    emitter.emit({"event": "test1"})
+    time.sleep(0.3)
+
+    # Emit after connection closed - should trigger error path
+    emitter.emit({"event": "test2"})
+    time.sleep(0.3)
+
+    assert emitter._disabled is True
+    emitter.close()
+    server.close()
+
+
+def test_acp_worker_cleanup_on_shutdown_with_connection():
+    """Worker should clean up socket on shutdown when connection was established."""
+    # Create server that stays open
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    port = server.getsockname()[1]
+    server.listen(1)
+
+    connections = []
+
+    def accept_connections():
+        try:
+            conn, _ = server.accept()
+            connections.append(conn)
+            # Keep connection open but drain data
+            while True:
+                try:
+                    data = conn.recv(1024)
+                    if not data:
+                        break
+                except OSError:
+                    break
+        except OSError:
+            pass
+
+    accept_thread = threading.Thread(target=accept_connections, daemon=True)
+    accept_thread.start()
+
+    emitter = ACPEmitter(host="127.0.0.1", port=port)
+    emitter.emit({"event": "test"})
+    time.sleep(0.2)  # Let connection establish
+
+    # Close should clean up
+    emitter.close()
+
+    # Close server resources
+    for conn in connections:
+        with contextlib.suppress(OSError):
+            conn.close()
+    server.close()

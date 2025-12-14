@@ -847,3 +847,119 @@ def test_state_manager_save_validates_dag(tmp_path):
 
     # File should not exist (save was rejected)
     assert not manager.state_file.exists()
+
+
+# ============================================================================
+# TestStateManagerAutoLoad: auto-load branch coverage tests (Task 1)
+# ============================================================================
+
+
+def test_update_without_prior_load(tmp_path):
+    """update() should auto-load state from disk if not in memory."""
+    manager = StateManager(tmp_path)
+    # Create state file directly (bypassing manager.save)
+    state_file = tmp_path / ".claude" / "dev-workflow-state.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(
+        json.dumps(
+            {
+                "tasks": {
+                    "task-1": {
+                        "id": "task-1",
+                        "description": "Test",
+                        "status": "pending",
+                        "dependencies": [],
+                        "timeout_seconds": 600,
+                    }
+                }
+            }
+        )
+    )
+
+    # Update without calling load() first
+    updated = manager.update(
+        tasks={
+            "task-1": Task(
+                id="task-1",
+                description="Updated",
+                status=TaskStatus.COMPLETED,
+                dependencies=[],
+            )
+        }
+    )
+    assert updated.tasks["task-1"].status == TaskStatus.COMPLETED
+
+
+def test_update_raises_when_no_state(tmp_path):
+    """update() should raise ValueError when no state file exists."""
+    manager = StateManager(tmp_path)
+    with pytest.raises(ValueError, match="No state loaded"):
+        manager.update(tasks={})
+
+
+def test_claim_task_auto_loads_state(tmp_path):
+    """claim_task() should auto-load state from disk."""
+    # Create state file directly
+    manager = StateManager(tmp_path)
+    state_file = tmp_path / ".claude" / "dev-workflow-state.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(
+        json.dumps(
+            {
+                "tasks": {
+                    "task-1": {
+                        "id": "task-1",
+                        "description": "Test",
+                        "status": "pending",
+                        "dependencies": [],
+                        "timeout_seconds": 600,
+                    }
+                }
+            }
+        )
+    )
+
+    # Claim without calling load() - should auto-load
+    task = manager.claim_task("worker-1")
+    assert task is not None
+    assert task.id == "task-1"
+
+
+def test_complete_task_auto_loads_state(tmp_path):
+    """complete_task() should auto-load state from disk."""
+    manager = StateManager(tmp_path)
+    state_file = tmp_path / ".claude" / "dev-workflow-state.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(
+        json.dumps(
+            {
+                "tasks": {
+                    "task-1": {
+                        "id": "task-1",
+                        "description": "Test",
+                        "status": "running",
+                        "dependencies": [],
+                        "timeout_seconds": 600,
+                        "claimed_by": "worker-1",
+                        "started_at": "2025-01-01T00:00:00Z",
+                    }
+                }
+            }
+        )
+    )
+
+    # Complete without calling load() - should auto-load
+    manager.complete_task("task-1", "worker-1")
+    loaded = StateManager(tmp_path).load()
+    assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
+
+
+def test_complete_task_raises_for_missing_task(tmp_path):
+    """complete_task() should raise ValueError for unknown task_id."""
+    manager = StateManager(tmp_path)
+    state_file = tmp_path / ".claude" / "dev-workflow-state.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(json.dumps({"tasks": {}}))
+
+    with pytest.raises(ValueError, match="Task nonexistent not found"):
+        manager.complete_task("nonexistent", "worker-1")

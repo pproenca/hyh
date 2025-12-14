@@ -66,6 +66,13 @@ class TestSignalDecoding:
 class TestPathMapper:
     """Test PathMapper ABC and implementations."""
 
+    def test_path_mapper_cannot_instantiate(self):
+        """PathMapper is abstract - cannot instantiate."""
+        from harness.runtime import PathMapper
+
+        with pytest.raises(TypeError):
+            PathMapper()
+
     def test_identity_mapper_returns_same_path(self):
         """IdentityMapper should return the same path."""
         from harness.runtime import IdentityMapper
@@ -112,6 +119,22 @@ class TestPathMapper:
         # Paths outside the workspace should still be transformed
         result = mapper.to_runtime("/host/workspace/nested/deep/file.txt")
         assert result == "/workspace/nested/deep/file.txt"
+
+    def test_volume_mapper_path_outside_host_root(self):
+        """VolumeMapper should pass through paths outside mapped host root."""
+        from harness.runtime import VolumeMapper
+
+        mapper = VolumeMapper("/host/workspace", "/container/workspace")
+        # Host path outside root should pass through unchanged
+        assert mapper.to_runtime("/other/path") == "/other/path"
+
+    def test_volume_mapper_path_outside_container_root(self):
+        """VolumeMapper should pass through paths outside mapped container root."""
+        from harness.runtime import VolumeMapper
+
+        mapper = VolumeMapper("/host/workspace", "/container/workspace")
+        # Container path outside root should pass through unchanged
+        assert mapper.to_host("/other/container/path") == "/other/container/path"
 
 
 class TestLocalRuntime:
@@ -359,6 +382,56 @@ class TestDockerRuntime:
         assert "script.py" in args
         assert "--arg" in args
         assert "value" in args
+
+    @patch("subprocess.run")
+    def test_docker_runtime_exclusive_lock_acquired(self, mock_run):
+        """DockerRuntime should acquire GLOBAL_EXEC_LOCK when exclusive=True."""
+        import threading
+        import time
+
+        from harness.runtime import GLOBAL_EXEC_LOCK, DockerRuntime, VolumeMapper
+
+        mapper = VolumeMapper("/host", "/container")
+        runtime = DockerRuntime("test-container", mapper)
+
+        # Make subprocess.run slow enough to ensure lock is held during execution
+        def slow_run(*args, **kwargs):
+            time.sleep(0.1)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_run.side_effect = slow_run
+
+        # Acquire the lock in this thread
+        GLOBAL_EXEC_LOCK.acquire()
+
+        try:
+            # Try to execute with exclusive=True in another thread
+            result_container = {}
+
+            def run_command():
+                result = runtime.execute(["echo", "test"], exclusive=True)
+                result_container["result"] = result
+
+            thread = threading.Thread(target=run_command)
+            thread.start()
+
+            # Give thread a moment to start and block on lock
+            time.sleep(0.05)
+
+            # Thread should be blocked waiting for lock
+            assert thread.is_alive(), "Command should block waiting for lock when exclusive=True"
+
+            # Release lock
+            GLOBAL_EXEC_LOCK.release()
+
+            # Thread should now complete
+            thread.join(timeout=2.0)
+            assert not thread.is_alive(), "Command should complete after lock release"
+            assert result_container["result"].returncode == 0
+        finally:
+            # Ensure lock is released even if test fails
+            if GLOBAL_EXEC_LOCK.locked():
+                GLOBAL_EXEC_LOCK.release()
 
 
 class TestRuntimeFactory:
