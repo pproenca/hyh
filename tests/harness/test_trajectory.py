@@ -174,3 +174,24 @@ def test_separate_lock_from_state(temp_trajectory_dir, logger):
 
     # Each logger should have its own lock instance
     assert lock_id_1 != lock_id_2
+
+
+def test_trajectory_tail_handles_decode_error(tmp_path):
+    """tail() should skip lines that fail JSON decode."""
+    from harness.trajectory import TrajectoryLogger
+
+    trajectory_file = tmp_path / "trajectory.jsonl"
+
+    # Write mix of valid and invalid lines
+    with trajectory_file.open("w") as f:
+        f.write('{"event": "valid1"}\n')
+        f.write("invalid json line\n")
+        f.write('{"event": "valid2"}\n')
+
+    logger = TrajectoryLogger(trajectory_file)
+    events = logger.tail(5)
+
+    # Should only return valid events
+    assert len(events) == 2
+    assert events[0]["event"] == "valid1"
+    assert events[1]["event"] == "valid2"
