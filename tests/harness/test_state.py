@@ -73,6 +73,42 @@ def test_task_claimed_by_field():
     assert task.claimed_by == "worker-123"
 
 
+def test_task_instructions_field():
+    """Task should have instructions field for orchestrator injection."""
+    task = Task(
+        id="task-1",
+        description="Test task",
+        status=TaskStatus.PENDING,
+        dependencies=[],
+        instructions="Step 1: Read the file. Step 2: Modify the function.",
+    )
+    assert task.instructions == "Step 1: Read the file. Step 2: Modify the function."
+
+
+def test_task_role_field():
+    """Task should have role field for agent specialization."""
+    task = Task(
+        id="task-1",
+        description="Test task",
+        status=TaskStatus.PENDING,
+        dependencies=[],
+        role="frontend",
+    )
+    assert task.role == "frontend"
+
+
+def test_task_injection_fields_default_to_none():
+    """Injection fields should default to None for backwards compat."""
+    task = Task(
+        id="task-1",
+        description="Test task",
+        status=TaskStatus.PENDING,
+        dependencies=[],
+    )
+    assert task.instructions is None
+    assert task.role is None
+
+
 def test_task_is_timed_out_not_started():
     """is_timed_out should return False if task not started."""
     task = Task(

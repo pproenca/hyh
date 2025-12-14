@@ -37,6 +37,9 @@ class Task(BaseModel):
     completed_at: datetime | None = Field(None, description="Task completion timestamp")
     claimed_by: str | None = Field(None, description="Worker ID that claimed this task")
     timeout_seconds: int = Field(600, description="Timeout for task execution")
+    # Orchestrator Injection (v2.5)
+    instructions: str | None = Field(None, description="Detailed prompt for agent")
+    role: str | None = Field(None, description="Agent role: frontend, backend, etc.")
 
     def is_timed_out(self) -> bool:
         """Check if task has exceeded timeout window."""
