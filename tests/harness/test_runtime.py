@@ -14,10 +14,8 @@ import pytest
 import subprocess
 import threading
 import time
-import signal
 import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 
 
 class TestSignalDecoding:

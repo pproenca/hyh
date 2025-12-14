@@ -334,12 +334,21 @@ def _cmd_session_start(socket_path: str, worktree_root: str):
         return
 
     state = response["data"]
+    tasks = state.get("tasks", {})
+    if not tasks:
+        print("{}")
+        return
+
+    # Calculate progress from task DAG
+    total_tasks = len(tasks)
+    completed_tasks = sum(1 for t in tasks.values() if t.get("status") == "completed")
+
     output = {
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
             "additionalContext": (
-                f"Resuming {state['workflow']}: "
-                f"task {state['current_task']}/{state['total_tasks']}"
+                f"Resuming workflow: "
+                f"task {completed_tasks}/{total_tasks}"
             ),
         }
     }
@@ -358,9 +367,18 @@ def _cmd_check_state(socket_path: str, worktree_root: str):
         return
 
     state = response["data"]
-    if state.get("enabled") and state["current_task"] < state["total_tasks"]:
+    tasks = state.get("tasks", {})
+    if not tasks:
+        print("allow")
+        return
+
+    # Calculate progress from task DAG
+    total_tasks = len(tasks)
+    completed_tasks = sum(1 for t in tasks.values() if t.get("status") == "completed")
+
+    if completed_tasks < total_tasks:
         print(
-            f"deny: Workflow in progress ({state['current_task']}/{state['total_tasks']})"
+            f"deny: Workflow in progress ({completed_tasks}/{total_tasks})"
         )
         sys.exit(1)
     print("allow")

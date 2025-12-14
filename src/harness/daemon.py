@@ -195,19 +195,19 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         """Execute a command using the runtime."""
         import subprocess
 
-        cmd = request.get("cmd", [])
+        args = request.get("args", [])
         cwd = request.get("cwd")
         env = request.get("env")
         timeout = request.get("timeout")
         exclusive = request.get("exclusive", False)
 
-        if not cmd:
-            return {"status": "error", "message": "cmd is required"}
+        if not args:
+            return {"status": "error", "message": "args is required"}
 
         try:
             # Execute command
             result = server.runtime.execute(
-                command=cmd,
+                command=args,
                 cwd=cwd,
                 env=env,
                 timeout=timeout,
@@ -221,7 +221,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             server.trajectory_logger.log(
                 {
                     "event_type": "exec",
-                    "cmd": cmd,
+                    "args": args,
                     "returncode": result.returncode,
                     "signal_name": signal_name,
                     "stdout": result.stdout[:200] if result.stdout else "",  # Truncate for log
@@ -245,7 +245,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             server.trajectory_logger.log(
                 {
                     "event_type": "exec",
-                    "cmd": cmd,
+                    "args": args,
                     "returncode": -15,
                     "signal_name": signal_name,
                     "timeout": True,

@@ -76,18 +76,26 @@ def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
 def test_daemon_get_state(socket_path, worktree):
     """Daemon should return state via get_state command."""
     from harness.daemon import HarnessDaemon
-    from harness.state import WorkflowState, StateManager
+    from harness.state import WorkflowState, Task, TaskStatus, StateManager
 
-    # Create state file
+    # Create state file with v2 JSON schema (task DAG)
     manager = StateManager(worktree)
     manager.save(
         WorkflowState(
-            workflow="subagent",
-            plan="/plan.md",
-            current_task=2,
-            total_tasks=5,
-            worktree=str(worktree),
-            base_sha="abc123",
+            tasks={
+                "task-1": Task(
+                    id="task-1",
+                    description="First task",
+                    status=TaskStatus.PENDING,
+                    dependencies=[],
+                ),
+                "task-2": Task(
+                    id="task-2",
+                    description="Second task",
+                    status=TaskStatus.PENDING,
+                    dependencies=["task-1"],
+                ),
+            }
         )
     )
 
@@ -102,8 +110,9 @@ def test_daemon_get_state(socket_path, worktree):
     try:
         response = send_command(socket_path, {"command": "get_state"})
         assert response["status"] == "ok"
-        assert response["data"]["current_task"] == 2
-        assert response["data"]["total_tasks"] == 5
+        assert "tasks" in response["data"]
+        assert "task-1" in response["data"]["tasks"]
+        assert response["data"]["tasks"]["task-1"]["status"] == "pending"
     finally:
         daemon.shutdown()
         server_thread.join(timeout=1)
@@ -112,17 +121,20 @@ def test_daemon_get_state(socket_path, worktree):
 def test_daemon_update_state(socket_path, worktree):
     """Daemon should update state via update_state command."""
     from harness.daemon import HarnessDaemon
-    from harness.state import WorkflowState, StateManager
+    from harness.state import WorkflowState, Task, TaskStatus, StateManager
 
+    # Create state with v2 JSON schema (task DAG)
     manager = StateManager(worktree)
     manager.save(
         WorkflowState(
-            workflow="execute-plan",
-            plan="/plan.md",
-            current_task=0,
-            total_tasks=3,
-            worktree=str(worktree),
-            base_sha="abc",
+            tasks={
+                "task-1": Task(
+                    id="task-1",
+                    description="First task",
+                    status=TaskStatus.PENDING,
+                    dependencies=[],
+                ),
+            }
         )
     )
 
@@ -133,19 +145,42 @@ def test_daemon_update_state(socket_path, worktree):
     time.sleep(0.1)
 
     try:
+        # Update by adding a new task to the task DAG
+        new_tasks = {
+            "task-1": {
+                "id": "task-1",
+                "description": "First task",
+                "status": "completed",
+                "dependencies": [],
+                "started_at": None,
+                "completed_at": None,
+                "claimed_by": None,
+                "timeout_seconds": 600,
+            },
+            "task-2": {
+                "id": "task-2",
+                "description": "Second task",
+                "status": "pending",
+                "dependencies": ["task-1"],
+                "started_at": None,
+                "completed_at": None,
+                "claimed_by": None,
+                "timeout_seconds": 600,
+            },
+        }
         response = send_command(
             socket_path,
             {
                 "command": "update_state",
-                "updates": {"current_task": 1, "last_commit": "def456"},
+                "updates": {"tasks": new_tasks},
             },
         )
         assert response["status"] == "ok"
 
         # Verify persisted
         loaded = StateManager(worktree).load()
-        assert loaded.current_task == 1
-        assert loaded.last_commit == "def456"
+        assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
+        assert "task-2" in loaded.tasks
     finally:
         daemon.shutdown()
         server_thread.join(timeout=1)
@@ -181,17 +216,20 @@ def test_daemon_git_operations(socket_path, worktree):
 def test_daemon_parallel_clients(socket_path, worktree):
     """Verify daemon handles parallel clients (Python 3.13t threading)."""
     from harness.daemon import HarnessDaemon
-    from harness.state import WorkflowState, StateManager
+    from harness.state import WorkflowState, Task, TaskStatus, StateManager
 
+    # Create state with v2 JSON schema (task DAG)
     manager = StateManager(worktree)
     manager.save(
         WorkflowState(
-            workflow="subagent",
-            plan="/plan.md",
-            current_task=0,
-            total_tasks=10,
-            worktree=str(worktree),
-            base_sha="abc",
+            tasks={
+                "task-1": Task(
+                    id="task-1",
+                    description="First task",
+                    status=TaskStatus.PENDING,
+                    dependencies=[],
+                ),
+            }
         )
     )
 
@@ -251,7 +289,6 @@ def daemon_with_state(socket_path, worktree):
     """Create a daemon with tasks in state."""
     from harness.daemon import HarnessDaemon
     from harness.state import WorkflowState, Task, TaskStatus, StateManager
-    from datetime import datetime
 
     # Create state with tasks
     manager = StateManager(worktree)
@@ -494,7 +531,7 @@ def test_exec_decodes_signal_on_negative_returncode(daemon_with_state, socket_pa
         socket_path,
         {
             "command": "exec",
-            "cmd": ["sleep", "100"],
+            "args": ["sleep", "100"],
             "timeout": 0.1,  # Short timeout will cause SIGTERM
         },
     )

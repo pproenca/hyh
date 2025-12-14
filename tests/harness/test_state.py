@@ -4,7 +4,6 @@
 import pytest
 import json
 import threading
-import time
 from datetime import datetime, timedelta
 from harness.state import (
     TaskStatus,

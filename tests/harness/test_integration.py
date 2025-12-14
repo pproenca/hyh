@@ -138,28 +138,42 @@ def test_parallel_git_operations_no_race(integration_worktree):
 def test_state_persistence_across_daemon_restart(integration_worktree):
     """State should persist across daemon restarts."""
     from harness.client import send_rpc
-    from harness.state import WorkflowState, StateManager
+    from harness.state import WorkflowState, Task, TaskStatus, StateManager
 
     socket_path = integration_worktree["socket"]
     worktree = integration_worktree["worktree"]
 
-    # Create initial state
+    # Create initial state with v2 JSON schema (task DAG)
     manager = StateManager(worktree)
     manager.save(
         WorkflowState(
-            workflow="subagent",
-            plan="/plan.md",
-            current_task=3,
-            total_tasks=10,
-            worktree=str(worktree),
-            base_sha="abc123",
+            tasks={
+                "task-1": Task(
+                    id="task-1",
+                    description="First task",
+                    status=TaskStatus.PENDING,
+                    dependencies=[],
+                ),
+            }
         )
     )
 
     # Connect and update state (auto-spawns daemon)
+    new_tasks = {
+        "task-1": {
+            "id": "task-1",
+            "description": "First task",
+            "status": "completed",
+            "dependencies": [],
+            "started_at": None,
+            "completed_at": None,
+            "claimed_by": "worker-1",
+            "timeout_seconds": 600,
+        },
+    }
     resp = send_rpc(
         socket_path,
-        {"command": "update_state", "updates": {"current_task": 5}},
+        {"command": "update_state", "updates": {"tasks": new_tasks}},
         worktree_root=str(worktree),
     )
     assert resp["status"] == "ok"
@@ -176,7 +190,7 @@ def test_state_persistence_across_daemon_restart(integration_worktree):
         worktree_root=str(worktree),
     )
     assert resp["status"] == "ok"
-    assert resp["data"]["current_task"] == 5  # State persisted
+    assert resp["data"]["tasks"]["task-1"]["status"] == "completed"  # State persisted
 
 
 def test_cli_commands(integration_worktree):
@@ -242,75 +256,73 @@ def test_cli_get_state_without_workflow(integration_worktree):
 
 def test_cli_update_state(integration_worktree):
     """Test update-state command works correctly."""
-    import sys
-    from harness.state import WorkflowState, StateManager
+    from harness.state import WorkflowState, Task, TaskStatus, StateManager
 
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
 
-    # Create initial state
+    # Create initial state with v2 JSON schema (task DAG)
     manager = StateManager(worktree)
     manager.save(
         WorkflowState(
-            workflow="execute-plan",
-            plan="/plan.md",
-            current_task=1,
-            total_tasks=5,
-            worktree=str(worktree),
-            base_sha="abc123",
+            tasks={
+                "task-1": Task(
+                    id="task-1",
+                    description="First task",
+                    status=TaskStatus.PENDING,
+                    dependencies=[],
+                ),
+            }
         )
     )
 
-    env = {
-        "HARNESS_SOCKET": socket_path,
-        "HARNESS_WORKTREE": str(worktree),
-        "PATH": os.environ.get("PATH", ""),
-        "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
-    }
+    # Update state via RPC (tests the update mechanism directly)
+    from harness.client import send_rpc
 
-    # Update state via CLI
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "harness",
-            "update-state",
-            "--field",
-            "current_task",
-            "3",
-        ],
-        capture_output=True,
-        text=True,
-        env=env,
+    new_tasks = {
+        "task-1": {
+            "id": "task-1",
+            "description": "First task (updated)",
+            "status": "completed",
+            "dependencies": [],
+            "started_at": None,
+            "completed_at": None,
+            "claimed_by": "worker-1",
+            "timeout_seconds": 600,
+        },
+    }
+    resp = send_rpc(
+        socket_path,
+        {"command": "update_state", "updates": {"tasks": new_tasks}},
+        worktree_root=str(worktree),
     )
-    assert result.returncode == 0, f"update-state failed: {result.stderr}"
-    assert "Updated" in result.stdout
+    assert resp["status"] == "ok"
 
     # Verify state was updated
     loaded = StateManager(worktree).load()
-    assert loaded.current_task == 3
+    assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
 
 
 def test_cli_session_start_with_active_workflow(integration_worktree):
     """Test session-start hook outputs correct JSON."""
     import sys
-    from harness.state import WorkflowState, StateManager
+    from harness.state import WorkflowState, Task, TaskStatus, StateManager
 
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
 
-    # Create active workflow state
+    # Create active workflow state with v2 JSON schema (task DAG)
+    # 2 completed, 6 pending = 2/8 progress
     manager = StateManager(worktree)
-    manager.save(
-        WorkflowState(
-            workflow="subagent",
-            plan="/plan.md",
-            current_task=2,
-            total_tasks=8,
-            worktree=str(worktree),
-            base_sha="abc123",
+    tasks = {}
+    for i in range(1, 9):
+        tasks[f"task-{i}"] = Task(
+            id=f"task-{i}",
+            description=f"Task {i}",
+            status=TaskStatus.COMPLETED if i <= 2 else TaskStatus.PENDING,
+            dependencies=[f"task-{i-1}"] if i > 1 else [],
         )
-    )
+    manager.save(WorkflowState(tasks=tasks))
 
     env = {
         "HARNESS_SOCKET": socket_path,
@@ -325,11 +337,11 @@ def test_cli_session_start_with_active_workflow(integration_worktree):
         text=True,
         env=env,
     )
-    assert result.returncode == 0
+    assert result.returncode == 0, f"session-start failed: {result.stderr}"
 
     output = json.loads(result.stdout)
     assert "hookSpecificOutput" in output
-    assert "Resuming subagent" in output["hookSpecificOutput"]["additionalContext"]
+    assert "Resuming workflow" in output["hookSpecificOutput"]["additionalContext"]
     assert "2/8" in output["hookSpecificOutput"]["additionalContext"]
 
 

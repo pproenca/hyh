@@ -49,22 +49,36 @@ def worktree_with_daemon(tmp_path):
         ["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True
     )
 
-    # Create state file
+    # Create state file (v2 JSON schema with task DAG)
     state_dir = tmp_path / ".claude"
     state_dir.mkdir()
-    state_file = state_dir / "dev-workflow-state.local.md"
-    state_file.write_text(
-        """---
-workflow: subagent
-plan: /plan.md
-current_task: 1
-total_tasks: 5
-worktree: {worktree}
-base_sha: abc123
-enabled: true
----
-""".format(worktree=str(tmp_path))
-    )
+    state_file = state_dir / "dev-workflow-state.json"
+    import json
+    state_data = {
+        "tasks": {
+            "task-1": {
+                "id": "task-1",
+                "description": "First task",
+                "status": "pending",
+                "dependencies": [],
+                "started_at": None,
+                "completed_at": None,
+                "claimed_by": None,
+                "timeout_seconds": 600,
+            },
+            "task-2": {
+                "id": "task-2",
+                "description": "Second task",
+                "status": "pending",
+                "dependencies": ["task-1"],
+                "started_at": None,
+                "completed_at": None,
+                "claimed_by": None,
+                "timeout_seconds": 600,
+            },
+        }
+    }
+    state_file.write_text(json.dumps(state_data, indent=2))
 
     # Use short socket path in /tmp to avoid macOS path length limit
     socket_id = uuid.uuid4().hex[:8]
@@ -113,8 +127,10 @@ def test_client_get_state(worktree_with_daemon):
     )
 
     assert response["status"] == "ok"
-    assert response["data"]["current_task"] == 1
-    assert response["data"]["total_tasks"] == 5
+    # v2 schema uses task DAG
+    assert "tasks" in response["data"]
+    assert "task-1" in response["data"]["tasks"]
+    assert response["data"]["tasks"]["task-1"]["status"] == "pending"
 
 
 def test_client_git_command(worktree_with_daemon):

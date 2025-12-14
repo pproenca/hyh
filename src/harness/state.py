@@ -9,9 +9,10 @@ StateManager handles persistence to JSON format.
 from pydantic import BaseModel, Field
 from typing import Literal
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 import json
+import os
 import threading
 
 
@@ -117,7 +118,10 @@ class StateManager:
 
             content = state.model_dump_json(indent=2)
             temp_file = self.state_file.with_suffix(".tmp")
-            temp_file.write_text(content)
+            with open(temp_file, "w") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
             temp_file.rename(self.state_file)
 
     def update(self, **kwargs) -> WorkflowState:
@@ -140,7 +144,10 @@ class StateManager:
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             content = self._state.model_dump_json(indent=2)
             temp_file = self.state_file.with_suffix(".tmp")
-            temp_file.write_text(content)
+            with open(temp_file, "w") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
             temp_file.rename(self.state_file)
             return self._state
 
@@ -172,7 +179,10 @@ class StateManager:
                 self._state.tasks[task.id] = task
                 content = self._state.model_dump_json(indent=2)
                 temp_file = self.state_file.with_suffix(".tmp")
-                temp_file.write_text(content)
+                with open(temp_file, "w") as f:
+                    f.write(content)
+                    f.flush()
+                    os.fsync(f.fileno())
                 temp_file.rename(self.state_file)
 
             return task
@@ -207,5 +217,8 @@ class StateManager:
             self._state.tasks[task_id] = task
             content = self._state.model_dump_json(indent=2)
             temp_file = self.state_file.with_suffix(".tmp")
-            temp_file.write_text(content)
+            with open(temp_file, "w") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
             temp_file.rename(self.state_file)
