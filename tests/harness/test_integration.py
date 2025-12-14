@@ -908,3 +908,32 @@ def test_cli_exec_with_timeout_and_signal(workflow_with_tasks):
     # Process was killed with SIGTERM (signal 15)
     assert output["data"]["returncode"] < 0
     assert output["data"]["signal_name"] == "SIGTERM"
+
+
+def test_dag_cycle_rejection(integration_worktree):
+    """Saving workflow with cyclic dependencies raises error."""
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+
+    worktree = integration_worktree["worktree"]
+    manager = StateManager(worktree)
+
+    # Create cyclic dependency: task-1 -> task-2 -> task-1
+    state = WorkflowState(
+        tasks={
+            "task-1": Task(
+                id="task-1",
+                description="First",
+                status=TaskStatus.PENDING,
+                dependencies=["task-2"],  # Depends on task-2
+            ),
+            "task-2": Task(
+                id="task-2",
+                description="Second",
+                status=TaskStatus.PENDING,
+                dependencies=["task-1"],  # Depends on task-1 -> CYCLE!
+            ),
+        }
+    )
+
+    with pytest.raises(ValueError, match="[Cc]ycle"):
+        manager.save(state)
