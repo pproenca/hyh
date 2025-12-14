@@ -660,7 +660,7 @@ def _cmd_plan_import(socket_path: str, worktree_root: str, file_path: str) -> No
 
 
 def _cmd_plan_template() -> None:
-    """Print plan JSON schema for agent self-healing."""
+    """Print plan template for agent self-healing."""
     # Lazy import to avoid loading pydantic on normal client operations
     from harness.plan import get_plan_template
 
