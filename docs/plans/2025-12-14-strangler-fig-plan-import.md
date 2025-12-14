@@ -1,8 +1,11 @@
-# Strangler Fig Plan Import Implementation
+# Harness v2.5: The "Connected" Kernel
 
-**Goal:** Enable the Harness daemon to ingest LLM-generated plans from Markdown files with embedded JSON, converting them to the internal DAG schema for task execution.
+**Goal:** Upgrade Harness from a "Passive Database" to an "Active Relay" - enabling plan ingestion from LLM-generated Markdown with "Orchestrator Injection" support, plus real-time telemetry streaming via ACP (Agent Communication Protocol).
 
-**Architecture:** Add a `plan.py` module that parses Markdown containing JSON plan blocks, validates the DAG, and converts to `WorkflowState`. Expose via `harness plan import` and `harness plan template` client commands routed to a new daemon handler.
+**Architecture:**
+1. **"Empty Shell" Agent** - Task model gains `instructions`, `role`, `context_files` fields for orchestrator injection
+2. **ACP Side-Channel** - Synchronous WebSocket client streams trajectory events to Claude Code (`ws://localhost:9100`)
+3. **Plan as Compiler** - Markdown parser extracts JSON plans, validates DAG, seeds daemon state
 
 ---
 
@@ -10,15 +13,120 @@
 
 | Task Group | Tasks | Rationale |
 |------------|-------|-----------|
-| Group 1 | 1, 2 | Independent: plan.py models vs test fixtures |
-| Group 2 | 3, 4 | Both touch plan.py: parser + integration |
-| Group 3 | 5, 6 | Client commands: template + import |
-| Group 4 | 7 | Daemon handler depends on client commands |
-| Group 5 | 8 | Integration test depends on all above |
+| Group 1 | 1, 2 | Independent: state.py Task enhancement vs plan.py models |
+| Group 2 | 3 | DAG validation (depends on models) |
+| Group 3 | 4, 5 | Independent: Markdown parser vs WorkflowState conversion |
+| Group 4 | 6 | ACP module (independent) |
+| Group 5 | 7, 8 | Client commands: template + import |
+| Group 6 | 9, 10 | Daemon handlers: plan_import + ACP integration |
+| Group 7 | 11 | Integration test |
+| Group 8 | 12 | Code review |
 
 ---
 
-### Task 1: Plan Module - Pydantic Models
+### Task 1: Enhanced Task Model - Orchestrator Injection Fields
+
+**Effort:** simple (3-10 tool calls)
+
+**Files:**
+- Modify: `src/harness/state.py:29-56`
+- Test: `tests/harness/test_state.py`
+
+**TDD Instructions (MANDATORY):**
+
+1. **Write test FIRST:**
+   ```python
+   # Add to tests/harness/test_state.py after test_task_claimed_by_field
+
+   def test_task_instructions_field():
+       """Task should have instructions field for orchestrator injection."""
+       task = Task(
+           id="task-1",
+           description="Test task",
+           status=TaskStatus.PENDING,
+           dependencies=[],
+           instructions="Step 1: Read the file. Step 2: Modify the function.",
+       )
+       assert task.instructions == "Step 1: Read the file. Step 2: Modify the function."
+
+
+   def test_task_role_field():
+       """Task should have role field for agent specialization."""
+       task = Task(
+           id="task-1",
+           description="Test task",
+           status=TaskStatus.PENDING,
+           dependencies=[],
+           role="frontend",
+       )
+       assert task.role == "frontend"
+
+
+   def test_task_context_files_field():
+       """Task should have context_files field for file preloading."""
+       task = Task(
+           id="task-1",
+           description="Test task",
+           status=TaskStatus.PENDING,
+           dependencies=[],
+           context_files=["src/main.py", "tests/test_main.py"],
+       )
+       assert task.context_files == ["src/main.py", "tests/test_main.py"]
+
+
+   def test_task_injection_fields_default_to_none_or_empty():
+       """Injection fields should default to None/empty for backwards compat."""
+       task = Task(
+           id="task-1",
+           description="Test task",
+           status=TaskStatus.PENDING,
+           dependencies=[],
+       )
+       assert task.instructions is None
+       assert task.role is None
+       assert task.context_files == []
+   ```
+
+2. **Run test, verify FAILURE:**
+   ```bash
+   pytest tests/harness/test_state.py -v -k "instructions or role or context_files"
+   ```
+   Expected: FAIL (fields don't exist)
+
+3. **Implement MINIMAL code:**
+   ```python
+   # Modify Task class in src/harness/state.py (add after timeout_seconds field)
+
+   class Task(BaseModel):
+       """Individual task in workflow DAG."""
+
+       id: str = Field(..., description="Unique task identifier")
+       description: str = Field(..., description="Task description")
+       status: TaskStatus = Field(..., description="Current task status")
+       dependencies: list[str] = Field(..., description="List of task IDs that must complete first")
+       started_at: datetime | None = Field(None, description="Task start timestamp")
+       completed_at: datetime | None = Field(None, description="Task completion timestamp")
+       claimed_by: str | None = Field(None, description="Worker ID that claimed this task")
+       timeout_seconds: int = Field(600, description="Timeout for task execution")
+       # Orchestrator Injection fields (v2.5)
+       instructions: str | None = Field(None, description="Detailed prompt for the agent")
+       role: str | None = Field(None, description="Agent role: frontend, security, etc.")
+       context_files: list[str] = Field(default_factory=list, description="Files to preload")
+   ```
+
+4. **Run test, verify PASS:**
+   ```bash
+   pytest tests/harness/test_state.py -v -k "instructions or role or context_files"
+   ```
+
+5. **Commit:**
+   ```bash
+   git add -A && git commit -m "feat(state): add orchestrator injection fields to Task model"
+   ```
+
+---
+
+### Task 2: Plan Module - Pydantic Models with Injection Fields
 
 **Effort:** simple (3-10 tool calls)
 
@@ -34,7 +142,8 @@
    """Tests for plan parsing and conversion."""
 
    import pytest
-   from harness.plan import PlanTaskDefinition, PlanDefinition
+
+   from harness.plan import PlanDefinition, PlanTaskDefinition
 
 
    def test_plan_task_definition_basic():
@@ -43,17 +152,23 @@
        assert task.description == "Implement feature X"
        assert task.dependencies == []
        assert task.timeout_seconds == 600
+       assert task.instructions is None
+       assert task.role is None
+       assert task.context_files == []
 
 
-   def test_plan_task_definition_with_dependencies():
-       """PlanTaskDefinition should accept dependencies list."""
+   def test_plan_task_definition_with_injection_fields():
+       """PlanTaskDefinition should accept orchestrator injection fields."""
        task = PlanTaskDefinition(
-           description="Build on feature X",
-           dependencies=["task-1", "task-2"],
-           timeout_seconds=1200,
+           description="Build frontend component",
+           dependencies=["task-1"],
+           instructions="Use React hooks. Follow existing patterns in src/components/.",
+           role="frontend",
+           context_files=["src/components/Button.tsx"],
        )
-       assert task.dependencies == ["task-1", "task-2"]
-       assert task.timeout_seconds == 1200
+       assert task.instructions == "Use React hooks. Follow existing patterns in src/components/."
+       assert task.role == "frontend"
+       assert task.context_files == ["src/components/Button.tsx"]
 
 
    def test_plan_definition_basic():
@@ -85,17 +200,22 @@
    Plan parsing and conversion for LLM-generated Markdown plans.
 
    Converts "fuzzy" Markdown/JSON plans to strict WorkflowState DAG.
+   Supports "Orchestrator Injection" via instructions, role, and context_files.
    """
 
    from pydantic import BaseModel, Field
 
 
    class PlanTaskDefinition(BaseModel):
-       """User-facing task definition (simpler than internal Task)."""
+       """User-facing task definition with orchestrator injection support."""
 
        description: str = Field(..., description="Task description")
        dependencies: list[str] = Field(default_factory=list, description="Task IDs this depends on")
        timeout_seconds: int = Field(600, description="Timeout for task execution")
+       # Orchestrator Injection fields
+       instructions: str | None = Field(None, description="Detailed prompt for the agent")
+       role: str | None = Field(None, description="Agent role: frontend, security, etc.")
+       context_files: list[str] = Field(default_factory=list, description="Files to preload")
 
 
    class PlanDefinition(BaseModel):
@@ -112,17 +232,17 @@
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(plan): add PlanDefinition and PlanTaskDefinition models"
+   git add -A && git commit -m "feat(plan): add PlanDefinition with orchestrator injection fields"
    ```
 
 ---
 
-### Task 2: Plan Module - DAG Validation
+### Task 3: Plan Module - DAG Validation
 
 **Effort:** simple (3-10 tool calls)
 
 **Files:**
-- Modify: `src/harness/plan.py:15-25`
+- Modify: `src/harness/plan.py:25-50`
 - Test: `tests/harness/test_plan.py`
 
 **TDD Instructions (MANDATORY):**
@@ -172,9 +292,7 @@
 
 2. **Run test, verify FAILURE:**
    ```bash
-   pytest tests/harness/test_plan.py::test_plan_definition_validate_dag_no_cycle -v
-   pytest tests/harness/test_plan.py::test_plan_definition_validate_dag_detects_cycle -v
-   pytest tests/harness/test_plan.py::test_plan_definition_validate_dag_missing_dependency -v
+   pytest tests/harness/test_plan.py -v -k "validate_dag"
    ```
    Expected: FAIL (AttributeError - validate_dag doesn't exist)
 
@@ -225,12 +343,12 @@
 
 ---
 
-### Task 3: Plan Module - Markdown Parser
+### Task 4: Plan Module - Markdown Parser
 
 **Effort:** standard (10-15 tool calls)
 
 **Files:**
-- Modify: `src/harness/plan.py:30-60`
+- Modify: `src/harness/plan.py:50-90`
 - Test: `tests/harness/test_plan.py`
 
 **TDD Instructions (MANDATORY):**
@@ -259,16 +377,43 @@
    More text after.
    '''
        from harness.plan import parse_markdown_to_plan
+
        plan = parse_markdown_to_plan(content)
        assert plan.goal == "Implement feature"
        assert len(plan.tasks) == 2
        assert plan.tasks["task-2"].dependencies == ["task-1"]
 
 
+   def test_parse_markdown_with_injection_fields():
+       """parse_markdown_to_plan should parse orchestrator injection fields."""
+       content = '''
+   ```json
+   {
+     "goal": "Build UI",
+     "tasks": {
+       "task-1": {
+         "description": "Create component",
+         "instructions": "Use React hooks pattern",
+         "role": "frontend",
+         "context_files": ["src/App.tsx"]
+       }
+     }
+   }
+   ```
+   '''
+       from harness.plan import parse_markdown_to_plan
+
+       plan = parse_markdown_to_plan(content)
+       assert plan.tasks["task-1"].instructions == "Use React hooks pattern"
+       assert plan.tasks["task-1"].role == "frontend"
+       assert plan.tasks["task-1"].context_files == ["src/App.tsx"]
+
+
    def test_parse_markdown_no_json_block_raises():
        """parse_markdown_to_plan should raise ValueError if no JSON block."""
        content = "# Plan\n\nNo JSON here."
        from harness.plan import parse_markdown_to_plan
+
        with pytest.raises(ValueError, match="[Nn]o JSON"):
            parse_markdown_to_plan(content)
 
@@ -281,6 +426,7 @@
    ```
    '''
        from harness.plan import parse_markdown_to_plan
+
        with pytest.raises(ValueError, match="[Ii]nvalid JSON"):
            parse_markdown_to_plan(content)
 
@@ -299,6 +445,7 @@
    ```
    '''
        from harness.plan import parse_markdown_to_plan
+
        with pytest.raises(ValueError, match="[Cc]ycle"):
            parse_markdown_to_plan(content)
    ```
@@ -311,11 +458,11 @@
 
 3. **Implement MINIMAL code:**
    ```python
-   # Add to src/harness/plan.py
+   # Add imports at top of src/harness/plan.py
    import json
    import re
 
-
+   # Add function after PlanDefinition class
    def parse_markdown_to_plan(content: str) -> PlanDefinition:
        """Extract JSON plan block from Markdown content.
 
@@ -360,12 +507,12 @@
 
 ---
 
-### Task 4: Plan Module - Convert to WorkflowState
+### Task 5: Plan Module - Convert to WorkflowState
 
 **Effort:** standard (10-15 tool calls)
 
 **Files:**
-- Modify: `src/harness/plan.py:60-90`
+- Modify: `src/harness/plan.py:90-120`
 - Test: `tests/harness/test_plan.py`
 
 **TDD Instructions (MANDATORY):**
@@ -401,6 +548,26 @@
        assert state.tasks["task-2"].timeout_seconds == 1200
 
 
+   def test_plan_to_workflow_state_preserves_injection_fields():
+       """to_workflow_state should preserve orchestrator injection fields."""
+       plan = PlanDefinition(
+           goal="Test",
+           tasks={
+               "task-1": PlanTaskDefinition(
+                   description="Frontend task",
+                   instructions="Use hooks pattern",
+                   role="frontend",
+                   context_files=["src/App.tsx"],
+               ),
+           },
+       )
+       state = plan.to_workflow_state()
+
+       assert state.tasks["task-1"].instructions == "Use hooks pattern"
+       assert state.tasks["task-1"].role == "frontend"
+       assert state.tasks["task-1"].context_files == ["src/App.tsx"]
+
+
    def test_plan_to_workflow_state_sets_pending_status():
        """to_workflow_state should set all tasks to PENDING status."""
        plan = PlanDefinition(
@@ -410,6 +577,7 @@
            },
        )
        state = plan.to_workflow_state()
+
        assert state.tasks["task-1"].status == TaskStatus.PENDING
        assert state.tasks["task-1"].started_at is None
        assert state.tasks["task-1"].completed_at is None
@@ -442,6 +610,9 @@
                status=TaskStatus.PENDING,
                dependencies=task_def.dependencies,
                timeout_seconds=task_def.timeout_seconds,
+               instructions=task_def.instructions,
+               role=task_def.role,
+               context_files=task_def.context_files,
            )
        return WorkflowState(tasks=tasks)
    ```
@@ -453,24 +624,257 @@
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(plan): add to_workflow_state conversion method"
+   git add -A && git commit -m "feat(plan): add to_workflow_state with injection field support"
    ```
 
 ---
 
-### Task 5: Client Command - Plan Template
+### Task 6: ACP Relay Module
 
-**Effort:** simple (3-10 tool calls)
+**Effort:** standard (10-15 tool calls)
 
 **Files:**
-- Modify: `src/harness/client.py:350-365`
-- Test: `tests/harness/test_client.py` (new test)
+- Create: `src/harness/acp.py`
+- Test: `tests/harness/test_acp.py`
 
 **TDD Instructions (MANDATORY):**
 
 1. **Write test FIRST:**
    ```python
-   # Add to tests/harness/test_client.py (or create new file)
+   # tests/harness/test_acp.py
+   """Tests for ACP (Agent Communication Protocol) relay module."""
+
+   import json
+   import socket
+   import threading
+   import time
+
+   import pytest
+
+   from harness.acp import ACPClient
+
+
+   @pytest.fixture
+   def mock_acp_server():
+       """Create a mock WebSocket-like server for testing."""
+       messages_received = []
+       server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+       server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+       server_socket.bind(("127.0.0.1", 0))  # Random port
+       server_socket.listen(1)
+       port = server_socket.getsockname()[1]
+
+       def accept_connections():
+           try:
+               conn, _ = server_socket.accept()
+               conn.settimeout(2.0)
+               while True:
+                   try:
+                       data = conn.recv(4096)
+                       if not data:
+                           break
+                       messages_received.append(data.decode())
+                   except socket.timeout:
+                       break
+               conn.close()
+           except OSError:
+               pass
+
+       thread = threading.Thread(target=accept_connections, daemon=True)
+       thread.start()
+
+       yield {"port": port, "messages": messages_received}
+
+       server_socket.close()
+
+
+   def test_acp_client_connects(mock_acp_server):
+       """ACPClient should connect to specified port."""
+       client = ACPClient(port=mock_acp_server["port"])
+       assert client.connect() is True
+       client.close()
+
+
+   def test_acp_client_send_log(mock_acp_server):
+       """ACPClient should send log entries as JSON."""
+       client = ACPClient(port=mock_acp_server["port"])
+       client.connect()
+
+       log_entry = {"event_type": "task_claim", "task_id": "task-1"}
+       client.send_log(log_entry)
+       time.sleep(0.1)  # Allow message to be received
+
+       client.close()
+
+       assert len(mock_acp_server["messages"]) >= 1
+       # Verify JSON format
+       received = json.loads(mock_acp_server["messages"][0].strip())
+       assert received["event_type"] == "task_claim"
+
+
+   def test_acp_client_graceful_failure():
+       """ACPClient should handle connection failure gracefully."""
+       client = ACPClient(port=59999)  # Unlikely to be in use
+       # Should not raise, just return False
+       assert client.connect() is False
+       # send_log should be no-op when not connected
+       client.send_log({"event": "test"})  # Should not raise
+
+
+   def test_acp_client_reconnect_on_failure(mock_acp_server):
+       """ACPClient should attempt reconnect on send failure."""
+       client = ACPClient(port=mock_acp_server["port"], reconnect=True)
+       client.connect()
+       client.close()  # Simulate disconnect
+
+       # Should attempt reconnect on next send (may fail, but shouldn't crash)
+       client.send_log({"event": "test"})
+   ```
+
+2. **Run test, verify FAILURE:**
+   ```bash
+   pytest tests/harness/test_acp.py -v
+   ```
+   Expected: FAIL (ImportError - module doesn't exist)
+
+3. **Implement MINIMAL code:**
+   ```python
+   # src/harness/acp.py
+   """
+   ACP (Agent Communication Protocol) Relay for Claude Code connectivity.
+
+   Provides real-time telemetry streaming via synchronous WebSocket-like
+   connection. Uses plain sockets for simplicity (no websocket-client dep).
+
+   Thread-safe: Can be called from multiple daemon handler threads.
+   """
+
+   import json
+   import socket
+   import threading
+   from typing import Any
+
+
+   class ACPClient:
+       """Synchronous client for ACP telemetry relay.
+
+       Connects to Claude Code's local port for real-time event streaming.
+       Designed for use in threaded daemon environment (no asyncio).
+       """
+
+       def __init__(
+           self,
+           host: str = "127.0.0.1",
+           port: int = 9100,
+           reconnect: bool = True,
+       ) -> None:
+           self.host = host
+           self.port = port
+           self.reconnect = reconnect
+           self._socket: socket.socket | None = None
+           self._lock = threading.Lock()
+           self._connected = False
+
+       def connect(self) -> bool:
+           """Establish connection to ACP endpoint.
+
+           Returns:
+               True if connected, False on failure.
+           """
+           with self._lock:
+               if self._connected:
+                   return True
+
+               try:
+                   self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                   self._socket.settimeout(5.0)
+                   self._socket.connect((self.host, self.port))
+                   self._connected = True
+                   return True
+               except (OSError, socket.error):
+                   self._socket = None
+                   self._connected = False
+                   return False
+
+       def send_log(self, entry: dict[str, Any]) -> bool:
+           """Send log entry to ACP endpoint.
+
+           Thread-safe. Attempts reconnect on failure if enabled.
+
+           Args:
+               entry: Log entry dict to send as JSON.
+
+           Returns:
+               True if sent successfully, False otherwise.
+           """
+           with self._lock:
+               if not self._connected:
+                   if self.reconnect:
+                       # Release lock during reconnect attempt
+                       pass
+                   else:
+                       return False
+
+           # Attempt reconnect outside lock if needed
+           if not self._connected and self.reconnect:
+               self.connect()
+
+           with self._lock:
+               if not self._connected or not self._socket:
+                   return False
+
+               try:
+                   message = json.dumps(entry) + "\n"
+                   self._socket.sendall(message.encode())
+                   return True
+               except (OSError, socket.error):
+                   self._connected = False
+                   self._socket = None
+                   return False
+
+       def close(self) -> None:
+           """Close connection."""
+           with self._lock:
+               if self._socket:
+                   try:
+                       self._socket.close()
+                   except OSError:
+                       pass
+                   self._socket = None
+               self._connected = False
+
+       @property
+       def is_connected(self) -> bool:
+           """Check if currently connected."""
+           with self._lock:
+               return self._connected
+   ```
+
+4. **Run test, verify PASS:**
+   ```bash
+   pytest tests/harness/test_acp.py -v
+   ```
+
+5. **Commit:**
+   ```bash
+   git add -A && git commit -m "feat(acp): add ACP relay client for Claude Code telemetry"
+   ```
+
+---
+
+### Task 7: Client Command - Plan Template
+
+**Effort:** simple (3-10 tool calls)
+
+**Files:**
+- Modify: `src/harness/client.py:350-380`
+- Test: `tests/harness/test_client.py`
+
+**TDD Instructions (MANDATORY):**
+
+1. **Write test FIRST:**
+   ```python
+   # Add to tests/harness/test_client.py
    import json
    import subprocess
    import sys
@@ -490,29 +894,44 @@
        assert "tasks" in data
        # Should have example tasks
        assert len(data["tasks"]) >= 1
+
+
+   def test_plan_template_includes_injection_fields():
+       """harness plan template should include orchestrator injection fields."""
+       result = subprocess.run(
+           [sys.executable, "-m", "harness.client", "plan", "template"],
+           capture_output=True,
+           text=True,
+       )
+       data = json.loads(result.stdout)
+       # At least one task should show injection fields
+       task = list(data["tasks"].values())[0]
+       assert "instructions" in task
+       assert "role" in task
+       assert "context_files" in task
    ```
 
 2. **Run test, verify FAILURE:**
    ```bash
-   pytest tests/harness/test_client.py::test_plan_template_outputs_json_schema -v
+   pytest tests/harness/test_client.py -v -k "plan_template"
    ```
    Expected: FAIL (command doesn't exist)
 
 3. **Implement MINIMAL code:**
    ```python
-   # Add to src/harness/client.py in main() after line ~350
+   # Add to src/harness/client.py in main() after existing subparsers (~line 350)
 
    # plan subcommand with template and import
    plan_parser = subparsers.add_parser("plan", help="Plan management commands")
    plan_subparsers = plan_parser.add_subparsers(dest="plan_command", required=True)
    plan_subparsers.add_parser("template", help="Output JSON schema template")
 
-   # Add to command routing after line ~400
+   # Add to command routing after existing elif blocks (~line 400)
    elif args.command == "plan":
        if args.plan_command == "template":
            _cmd_plan_template()
 
-   # Add handler function
+   # Add handler function at end of file
    def _cmd_plan_template() -> None:
        """Output JSON schema template for plan files."""
        template = {
@@ -521,12 +940,18 @@
                "task-1": {
                    "description": "First task description",
                    "dependencies": [],
-                   "timeout_seconds": 600
+                   "timeout_seconds": 600,
+                   "instructions": "Detailed instructions for the agent (optional)",
+                   "role": "general",
+                   "context_files": []
                },
                "task-2": {
                    "description": "Second task that depends on first",
                    "dependencies": ["task-1"],
-                   "timeout_seconds": 600
+                   "timeout_seconds": 600,
+                   "instructions": None,
+                   "role": None,
+                   "context_files": ["src/relevant_file.py"]
                }
            }
        }
@@ -535,22 +960,22 @@
 
 4. **Run test, verify PASS:**
    ```bash
-   pytest tests/harness/test_client.py::test_plan_template_outputs_json_schema -v
+   pytest tests/harness/test_client.py -v -k "plan_template"
    ```
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(client): add 'harness plan template' command"
+   git add -A && git commit -m "feat(client): add 'harness plan template' with injection fields"
    ```
 
 ---
 
-### Task 6: Client Command - Plan Import
+### Task 8: Client Command - Plan Import
 
-**Effort:** standard (10-15 tool calls)
+**Effort:** simple (3-10 tool calls)
 
 **Files:**
-- Modify: `src/harness/client.py:355-380`
+- Modify: `src/harness/client.py:355-390`
 - Test: `tests/harness/test_client.py`
 
 **TDD Instructions (MANDATORY):**
@@ -559,41 +984,10 @@
    ```python
    # Add to tests/harness/test_client.py
 
-   def test_plan_import_sends_rpc(tmp_path, socket_path, worktree):
-       """harness plan import should send plan_import RPC to daemon."""
-       # Create plan file
-       plan_file = tmp_path / "plan.md"
-       plan_file.write_text('''
-   # Test Plan
-
-   ```json
-   {
-     "goal": "Test import",
-     "tasks": {
-       "task-1": {"description": "First task"}
-     }
-   }
-   ```
-   ''')
-
-       # This test requires daemon running - use DaemonManager
-       from tests.harness.conftest import DaemonManager
-
-       with DaemonManager(socket_path, worktree):
-           result = subprocess.run(
-               [sys.executable, "-m", "harness.client", "plan", "import", "--file", str(plan_file)],
-               capture_output=True,
-               text=True,
-               env={**os.environ, "HARNESS_SOCKET": socket_path, "HARNESS_WORKTREE": str(worktree)},
-           )
-           assert result.returncode == 0
-           assert "imported" in result.stdout.lower() or "success" in result.stdout.lower()
-
-
    def test_plan_import_file_not_found():
        """harness plan import should error if file doesn't exist."""
        result = subprocess.run(
-           [sys.executable, "-m", "harness.client", "plan", "import", "--file", "/nonexistent/plan.md"],
+           [sys.executable, "-m", "harness.client", "plan", "import", "--file", "/nonexistent.md"],
            capture_output=True,
            text=True,
        )
@@ -613,14 +1007,13 @@
    plan_import = plan_subparsers.add_parser("import", help="Import plan from markdown file")
    plan_import.add_argument("--file", required=True, help="Path to plan markdown file")
 
-   # Add to command routing
+   # Add to command routing in plan section
    elif args.plan_command == "import":
        _cmd_plan_import(socket_path, worktree_root, args.file)
 
    # Add handler function
    def _cmd_plan_import(socket_path: str, worktree_root: str, file_path: str) -> None:
        """Import plan from markdown file."""
-       # Read file locally (client responsibility - no Pydantic)
        path = Path(file_path)
        if not path.exists():
            print(f"Error: File not found: {file_path}", file=sys.stderr)
@@ -628,7 +1021,6 @@
 
        content = path.read_text()
 
-       # Send to daemon for parsing and validation
        response = send_rpc(
            socket_path,
            {"command": "plan_import", "content": content, "file_path": file_path},
@@ -646,7 +1038,6 @@
    ```bash
    pytest tests/harness/test_client.py::test_plan_import_file_not_found -v
    ```
-   (Note: RPC test requires daemon handler - will pass after Task 7)
 
 5. **Commit:**
    ```bash
@@ -655,13 +1046,14 @@
 
 ---
 
-### Task 7: Daemon Handler - Plan Import
+### Task 9: Daemon Handler - Plan Import
 
 **Effort:** standard (10-15 tool calls)
 
 **Files:**
+- Modify: `src/harness/daemon.py:30-35` (imports)
 - Modify: `src/harness/daemon.py:67-80` (handlers dict)
-- Modify: `src/harness/daemon.py:295-330` (new handler method)
+- Modify: `src/harness/daemon.py:295-340` (new handler)
 - Test: `tests/harness/test_daemon.py`
 
 **TDD Instructions (MANDATORY):**
@@ -689,6 +1081,7 @@
    '''
 
        from tests.harness.conftest import send_command
+
        response = send_command(
            daemon.socket_path,
            {"command": "plan_import", "content": content, "file_path": "test.md"},
@@ -702,6 +1095,42 @@
        assert state_response["status"] == "ok"
        assert "task-1" in state_response["data"]["tasks"]
        assert "task-2" in state_response["data"]["tasks"]
+
+
+   def test_plan_import_handler_preserves_injection_fields(daemon_manager):
+       """plan_import handler should preserve orchestrator injection fields."""
+       daemon, _ = daemon_manager
+
+       content = '''
+   ```json
+   {
+     "goal": "Test injection",
+     "tasks": {
+       "task-1": {
+         "description": "Frontend task",
+         "instructions": "Use React hooks",
+         "role": "frontend",
+         "context_files": ["src/App.tsx"]
+       }
+     }
+   }
+   ```
+   '''
+
+       from tests.harness.conftest import send_command
+
+       response = send_command(
+           daemon.socket_path,
+           {"command": "plan_import", "content": content, "file_path": "test.md"},
+       )
+       assert response["status"] == "ok"
+
+       # Verify injection fields in state
+       state_response = send_command(daemon.socket_path, {"command": "get_state"})
+       task = state_response["data"]["tasks"]["task-1"]
+       assert task["instructions"] == "Use React hooks"
+       assert task["role"] == "frontend"
+       assert task["context_files"] == ["src/App.tsx"]
 
 
    def test_plan_import_handler_rejects_cycle(daemon_manager):
@@ -721,6 +1150,7 @@
    '''
 
        from tests.harness.conftest import send_command
+
        response = send_command(
            daemon.socket_path,
            {"command": "plan_import", "content": content, "file_path": "test.md"},
@@ -732,7 +1162,7 @@
 
 2. **Run test, verify FAILURE:**
    ```bash
-   pytest tests/harness/test_daemon.py::test_plan_import_handler_parses_and_saves -v
+   pytest tests/harness/test_daemon.py -v -k "plan_import"
    ```
    Expected: FAIL (Unknown command: plan_import)
 
@@ -756,16 +1186,10 @@
            return {"status": "error", "message": "content is required"}
 
        try:
-           # Parse markdown to plan (Pydantic validation happens here)
            plan = parse_markdown_to_plan(content)
-
-           # Convert to WorkflowState
            state = plan.to_workflow_state()
-
-           # Save state (validates DAG again for safety)
            server.state_manager.save(state)
 
-           # Log to trajectory
            server.trajectory_logger.log(
                {
                    "event_type": "plan_import",
@@ -796,12 +1220,104 @@
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "feat(daemon): add plan_import handler for markdown plan ingestion"
+   git add -A && git commit -m "feat(daemon): add plan_import handler with injection support"
    ```
 
 ---
 
-### Task 8: Integration Test - Full Flow
+### Task 10: Daemon ACP Integration
+
+**Effort:** standard (10-15 tool calls)
+
+**Files:**
+- Modify: `src/harness/daemon.py:297-325` (HarnessDaemon.__init__)
+- Modify: `src/harness/daemon.py:170-180` (trajectory logging hooks)
+- Test: `tests/harness/test_daemon.py`
+
+**TDD Instructions (MANDATORY):**
+
+1. **Write test FIRST:**
+   ```python
+   # Add to tests/harness/test_daemon.py
+   import os
+
+
+   def test_daemon_initializes_acp_client(daemon_manager):
+       """Daemon should initialize ACP client for telemetry relay."""
+       daemon, _ = daemon_manager
+       assert hasattr(daemon, "acp_client")
+       from harness.acp import ACPClient
+
+       assert isinstance(daemon.acp_client, ACPClient)
+
+
+   def test_daemon_acp_disabled_by_env(socket_path, worktree):
+       """Daemon should not connect ACP if HARNESS_ACP_DISABLED=1."""
+       import os
+
+       os.environ["HARNESS_ACP_DISABLED"] = "1"
+       try:
+           from tests.harness.conftest import DaemonManager
+
+           with DaemonManager(socket_path, worktree) as daemon:
+               # ACP client should exist but not be connected
+               assert hasattr(daemon, "acp_client")
+               assert not daemon.acp_client.is_connected
+       finally:
+           del os.environ["HARNESS_ACP_DISABLED"]
+   ```
+
+2. **Run test, verify FAILURE:**
+   ```bash
+   pytest tests/harness/test_daemon.py -v -k "acp"
+   ```
+   Expected: FAIL (daemon doesn't have acp_client attribute)
+
+3. **Implement MINIMAL code:**
+   ```python
+   # Add import at top of src/harness/daemon.py
+   from .acp import ACPClient
+
+   # Add to HarnessDaemon class attributes (after runtime)
+   acp_client: ACPClient
+
+   # Add to HarnessDaemon.__init__ (after runtime initialization)
+   # ACP telemetry relay (optional - graceful degradation)
+   self.acp_client = ACPClient(
+       port=int(os.getenv("HARNESS_ACP_PORT", "9100")),
+       reconnect=True,
+   )
+   if not os.getenv("HARNESS_ACP_DISABLED"):
+       self.acp_client.connect()  # Non-blocking, graceful failure
+
+   # Modify trajectory logging calls to also send to ACP
+   # In _handle_task_claim, after trajectory_logger.log():
+   server.acp_client.send_log(
+       {
+           "event_type": "task_claim",
+           "task_id": task.id,
+           "worker_id": worker_id,
+           "is_retry": is_retry,
+           "is_reclaim": is_reclaim,
+       }
+   )
+
+   # Similarly for _handle_task_complete and _handle_exec
+   ```
+
+4. **Run test, verify PASS:**
+   ```bash
+   pytest tests/harness/test_daemon.py -v -k "acp"
+   ```
+
+5. **Commit:**
+   ```bash
+   git add -A && git commit -m "feat(daemon): integrate ACP client for telemetry relay"
+   ```
+
+---
+
+### Task 11: Integration Test - Full Flow
 
 **Effort:** standard (10-15 tool calls)
 
@@ -814,34 +1330,46 @@
    ```python
    # Add to tests/harness/test_integration.py
 
-   def test_plan_import_then_claim_tasks(socket_path, worktree):
-       """Full flow: import plan -> claim tasks -> complete tasks."""
+   def test_plan_import_then_claim_tasks_with_injection(socket_path, worktree):
+       """Full flow: import plan with injection -> claim tasks -> verify injection."""
+       import json
+       import os
        import subprocess
        import sys
-       import os
 
-       # Start daemon
        from harness.client import spawn_daemon
+
        spawn_daemon(str(worktree), socket_path)
 
        try:
-           # Create plan file
            plan_file = worktree / "plan.md"
            plan_file.write_text('''
    # Integration Test Plan
 
    ```json
    {
-     "goal": "Test full flow",
+     "goal": "Test injection flow",
      "tasks": {
-       "task-1": {"description": "First task"},
-       "task-2": {"description": "Second task", "dependencies": ["task-1"]}
+       "task-1": {
+         "description": "First task",
+         "instructions": "Follow these steps carefully",
+         "role": "backend"
+       },
+       "task-2": {
+         "description": "Second task",
+         "dependencies": ["task-1"]
+       }
      }
    }
    ```
    ''')
 
-           env = {**os.environ, "HARNESS_SOCKET": socket_path, "HARNESS_WORKTREE": str(worktree)}
+           env = {
+               **os.environ,
+               "HARNESS_SOCKET": socket_path,
+               "HARNESS_WORKTREE": str(worktree),
+               "HARNESS_ACP_DISABLED": "1",  # Disable ACP for test
+           }
 
            # Import plan
            result = subprocess.run(
@@ -860,9 +1388,13 @@
                env=env,
            )
            assert result.returncode == 0
-           import json
            data = json.loads(result.stdout)
-           assert data["task"]["id"] == "task-1"  # No deps, claimable first
+           task = data["task"]
+
+           # Verify injection fields are present
+           assert task["id"] == "task-1"
+           assert task["instructions"] == "Follow these steps carefully"
+           assert task["role"] == "backend"
 
            # Complete first task
            result = subprocess.run(
@@ -873,7 +1405,7 @@
            )
            assert result.returncode == 0
 
-           # Claim second task (should now be available)
+           # Claim second task
            result = subprocess.run(
                [sys.executable, "-m", "harness.client", "task", "claim"],
                capture_output=True,
@@ -882,45 +1414,46 @@
            )
            assert result.returncode == 0
            data = json.loads(result.stdout)
-           assert data["task"]["id"] == "task-2"  # Now claimable
+           assert data["task"]["id"] == "task-2"
 
        finally:
            from tests.harness.conftest import cleanup_daemon_subprocess
+
            cleanup_daemon_subprocess(socket_path)
    ```
 
 2. **Run test, verify FAILURE:**
    ```bash
-   pytest tests/harness/test_integration.py::test_plan_import_then_claim_tasks -v
+   pytest tests/harness/test_integration.py::test_plan_import_then_claim_tasks_with_injection -v
    ```
    Expected: FAIL until all previous tasks are complete
 
-3. **Implement:** No new code - this test validates the integration of all previous tasks.
+3. **Implement:** No new code - this test validates the integration.
 
 4. **Run test, verify PASS:**
    ```bash
-   pytest tests/harness/test_integration.py::test_plan_import_then_claim_tasks -v
+   pytest tests/harness/test_integration.py::test_plan_import_then_claim_tasks_with_injection -v
    ```
 
 5. **Commit:**
    ```bash
-   git add -A && git commit -m "test(integration): add plan import -> task claim flow test"
+   git add -A && git commit -m "test(integration): add plan import with injection flow test"
    ```
 
 ---
 
-### Task 9: Code Review
+### Task 12: Code Review
 
 **Effort:** standard (10-15 tool calls)
 
 **Files:**
-- All modified files from Tasks 1-8
+- All modified files from Tasks 1-11
 
 **Instructions:**
 
 1. Use dev-workflow:code-reviewer agent to review all changes:
    ```bash
-   git diff main..HEAD
+   git diff master..HEAD
    ```
 
 2. Address any feedback using dev-workflow:receiving-code-review skill
@@ -938,19 +1471,56 @@
 
 Before merging, verify:
 
-- [ ] `harness plan template` outputs valid JSON schema
-- [ ] `harness plan import --file plan.md` parses JSON from Markdown
+- [ ] Task model has `instructions`, `role`, `context_files` fields
+- [ ] `harness plan template` outputs schema with injection fields
+- [ ] `harness plan import --file plan.md` parses JSON and preserves injection fields
 - [ ] Cycle detection rejects invalid DAGs
 - [ ] Missing dependency detection works
-- [ ] Imported plan converts to WorkflowState correctly
-- [ ] Tasks can be claimed after import
-- [ ] Dependency ordering enforced (task-2 waits for task-1)
+- [ ] ACP client initializes in daemon (graceful failure if port unavailable)
+- [ ] ACP telemetry is disabled via `HARNESS_ACP_DISABLED=1`
+- [ ] Tasks can be claimed after import with injection fields intact
+- [ ] Dependency ordering enforced
 - [ ] All existing tests pass
 - [ ] No Pydantic imports in client.py
+
+## Architecture Summary
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Claude Code                              │
+│                    (ws://localhost:9100)                     │
+└─────────────────────────────────────────────────────────────┘
+                              ▲
+                              │ ACP Telemetry
+                              │ (JSONL events)
+┌─────────────────────────────────────────────────────────────┐
+│                      Harness Daemon                          │
+│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────┐ │
+│  │ StateManager│  │ ACPClient    │  │ TrajectoryLogger    │ │
+│  │ (JSON DAG)  │  │ (WebSocket)  │  │ (JSONL append)      │ │
+│  └─────────────┘  └──────────────┘  └─────────────────────┘ │
+│         ▲                                                    │
+│         │ plan_import                                        │
+│  ┌──────┴──────┐                                            │
+│  │  plan.py    │◄── parse_markdown_to_plan()                │
+│  │  (Fuzzy     │                                            │
+│  │  Compiler)  │                                            │
+│  └─────────────┘                                            │
+└─────────────────────────────────────────────────────────────┘
+                              ▲
+                              │ Unix Socket RPC
+┌─────────────────────────────────────────────────────────────┐
+│                      Harness Client                          │
+│  harness plan import --file plan.md                          │
+│  harness task claim                                          │
+│  harness task complete --id task-1                           │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Post-Plan Next Steps
 
 After this plan is complete:
-1. Update dev-workflow plugin prompts to use `harness plan template` and `harness plan import`
-2. Create bash shim (hook-helpers.sh) in dev-workflow plugin repo
-3. Update agent prompts to use `harness task claim/complete` loop
+1. Update dev-workflow plugin prompts to use new commands
+2. Implement ACP protocol handshake (MCP-compatible framing)
+3. Add `harness plan status` command for DAG visualization
+4. Create bash shim (hook-helpers.sh) in dev-workflow plugin repo
