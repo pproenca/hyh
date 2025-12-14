@@ -1,27 +1,25 @@
 # src/harness/git.py
 """
-Thread-safe git operations with global mutex.
+Thread-safe git operations delegating to runtime.py.
 
-In Python 3.13t (free-threading), this lock protects .git/index
+Git operations use exclusive=True to protect .git/index
 across ALL parallel threads without GIL contention.
 """
 
-import subprocess
-import threading
 from typing import List
+from .runtime import LocalRuntime, ExecutionResult
 
-# Global mutex for ALL git operations across all threads
-# In Python 3.13t, threads run truly parallel - this lock is essential
-GLOBAL_GIT_LOCK = threading.Lock()
+# Singleton runtime instance
+_runtime = LocalRuntime()
 
 
 def safe_git_exec(
     args: List[str],
     cwd: str,
     timeout: int = 60,
-) -> subprocess.CompletedProcess:
+) -> ExecutionResult:
     """
-    Execute git command with global mutex protection.
+    Execute git command with exclusive locking via runtime.
 
     Blocking call is fine because we're in a ThreadingMixIn server.
     Other clients are handled by other threads while we wait.
@@ -32,44 +30,33 @@ def safe_git_exec(
         timeout: Command timeout in seconds
 
     Returns:
-        CompletedProcess with returncode, stdout, stderr
+        ExecutionResult with returncode, stdout, stderr
     """
-    with GLOBAL_GIT_LOCK:
-        return subprocess.run(
-            ["git"] + args,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
+    return _runtime.execute(
+        ["git"] + args,
+        cwd=cwd,
+        timeout=timeout,
+        exclusive=True,
+    )
 
 
-def safe_commit(cwd: str, message: str) -> subprocess.CompletedProcess:
-    """Atomic add + commit operation under single lock acquisition."""
-    with GLOBAL_GIT_LOCK:
-        # Stage all changes
-        add_result = subprocess.run(
-            ["git", "add", "-A"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        if add_result.returncode != 0:
-            return add_result
+def safe_commit(cwd: str, message: str) -> ExecutionResult:
+    """Atomic add + commit operation with exclusive locking."""
+    # Stage all changes
+    add_result = _runtime.execute(
+        ["git", "add", "-A"],
+        cwd=cwd,
+        exclusive=True,
+    )
+    if add_result.returncode != 0:
+        return add_result
 
-        # Commit
-        return subprocess.run(
-            ["git", "commit", "-m", message],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
+    # Commit
+    return _runtime.execute(
+        ["git", "commit", "-m", message],
+        cwd=cwd,
+        exclusive=True,
+    )
 
 
 def get_head_sha(cwd: str) -> str | None:

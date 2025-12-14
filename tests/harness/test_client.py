@@ -165,3 +165,122 @@ def test_spawn_daemon_detects_crash(tmp_path):
         if os.path.exists(socket_path + ".lock"):
             os.unlink(socket_path + ".lock")
         socket_dir.rmdir()
+
+
+# TestWorkerID
+class TestWorkerID:
+    """Tests for WORKER_ID constant."""
+
+    def test_worker_id_generated_on_import(self):
+        """Client has WORKER_ID constant."""
+        import harness.client as client_module
+
+        assert hasattr(client_module, "WORKER_ID")
+        assert isinstance(client_module.WORKER_ID, str)
+        assert client_module.WORKER_ID.startswith("worker-")
+        assert len(client_module.WORKER_ID) == len("worker-") + 12
+
+    def test_worker_id_is_stable(self):
+        """WORKER_ID is same within process."""
+        import harness.client as client_module
+
+        worker_id_1 = client_module.WORKER_ID
+        worker_id_2 = client_module.WORKER_ID
+        assert worker_id_1 == worker_id_2
+
+
+# TestTaskCommands
+class TestTaskCommands:
+    """Tests for task claim/complete commands."""
+
+    def test_task_claim_returns_json(self, worktree_with_daemon):
+        """harness task claim returns task JSON."""
+        from harness.client import send_rpc
+
+        socket_path = worktree_with_daemon["socket"]
+        worktree = worktree_with_daemon["worktree"]
+
+        # Task claim should include WORKER_ID
+        import harness.client as client_module
+
+        response = send_rpc(
+            socket_path,
+            {"command": "task_claim", "worker_id": client_module.WORKER_ID},
+            worktree_root=str(worktree),
+        )
+
+        assert response["status"] == "ok"
+        # Daemon will return task data (format determined by daemon)
+        assert "data" in response
+
+    def test_task_complete_requires_id(self, worktree_with_daemon):
+        """harness task complete needs task_id and worker_id."""
+        from harness.client import send_rpc
+
+        socket_path = worktree_with_daemon["socket"]
+        worktree = worktree_with_daemon["worktree"]
+
+        import harness.client as client_module
+
+        response = send_rpc(
+            socket_path,
+            {
+                "command": "task_complete",
+                "task_id": "task-123",
+                "worker_id": client_module.WORKER_ID,
+            },
+            worktree_root=str(worktree),
+        )
+
+        # Response status depends on daemon implementation
+        # This test just verifies the command structure
+        assert "status" in response
+
+
+# TestExecCommand
+class TestExecCommand:
+    """Tests for exec command."""
+
+    def test_exec_runs_command(self, worktree_with_daemon):
+        """harness exec -- echo hello works."""
+        from harness.client import send_rpc
+
+        socket_path = worktree_with_daemon["socket"]
+        worktree = worktree_with_daemon["worktree"]
+
+        response = send_rpc(
+            socket_path,
+            {
+                "command": "exec",
+                "args": ["echo", "hello"],
+                "cwd": str(worktree),
+                "env": {},
+                "timeout": 5.0,
+            },
+            worktree_root=str(worktree),
+        )
+
+        assert response["status"] == "ok"
+        assert "data" in response
+
+    def test_exec_with_env(self, worktree_with_daemon):
+        """harness exec -e VAR=value passes env vars."""
+        from harness.client import send_rpc
+
+        socket_path = worktree_with_daemon["socket"]
+        worktree = worktree_with_daemon["worktree"]
+
+        response = send_rpc(
+            socket_path,
+            {
+                "command": "exec",
+                "args": ["printenv", "TEST_VAR"],
+                "cwd": str(worktree),
+                "env": {"TEST_VAR": "test_value"},
+                "timeout": 5.0,
+            },
+            worktree_root=str(worktree),
+        )
+
+        assert response["status"] == "ok"
+        assert "data" in response

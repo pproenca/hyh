@@ -15,6 +15,11 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
+
+
+# Generate stable WORKER_ID on module load (Council Fix: Lost Ack)
+WORKER_ID = f"worker-{uuid.uuid4().hex[:12]}"
 
 
 # Default socket path
