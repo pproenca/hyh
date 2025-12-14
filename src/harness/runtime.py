@@ -232,9 +232,9 @@ class DockerRuntime:
 
     def check_capabilities(self) -> None:
         """Verify Docker daemon is running and accessible."""
-        result = subprocess.run(["docker", "info"], capture_output=True)
+        result = subprocess.run(["docker", "info"], capture_output=True, text=True)
         if result.returncode != 0:
-            raise RuntimeError(f"Docker not available: {result.stderr.decode()}")
+            raise RuntimeError(f"Docker not available: {result.stderr}")
 
     def execute(
         self,
