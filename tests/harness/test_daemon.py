@@ -691,6 +691,44 @@ def test_plan_import_rejects_cycle(daemon_manager):
     assert "cycle" in resp["message"].lower()
 
 
+def test_plan_import_missing_content(daemon_manager):
+    """plan_import should error when content is missing."""
+    daemon, _ = daemon_manager
+    from tests.harness.conftest import send_command
+
+    resp = send_command(daemon.socket_path, {"command": "plan_import"})
+    assert resp["status"] == "error"
+    assert "content required" in resp["message"].lower()
+
+
+def test_plan_import_invalid_json(daemon_manager):
+    """plan_import should error for invalid JSON in content."""
+    daemon, _ = daemon_manager
+    from tests.harness.conftest import send_command
+
+    resp = send_command(daemon.socket_path, {"command": "plan_import", "content": "no json here"})
+    assert resp["status"] == "error"
+
+
+def test_plan_import_cyclic_deps(daemon_manager):
+    """plan_import should reject plans with cyclic dependencies."""
+    daemon, _ = daemon_manager
+    from tests.harness.conftest import send_command
+
+    content = """```json
+{
+    "goal": "Test",
+    "tasks": {
+        "a": {"description": "A", "dependencies": ["b"]},
+        "b": {"description": "B", "dependencies": ["a"]}
+    }
+}
+```"""
+    resp = send_command(daemon.socket_path, {"command": "plan_import", "content": content})
+    assert resp["status"] == "error"
+    assert "cycle" in resp["message"].lower()
+
+
 def test_daemon_server_close_removes_lock_file(worktree):
     """server_close() should remove socket and lock files."""
     import uuid
