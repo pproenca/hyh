@@ -212,24 +212,38 @@ def test_dag_validation_detects_cycles_efficiently(tmp_path):
     Verifies that cycle detection doesn't degrade when encountering cycles
     early in the traversal.
     """
-    # Create a 1000-node graph with a cycle introduced early
-    tasks = {}
-    for i in range(1000):
-        task_id = f"task-{i}"
-        if i == 0:
-            # Create cycle: task-0 depends on task-999
-            dependencies = ["task-999"]
-        elif i < 999:
-            dependencies = [f"task-{i - 1}"]
-        else:
-            # task-999 depends on task-998, creating cycle via task-0
-            dependencies = [f"task-{i - 1}"]
+    # Create a small cycle in a larger graph
+    # task-a -> task-b -> task-c -> task-a (cycle)
+    # Plus 997 independent tasks
+    tasks = {
+        "task-a": Task(
+            id="task-a",
+            description="Task A",
+            status=TaskStatus.PENDING,
+            dependencies=["task-c"],  # Depends on task-c, creating cycle
+        ),
+        "task-b": Task(
+            id="task-b",
+            description="Task B",
+            status=TaskStatus.PENDING,
+            dependencies=["task-a"],
+        ),
+        "task-c": Task(
+            id="task-c",
+            description="Task C",
+            status=TaskStatus.PENDING,
+            dependencies=["task-b"],
+        ),
+    }
 
+    # Add 997 more independent tasks to reach 1000 total
+    for i in range(997):
+        task_id = f"task-{i}"
         tasks[task_id] = Task(
             id=task_id,
             description=f"Task {i}",
             status=TaskStatus.PENDING,
-            dependencies=dependencies,
+            dependencies=[],
         )
 
     state = WorkflowState(tasks=tasks)
