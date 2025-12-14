@@ -1,0 +1,162 @@
+# tests/harness/test_client.py
+"""
+Tests for the "dumb" client.
+
+The client MUST NOT import pydantic or harness.state.
+It only uses stdlib: sys, json, socket, os, subprocess, time, argparse.
+"""
+import pytest
+import subprocess
+import time
+import sys
+import os
+import uuid
+from pathlib import Path
+
+
+def test_client_has_no_heavy_imports():
+    """Client must only import stdlib modules."""
+    # Import the module and check its imports
+    import harness.client as client_module
+
+    # Get all imported modules
+    import_names = set()
+    for name, obj in vars(client_module).items():
+        if hasattr(obj, "__module__"):
+            import_names.add(obj.__module__)
+
+    # These are forbidden (heavy imports)
+    forbidden = {"pydantic", "harness.state"}
+    violations = import_names & forbidden
+    assert not violations, f"Client has forbidden imports: {violations}"
+
+
+@pytest.fixture
+def worktree_with_daemon(tmp_path):
+    """Create worktree and let client auto-spawn daemon."""
+    # Initialize git repo
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=tmp_path, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=tmp_path, capture_output=True
+    )
+    (tmp_path / "file.txt").write_text("content")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True)
+
+    # Create state file
+    state_dir = tmp_path / ".claude"
+    state_dir.mkdir()
+    state_file = state_dir / "dev-workflow-state.local.md"
+    state_file.write_text("""---
+workflow: subagent
+plan: /plan.md
+current_task: 1
+total_tasks: 5
+worktree: {worktree}
+base_sha: abc123
+enabled: true
+---
+""".format(worktree=str(tmp_path)))
+
+    # Use short socket path in /tmp to avoid macOS path length limit
+    socket_id = uuid.uuid4().hex[:8]
+    socket_path = f"/tmp/harness-test-{socket_id}.sock"
+
+    yield {"socket": socket_path, "worktree": tmp_path}
+
+    # Cleanup: kill any spawned daemon and remove socket
+    subprocess.run(["pkill", "-f", f"harness.daemon.*{socket_path}"], capture_output=True)
+    if os.path.exists(socket_path):
+        os.unlink(socket_path)
+    if os.path.exists(socket_path + ".lock"):
+        os.unlink(socket_path + ".lock")
+
+
+def test_client_auto_spawns_daemon(worktree_with_daemon):
+    """Client should spawn daemon on ConnectionRefused."""
+    from harness.client import send_rpc
+
+    socket_path = worktree_with_daemon["socket"]
+    worktree = worktree_with_daemon["worktree"]
+
+    # No daemon running yet - client should auto-spawn
+    response = send_rpc(
+        socket_path,
+        {"command": "ping"},
+        worktree_root=str(worktree),
+    )
+
+    assert response["status"] == "ok"
+    assert response["data"]["running"] is True
+
+
+def test_client_get_state(worktree_with_daemon):
+    from harness.client import send_rpc
+
+    socket_path = worktree_with_daemon["socket"]
+    worktree = worktree_with_daemon["worktree"]
+
+    response = send_rpc(
+        socket_path,
+        {"command": "get_state"},
+        worktree_root=str(worktree),
+    )
+
+    assert response["status"] == "ok"
+    assert response["data"]["current_task"] == 1
+    assert response["data"]["total_tasks"] == 5
+
+
+def test_client_git_command(worktree_with_daemon):
+    from harness.client import send_rpc
+
+    socket_path = worktree_with_daemon["socket"]
+    worktree = worktree_with_daemon["worktree"]
+
+    response = send_rpc(
+        socket_path,
+        {"command": "git", "args": ["status"], "cwd": str(worktree)},
+        worktree_root=str(worktree),
+    )
+
+    assert response["status"] == "ok"
+    assert response["data"]["returncode"] == 0
+
+
+def test_spawn_daemon_detects_crash(tmp_path):
+    """spawn_daemon should detect immediate crashes (zombie detection).
+
+    This test verifies that spawn_daemon properly detects when the daemon
+    process exits immediately (e.g., due to an error during startup).
+    We trigger this by passing a worktree path that will cause fcntl.flock
+    to fail (by making the lock file directory non-writable).
+    """
+    import stat
+    from harness.client import spawn_daemon
+
+    # Use short socket path in /tmp to avoid macOS path length limit
+    socket_id = uuid.uuid4().hex[:8]
+    # Create a directory for the socket but make it unwritable
+    socket_dir = Path(f"/tmp/harness-test-crash-{socket_id}")
+    socket_dir.mkdir()
+    socket_path = str(socket_dir / "harness.sock")
+
+    # Make socket directory unwritable to cause daemon to fail
+    socket_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)  # r-x only
+
+    try:
+        with pytest.raises(RuntimeError, match="crashed|failed"):
+            spawn_daemon(str(tmp_path), socket_path)
+    finally:
+        # Restore permissions and cleanup
+        socket_dir.chmod(stat.S_IRWXU)
+        if os.path.exists(socket_path):
+            os.unlink(socket_path)
+        if os.path.exists(socket_path + ".lock"):
+            os.unlink(socket_path + ".lock")
+        socket_dir.rmdir()
