@@ -307,7 +307,9 @@
        Finds the first ```json block, parses it, validates the DAG.
        Everything outside the JSON block is ignored (thinking tokens, markdown).
        """
-       match = re.search(r"```json\s*\n(.*?)\n\s*```", content, re.DOTALL)
+       # Forgiving wrapper: handles ```json or plain ```
+       # Strict on payload: must be valid JSON object
+       match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
        if not match:
            raise ValueError("No JSON plan block found")
 
