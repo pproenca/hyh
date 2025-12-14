@@ -9,67 +9,33 @@ The daemon provides:
 """
 
 import json
-import os
 import socket
-import subprocess
 import threading
 import time
-import uuid
 
 import pytest
 
-
-@pytest.fixture
-def socket_path(tmp_path):
-    # Use /tmp for socket to avoid AF_UNIX path length limit on macOS
-    # The limit is ~104 chars, pytest tmp_path paths can exceed that
-    short_id = uuid.uuid4().hex[:8]
-    sock_path = f"/tmp/harness-test-{short_id}.sock"
-    yield sock_path
-    # Cleanup socket and lock file
-    if os.path.exists(sock_path):
-        os.unlink(sock_path)
-    lock_path = sock_path + ".lock"
-    if os.path.exists(lock_path):
-        os.unlink(lock_path)
-
-
-@pytest.fixture
-def worktree(tmp_path):
-    """Create a mock worktree with git repo."""
-    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@test.com"],
-        cwd=tmp_path,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test"],
-        cwd=tmp_path,
-        capture_output=True,
-    )
-    (tmp_path / "file.txt").write_text("content")
-    subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True)
-    return tmp_path
+# socket_path and worktree fixtures are imported from conftest.py
 
 
 def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
     """Send command to daemon and get response."""
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(timeout)
-    sock.connect(socket_path)
-    sock.sendall(json.dumps(command).encode() + b"\n")
-    response = b""
-    while True:
-        chunk = sock.recv(4096)
-        if not chunk:
-            break
-        response += chunk
-        if b"\n" in response:
-            break
-    sock.close()
-    return json.loads(response.decode().strip())
+    try:
+        sock.connect(socket_path)
+        sock.sendall(json.dumps(command).encode() + b"\n")
+        response = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            response += chunk
+            if b"\n" in response:
+                break
+        return json.loads(response.decode().strip())
+    finally:
+        sock.close()
 
 
 def test_daemon_get_state(socket_path, worktree):
@@ -114,7 +80,8 @@ def test_daemon_get_state(socket_path, worktree):
         assert response["data"]["tasks"]["task-1"]["status"] == "pending"
     finally:
         daemon.shutdown()
-        server_thread.join(timeout=1)
+        daemon.server_close()
+        server_thread.join(timeout=2)
 
 
 def test_daemon_update_state(socket_path, worktree):
@@ -182,7 +149,8 @@ def test_daemon_update_state(socket_path, worktree):
         assert "task-2" in loaded.tasks
     finally:
         daemon.shutdown()
-        server_thread.join(timeout=1)
+        daemon.server_close()
+        server_thread.join(timeout=2)
 
 
 def test_daemon_git_operations(socket_path, worktree):
@@ -209,7 +177,8 @@ def test_daemon_git_operations(socket_path, worktree):
         assert len(response["data"]["stdout"].strip()) == 40
     finally:
         daemon.shutdown()
-        server_thread.join(timeout=1)
+        daemon.server_close()
+        server_thread.join(timeout=2)
 
 
 def test_daemon_parallel_clients(socket_path, worktree):
@@ -261,7 +230,8 @@ def test_daemon_parallel_clients(socket_path, worktree):
         assert all(status == "ok" for _, status in results)
     finally:
         daemon.shutdown()
-        server_thread.join(timeout=1)
+        daemon.server_close()
+        server_thread.join(timeout=2)
 
 
 def test_daemon_single_instance_lock(socket_path, worktree):
@@ -280,7 +250,8 @@ def test_daemon_single_instance_lock(socket_path, worktree):
             HarnessDaemon(socket_path, str(worktree))
     finally:
         daemon1.shutdown()
-        server_thread.join(timeout=1)
+        daemon1.server_close()
+        server_thread.join(timeout=2)
 
 
 @pytest.fixture
@@ -318,7 +289,8 @@ def daemon_with_state(socket_path, worktree):
     yield daemon, worktree
 
     daemon.shutdown()
-    server_thread.join(timeout=1)
+    daemon.server_close()
+    server_thread.join(timeout=2)
 
 
 def test_handle_task_claim_returns_claimable(daemon_with_state, socket_path):

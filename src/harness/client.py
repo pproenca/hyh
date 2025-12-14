@@ -79,51 +79,124 @@ def get_socket_path() -> str:
 
 def spawn_daemon(worktree_root: str, socket_path: str) -> None:
     """
-    Spawn daemon as detached subprocess.
+    Spawn daemon as a fully detached process using double-fork.
 
-    Uses start_new_session=True to fully detach from parent.
+    This ensures no Popen object keeps a reference to the daemon process,
+    avoiding ResourceWarning when the daemon continues running after spawn.
+
     The daemon will acquire fcntl lock to prevent duplicates.
-    Checks process status during wait to detect immediate crashes.
-
     Timeout is configurable via HARNESS_TIMEOUT env var (default 5s).
-    This accounts for slow CI environments where Pydantic import may take time.
     """
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "harness.daemon", socket_path, worktree_root],
-        start_new_session=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        stdin=subprocess.DEVNULL,
-    )
+    import contextlib
+    import tempfile
 
-    # Wait for socket to appear (default 5 seconds for CI reliability)
-    # Configurable via HARNESS_TIMEOUT env var
+    # Create temporary files for stderr and status communication
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".stderr") as stderr_file:
+        stderr_path = stderr_file.name
+
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".status") as status_file:
+        status_path = status_file.name
+
     try:
-        timeout_seconds = int(os.getenv("HARNESS_TIMEOUT", "5"))
-    except (ValueError, TypeError):
-        timeout_seconds = 5
-    iterations = timeout_seconds * 10  # 0.1s per iteration
+        # First fork - create intermediate child
+        pid = os.fork()
+        if pid == 0:
+            # Intermediate child process
+            try:
+                # Create new session to detach from terminal
+                os.setsid()
 
-    # Check if process died during startup (zombie detection)
-    for _ in range(iterations):
-        if proc.poll() is not None:
-            # Daemon died immediately - get error output
-            _, stderr = proc.communicate()
-            raise RuntimeError(
-                f"Daemon crashed on startup (exit {proc.returncode}): {stderr.decode().strip()}"
-            )
+                # Second fork - create daemon (grandchild)
+                daemon_pid = os.fork()
+                if daemon_pid == 0:
+                    # Daemon process (grandchild)
+                    try:
+                        # Redirect stdio
+                        null_fd = os.open("/dev/null", os.O_RDWR)
+                        os.dup2(null_fd, 0)  # stdin
+                        os.dup2(null_fd, 1)  # stdout
+                        stderr_fd = os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+                        os.dup2(stderr_fd, 2)  # stderr
+                        if null_fd > 2:
+                            os.close(null_fd)
+                        if stderr_fd > 2:
+                            os.close(stderr_fd)
 
-        if Path(socket_path).exists():
-            time.sleep(0.05)  # Extra delay for server to start accepting
-            return
-        time.sleep(0.1)
+                        # Execute daemon (S606 is expected - we need execv for daemonization)
+                        os.execv(  # noqa: S606
+                            sys.executable,
+                            [
+                                sys.executable,
+                                "-m",
+                                "harness.daemon",
+                                socket_path,
+                                worktree_root,
+                            ],
+                        )
+                    except Exception as e:
+                        # Write error to stderr file (best effort, ignore failures)
+                        with contextlib.suppress(Exception):
+                            Path(stderr_path).write_text(str(e))
+                        os._exit(1)
+                else:
+                    # Intermediate child - write daemon PID to status file and exit
+                    Path(status_path).write_text(str(daemon_pid))
+                    os._exit(0)
+            except Exception:
+                os._exit(1)
+        else:
+            # Parent process - wait for intermediate child
+            _, status = os.waitpid(pid, 0)
+            if status != 0:
+                raise RuntimeError("Failed to fork daemon process")
 
-    # Timeout - check one more time if process died
-    if proc.poll() is not None:
-        _, stderr = proc.communicate()
-        raise RuntimeError(f"Daemon crashed (exit {proc.returncode}): {stderr.decode().strip()}")
+        # Read daemon PID from status file
+        daemon_pid_str = Path(status_path).read_text().strip()
+        if not daemon_pid_str:
+            raise RuntimeError("Failed to get daemon PID")
+        daemon_pid = int(daemon_pid_str)
 
-    raise RuntimeError(f"Daemon failed to start (timeout {timeout_seconds}s waiting for socket)")
+        # Wait for socket to appear (default 5 seconds for CI reliability)
+        try:
+            timeout_seconds = int(os.getenv("HARNESS_TIMEOUT", "5"))
+        except (ValueError, TypeError):
+            timeout_seconds = 5
+        iterations = timeout_seconds * 10  # 0.1s per iteration
+
+        # Check if daemon started successfully
+        for _ in range(iterations):
+            # Check if daemon crashed (process no longer exists)
+            try:
+                os.kill(daemon_pid, 0)  # Signal 0 checks if process exists
+            except OSError as err:
+                # Process died - read error from stderr file
+                stderr_content = ""
+                with contextlib.suppress(Exception):
+                    stderr_content = Path(stderr_path).read_text().strip()
+                raise RuntimeError(f"Daemon crashed on startup: {stderr_content}") from err
+
+            if Path(socket_path).exists():
+                time.sleep(0.05)  # Extra delay for server to start accepting
+                return
+            time.sleep(0.1)
+
+        # Timeout - check if daemon is still running
+        try:
+            os.kill(daemon_pid, 0)
+        except OSError as err:
+            stderr_content = ""
+            with contextlib.suppress(Exception):
+                stderr_content = Path(stderr_path).read_text().strip()
+            raise RuntimeError(f"Daemon crashed: {stderr_content}") from err
+
+        raise RuntimeError(
+            f"Daemon failed to start (timeout {timeout_seconds}s waiting for socket)"
+        )
+    finally:
+        # Clean up temporary files
+        for path in [stderr_path, status_path]:
+            with contextlib.suppress(OSError):
+                Path(path).unlink(missing_ok=True)
 
 
 def send_rpc(

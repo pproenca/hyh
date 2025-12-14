@@ -35,16 +35,21 @@ def test_client_has_no_heavy_imports():
 def worktree_with_daemon(tmp_path):
     """Create worktree and let client auto-spawn daemon."""
     # Initialize git repo
-    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
         cwd=tmp_path,
         capture_output=True,
+        check=True,
     )
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True, check=True
+    )
     (tmp_path / "file.txt").write_text("content")
-    subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True, check=True
+    )
 
     # Create state file (v2 JSON schema with task DAG)
     state_dir = tmp_path / ".claude"
@@ -84,12 +89,10 @@ def worktree_with_daemon(tmp_path):
 
     yield {"socket": socket_path, "worktree": tmp_path}
 
-    # Cleanup: kill any spawned daemon and remove socket
-    subprocess.run(["pkill", "-f", f"harness.daemon.*{socket_path}"], capture_output=True)
-    if os.path.exists(socket_path):
-        os.unlink(socket_path)
-    if os.path.exists(socket_path + ".lock"):
-        os.unlink(socket_path + ".lock")
+    # Cleanup: gracefully shutdown daemon and remove socket
+    from .conftest import cleanup_daemon_subprocess
+
+    cleanup_daemon_subprocess(socket_path)
 
 
 def test_client_auto_spawns_daemon(worktree_with_daemon):

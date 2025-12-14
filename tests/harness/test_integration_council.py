@@ -2,58 +2,32 @@
 """Integration tests verifying Council Amendments A, B, C work together."""
 
 import json
-import os
-import socket
-import subprocess
+import socket as socket_module
 import threading
 import time
-import uuid
 
 import pytest
 
-
-@pytest.fixture
-def socket_path():
-    short_id = uuid.uuid4().hex[:8]
-    sock_path = f"/tmp/harness-council-{short_id}.sock"
-    yield sock_path
-    if os.path.exists(sock_path):
-        os.unlink(sock_path)
-    lock_path = sock_path + ".lock"
-    if os.path.exists(lock_path):
-        os.unlink(lock_path)
-
-
-@pytest.fixture
-def worktree(tmp_path):
-    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@test.com"],
-        cwd=tmp_path,
-        capture_output=True,
-    )
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True)
-    (tmp_path / "file.txt").write_text("content")
-    subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True)
-    return tmp_path
+# socket_path and worktree fixtures are imported from conftest.py
 
 
 def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
     sock.settimeout(timeout)
-    sock.connect(socket_path)
-    sock.sendall(json.dumps(command).encode() + b"\n")
-    response = b""
-    while True:
-        chunk = sock.recv(4096)
-        if not chunk:
-            break
-        response += chunk
-        if b"\n" in response:
-            break
-    sock.close()
-    return json.loads(response.decode().strip())
+    try:
+        sock.connect(socket_path)
+        sock.sendall(json.dumps(command).encode() + b"\n")
+        response = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            response += chunk
+            if b"\n" in response:
+                break
+        return json.loads(response.decode().strip())
+    finally:
+        sock.close()
 
 
 def test_amendments_work_together(socket_path, worktree):
@@ -104,7 +78,8 @@ def test_amendments_work_together(socket_path, worktree):
             assert any("duration_ms" in e for e in exec_events)
     finally:
         daemon.shutdown()
-        server_thread.join(timeout=1)
+        daemon.server_close()
+        server_thread.join(timeout=2)
 
 
 def test_cyclic_dag_rejected_at_boundary(tmp_path):

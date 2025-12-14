@@ -18,16 +18,21 @@ import pytest
 def integration_worktree(tmp_path):
     """Create a complete test environment."""
     # Initialize git repo
-    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
         cwd=tmp_path,
         capture_output=True,
+        check=True,
     )
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True, check=True
+    )
     (tmp_path / "file.txt").write_text("initial")
-    subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True, check=True
+    )
 
     # Use short socket path in /tmp to avoid macOS AF_UNIX path length limit
     socket_id = uuid.uuid4().hex[:8]
@@ -35,15 +40,10 @@ def integration_worktree(tmp_path):
 
     yield {"worktree": tmp_path, "socket": socket_path}
 
-    # Cleanup daemon
-    subprocess.run(["pkill", "-f", f"harness.daemon.*{socket_path}"], capture_output=True)
-    # Give daemon time to shutdown
-    time.sleep(0.2)
-    # Clean up socket files
-    if os.path.exists(socket_path):
-        os.unlink(socket_path)
-    if os.path.exists(socket_path + ".lock"):
-        os.unlink(socket_path + ".lock")
+    # Cleanup daemon - try graceful shutdown first
+    from .conftest import cleanup_daemon_subprocess
+
+    cleanup_daemon_subprocess(socket_path)
 
 
 def test_parallel_git_operations_no_race(integration_worktree):
@@ -124,7 +124,8 @@ def test_parallel_git_operations_no_race(integration_worktree):
         assert all(status == "ok" for _, status in results)
     finally:
         daemon.shutdown()
-        server_thread.join(timeout=1)
+        daemon.server_close()
+        server_thread.join(timeout=2)
 
 
 def test_state_persistence_across_daemon_restart(integration_worktree):
@@ -380,10 +381,11 @@ def test_cli_shutdown(integration_worktree):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         sock.connect(socket_path)
-        sock.close()
         pytest.fail("Daemon should have been shutdown")
     except (FileNotFoundError, ConnectionRefusedError):
         pass  # Expected - daemon is down
+    finally:
+        sock.close()
 
 
 @pytest.fixture
@@ -467,7 +469,8 @@ def workflow_with_tasks(integration_worktree):
 
     # Cleanup
     daemon.shutdown()
-    server_thread.join(timeout=1)
+    daemon.server_close()
+    server_thread.join(timeout=2)
 
 
 def test_full_task_workflow(workflow_with_tasks):
@@ -690,7 +693,8 @@ def workflow_with_short_timeout(integration_worktree):
     }
 
     daemon.shutdown()
-    server_thread.join(timeout=1)
+    daemon.server_close()
+    server_thread.join(timeout=2)
 
 
 def test_timeout_reclaim_by_different_worker(workflow_with_short_timeout):
@@ -807,7 +811,8 @@ def workflow_with_parallel_tasks(integration_worktree):
     }
 
     daemon.shutdown()
-    server_thread.join(timeout=1)
+    daemon.server_close()
+    server_thread.join(timeout=2)
 
 
 def test_parallel_workers_get_unique_tasks(workflow_with_parallel_tasks):
