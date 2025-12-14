@@ -22,10 +22,15 @@ from typing import Any
 
 def get_worker_id() -> str:
     """Get stable worker ID, persisting across CLI invocations using Atomic Write."""
-    # Use XDG_RUNTIME_DIR if available (more secure), fallback to /tmp
-    runtime_dir = os.getenv("XDG_RUNTIME_DIR", "/tmp")
-    username = os.getenv("USER", "default")
-    worker_id_file = Path(f"{runtime_dir}/harness-worker-{username}.id")
+    # Allow override via env var (for testing or custom locations)
+    worker_id_path = os.getenv("HARNESS_WORKER_ID_FILE")
+    if worker_id_path:
+        worker_id_file = Path(worker_id_path)
+    else:
+        # Use XDG_RUNTIME_DIR if available (more secure), fallback to /tmp
+        runtime_dir = os.getenv("XDG_RUNTIME_DIR", "/tmp")
+        username = os.getenv("USER", "default")
+        worker_id_file = Path(f"{runtime_dir}/harness-worker-{username}.id")
 
     # Try to read existing worker ID
     if worker_id_file.exists():
@@ -266,6 +271,9 @@ def main() -> None:
     # shutdown
     subparsers.add_parser("shutdown", help="Shutdown daemon")
 
+    # worker-id
+    subparsers.add_parser("worker-id", help="Print stable worker ID")
+
     args = parser.parse_args()
 
     socket_path = os.getenv("HARNESS_SOCKET", get_socket_path())
@@ -310,6 +318,8 @@ def main() -> None:
         _cmd_check_commit(socket_path, worktree_root)
     elif args.command == "shutdown":
         _cmd_shutdown(socket_path, worktree_root)
+    elif args.command == "worker-id":
+        _cmd_worker_id()
 
 
 def _cmd_ping(socket_path: str, worktree_root: str) -> None:
@@ -532,6 +542,11 @@ def _cmd_exec(
     )
     # Output full JSON response (includes signal_name for debugging)
     print(json.dumps(response))
+
+
+def _cmd_worker_id() -> None:
+    """Print stable worker ID."""
+    print(get_worker_id())
 
 
 if __name__ == "__main__":

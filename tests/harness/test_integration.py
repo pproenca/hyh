@@ -937,3 +937,45 @@ def test_dag_cycle_rejection(integration_worktree):
 
     with pytest.raises(ValueError, match="[Cc]ycle"):
         manager.save(state)
+
+
+def test_worker_id_stability_across_invocations(integration_worktree, tmp_path):
+    """Worker ID persisted to file and consistent across process invocations."""
+    import sys
+
+    worktree = integration_worktree["worktree"]
+    socket_path = integration_worktree["socket"]
+
+    # Use a unique worker ID file location for this test
+    worker_id_file = tmp_path / "worker.id"
+
+    env = {
+        "HARNESS_SOCKET": socket_path,
+        "HARNESS_WORKTREE": str(worktree),
+        "HARNESS_WORKER_ID_FILE": str(worker_id_file),
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
+    }
+
+    # First invocation - generates worker ID
+    result1 = subprocess.run(
+        [sys.executable, "-m", "harness", "worker-id"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result1.returncode == 0, f"worker-id failed: {result1.stderr}"
+    worker_id_1 = result1.stdout.strip()
+
+    # Second invocation - should return same ID
+    result2 = subprocess.run(
+        [sys.executable, "-m", "harness", "worker-id"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result2.returncode == 0
+    worker_id_2 = result2.stdout.strip()
+
+    assert worker_id_1 == worker_id_2  # Same ID across invocations
+    assert worker_id_file.exists()  # File was created
