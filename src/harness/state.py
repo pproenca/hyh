@@ -5,6 +5,7 @@ Pydantic state models for workflow management.
 WorkflowState is the canonical schema for dev-workflow state.
 StateManager handles persistence to markdown frontmatter format.
 """
+
 from pydantic import BaseModel, Field
 from typing import Literal
 from pathlib import Path

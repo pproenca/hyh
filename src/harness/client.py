@@ -7,6 +7,7 @@ Every import adds ~200ms latency to git hooks.
 
 Only stdlib allowed: sys, json, socket, os, subprocess, time, argparse
 """
+
 import argparse
 import json
 import os
@@ -138,8 +139,7 @@ def _get_git_root() -> str:
 def main():
     """CLI entry point using argparse."""
     parser = argparse.ArgumentParser(
-        prog="harness",
-        description="Thread-safe state management for dev-workflow"
+        prog="harness", description="Thread-safe state management for dev-workflow"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -152,8 +152,12 @@ def main():
     # update-state
     upd = subparsers.add_parser("update-state", help="Update workflow state fields")
     upd.add_argument(
-        "--field", nargs=2, action="append", dest="fields",
-        metavar=("KEY", "VALUE"), help="Field to update (repeatable)"
+        "--field",
+        nargs=2,
+        action="append",
+        dest="fields",
+        metavar=("KEY", "VALUE"),
+        help="Field to update (repeatable)",
     )
 
     # git -- <args>
@@ -161,12 +165,13 @@ def main():
         "git",
         help="Execute git command with mutex (Usage: harness git -- <args>)",
         description="Run git commands through the daemon's global mutex. "
-                    "The -- separator is REQUIRED to prevent flag confusion.",
+        "The -- separator is REQUIRED to prevent flag confusion.",
         usage="harness git -- <git-command> [git-args...]",
     )
     git.add_argument(
-        "git_args", nargs=argparse.REMAINDER,
-        help="Git arguments after -- separator (e.g., harness git -- commit -m 'msg')"
+        "git_args",
+        nargs=argparse.REMAINDER,
+        help="Git arguments after -- separator (e.g., harness git -- commit -m 'msg')",
     )
 
     # session-start
@@ -307,7 +312,9 @@ def _cmd_check_state(socket_path: str, worktree_root: str):
 
     state = response["data"]
     if state.get("enabled") and state["current_task"] < state["total_tasks"]:
-        print(f"deny: Workflow in progress ({state['current_task']}/{state['total_tasks']})")
+        print(
+            f"deny: Workflow in progress ({state['current_task']}/{state['total_tasks']})"
+        )
         sys.exit(1)
     print("allow")
 
@@ -346,7 +353,7 @@ def _cmd_check_commit(socket_path: str, worktree_root: str):
 
 def _cmd_shutdown(socket_path: str, worktree_root: str):
     try:
-        response = send_rpc(socket_path, {"command": "shutdown"}, None)
+        send_rpc(socket_path, {"command": "shutdown"}, None)
         print("Shutdown requested")
     except (FileNotFoundError, ConnectionRefusedError):
         print("Daemon not running")

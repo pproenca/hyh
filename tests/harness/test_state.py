@@ -1,5 +1,6 @@
 # tests/harness/test_state.py
 """Tests for Pydantic state models and StateManager."""
+
 import pytest
 from harness.state import WorkflowState, PendingHandoff, StateManager
 

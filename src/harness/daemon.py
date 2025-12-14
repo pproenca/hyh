@@ -8,6 +8,7 @@ in Python 3.13t (free-threading). No asyncio.
 Each client connection gets a real OS thread that runs in parallel.
 Pydantic validation happens here - the client is deliberately "dumb".
 """
+
 import fcntl
 import json
 import os
@@ -17,8 +18,8 @@ import sys
 import threading
 from pathlib import Path
 
-from .state import StateManager, WorkflowState
-from .git import safe_git_exec, safe_commit, get_head_sha
+from .state import StateManager
+from .git import safe_git_exec
 
 
 class HarnessHandler(socketserver.StreamRequestHandler):
@@ -155,7 +156,7 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
             fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
             self._lock_fd.close()
             # Clean up lock file
-            if hasattr(self, '_lock_path') and os.path.exists(self._lock_path):
+            if hasattr(self, "_lock_path") and os.path.exists(self._lock_path):
                 try:
                     os.unlink(self._lock_path)
                 except OSError:

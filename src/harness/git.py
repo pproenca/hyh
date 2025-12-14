@@ -5,6 +5,7 @@ Thread-safe git operations with global mutex.
 In Python 3.13t (free-threading), this lock protects .git/index
 across ALL parallel threads without GIL contention.
 """
+
 import subprocess
 import threading
 from typing import List

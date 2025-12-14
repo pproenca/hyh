@@ -1,6 +1,6 @@
 # tests/harness/test_git.py
 """Tests for thread-safe git operations with global mutex."""
-import pytest
+
 import threading
 import time
 from unittest.mock import patch, MagicMock
@@ -23,7 +23,7 @@ def test_git_execute_returns_result():
 
 def test_global_git_lock_serializes_operations():
     """Multiple git operations should not overlap (Python 3.13t free-threading)."""
-    from harness.git import safe_git_exec, GLOBAL_GIT_LOCK
+    from harness.git import safe_git_exec
 
     execution_order = []
 
@@ -53,7 +53,9 @@ def test_global_git_lock_serializes_operations():
         start = execution_order[i]
         end = execution_order[i + 1]
         thread_name = start.replace("start-", "")
-        assert end == f"end-{thread_name}", f"Operations overlapped! Order: {execution_order}"
+        assert end == f"end-{thread_name}", (
+            f"Operations overlapped! Order: {execution_order}"
+        )
 
 
 def test_safe_commit_atomic(tmp_path):
@@ -64,11 +66,11 @@ def test_safe_commit_atomic(tmp_path):
     subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
-        cwd=tmp_path, capture_output=True
+        cwd=tmp_path,
+        capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "Test"],
-        cwd=tmp_path, capture_output=True
+        ["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True
     )
 
     # Create a file

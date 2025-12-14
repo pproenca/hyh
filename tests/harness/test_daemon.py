@@ -7,6 +7,7 @@ The daemon provides:
 - Git mutex protection via GLOBAL_GIT_LOCK
 - Single instance guarantee via fcntl.flock
 """
+
 import pytest
 import json
 import os
@@ -15,7 +16,6 @@ import threading
 import time
 import subprocess
 import uuid
-from pathlib import Path
 
 
 @pytest.fixture
@@ -49,7 +49,9 @@ def worktree(tmp_path):
     )
     (tmp_path / "file.txt").write_text("content")
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True
+    )
     return tmp_path
 
 
@@ -211,9 +213,7 @@ def test_daemon_parallel_clients(socket_path, worktree):
 
     try:
         # Launch 5 parallel clients
-        threads = [
-            threading.Thread(target=client_request, args=(i,)) for i in range(5)
-        ]
+        threads = [threading.Thread(target=client_request, args=(i,)) for i in range(5)]
         for t in threads:
             t.start()
         for t in threads:

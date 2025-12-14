@@ -5,10 +5,9 @@ Tests for the "dumb" client.
 The client MUST NOT import pydantic or harness.state.
 It only uses stdlib: sys, json, socket, os, subprocess, time, argparse.
 """
+
 import pytest
 import subprocess
-import time
-import sys
 import os
 import uuid
 from pathlib import Path
@@ -38,21 +37,24 @@ def worktree_with_daemon(tmp_path):
     subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
-        cwd=tmp_path, capture_output=True
+        cwd=tmp_path,
+        capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "Test"],
-        cwd=tmp_path, capture_output=True
+        ["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True
     )
     (tmp_path / "file.txt").write_text("content")
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True
+    )
 
     # Create state file
     state_dir = tmp_path / ".claude"
     state_dir.mkdir()
     state_file = state_dir / "dev-workflow-state.local.md"
-    state_file.write_text("""---
+    state_file.write_text(
+        """---
 workflow: subagent
 plan: /plan.md
 current_task: 1
@@ -61,7 +63,8 @@ worktree: {worktree}
 base_sha: abc123
 enabled: true
 ---
-""".format(worktree=str(tmp_path)))
+""".format(worktree=str(tmp_path))
+    )
 
     # Use short socket path in /tmp to avoid macOS path length limit
     socket_id = uuid.uuid4().hex[:8]
@@ -70,7 +73,9 @@ enabled: true
     yield {"socket": socket_path, "worktree": tmp_path}
 
     # Cleanup: kill any spawned daemon and remove socket
-    subprocess.run(["pkill", "-f", f"harness.daemon.*{socket_path}"], capture_output=True)
+    subprocess.run(
+        ["pkill", "-f", f"harness.daemon.*{socket_path}"], capture_output=True
+    )
     if os.path.exists(socket_path):
         os.unlink(socket_path)
     if os.path.exists(socket_path + ".lock"):

@@ -3,6 +3,7 @@
 Integration tests for the complete harness system.
 Tests daemon + client + state + git working together.
 """
+
 import pytest
 import subprocess
 import threading
@@ -10,7 +11,6 @@ import time
 import json
 import os
 import uuid
-from pathlib import Path
 
 
 @pytest.fixture
@@ -20,15 +20,17 @@ def integration_worktree(tmp_path):
     subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
-        cwd=tmp_path, capture_output=True
+        cwd=tmp_path,
+        capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "Test"],
-        cwd=tmp_path, capture_output=True
+        ["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True
     )
     (tmp_path / "file.txt").write_text("initial")
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True
+    )
 
     # Use short socket path in /tmp to avoid macOS AF_UNIX path length limit
     socket_id = uuid.uuid4().hex[:8]
@@ -37,7 +39,9 @@ def integration_worktree(tmp_path):
     yield {"worktree": tmp_path, "socket": socket_path}
 
     # Cleanup daemon
-    subprocess.run(["pkill", "-f", f"harness.daemon.*{socket_path}"], capture_output=True)
+    subprocess.run(
+        ["pkill", "-f", f"harness.daemon.*{socket_path}"], capture_output=True
+    )
     # Give daemon time to shutdown
     time.sleep(0.2)
     # Clean up socket files
@@ -69,7 +73,9 @@ def test_parallel_git_operations_no_race(integration_worktree):
     def send_command(cmd, max_retries=3):
         """Send command to daemon and return response with retry on connection refused."""
         for attempt in range(max_retries):
-            sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
+            sock = socket_module.socket(
+                socket_module.AF_UNIX, socket_module.SOCK_STREAM
+            )
             sock.settimeout(10.0)
             try:
                 sock.connect(socket_path)
@@ -98,11 +104,9 @@ def test_parallel_git_operations_no_race(integration_worktree):
 
     def git_status(client_id):
         try:
-            resp = send_command({
-                "command": "git",
-                "args": ["status"],
-                "cwd": str(worktree)
-            })
+            resp = send_command(
+                {"command": "git", "args": ["status"], "cwd": str(worktree)}
+            )
             with lock:
                 results.append((client_id, resp["status"]))
             # Check for index.lock errors in stderr
@@ -141,14 +145,16 @@ def test_state_persistence_across_daemon_restart(integration_worktree):
 
     # Create initial state
     manager = StateManager(worktree)
-    manager.save(WorkflowState(
-        workflow="subagent",
-        plan="/plan.md",
-        current_task=3,
-        total_tasks=10,
-        worktree=str(worktree),
-        base_sha="abc123",
-    ))
+    manager.save(
+        WorkflowState(
+            workflow="subagent",
+            plan="/plan.md",
+            current_task=3,
+            total_tasks=10,
+            worktree=str(worktree),
+            base_sha="abc123",
+        )
+    )
 
     # Connect and update state (auto-spawns daemon)
     resp = send_rpc(
@@ -244,14 +250,16 @@ def test_cli_update_state(integration_worktree):
 
     # Create initial state
     manager = StateManager(worktree)
-    manager.save(WorkflowState(
-        workflow="execute-plan",
-        plan="/plan.md",
-        current_task=1,
-        total_tasks=5,
-        worktree=str(worktree),
-        base_sha="abc123",
-    ))
+    manager.save(
+        WorkflowState(
+            workflow="execute-plan",
+            plan="/plan.md",
+            current_task=1,
+            total_tasks=5,
+            worktree=str(worktree),
+            base_sha="abc123",
+        )
+    )
 
     env = {
         "HARNESS_SOCKET": socket_path,
@@ -262,8 +270,15 @@ def test_cli_update_state(integration_worktree):
 
     # Update state via CLI
     result = subprocess.run(
-        [sys.executable, "-m", "harness", "update-state",
-         "--field", "current_task", "3"],
+        [
+            sys.executable,
+            "-m",
+            "harness",
+            "update-state",
+            "--field",
+            "current_task",
+            "3",
+        ],
         capture_output=True,
         text=True,
         env=env,
@@ -286,14 +301,16 @@ def test_cli_session_start_with_active_workflow(integration_worktree):
 
     # Create active workflow state
     manager = StateManager(worktree)
-    manager.save(WorkflowState(
-        workflow="subagent",
-        plan="/plan.md",
-        current_task=2,
-        total_tasks=8,
-        worktree=str(worktree),
-        base_sha="abc123",
-    ))
+    manager.save(
+        WorkflowState(
+            workflow="subagent",
+            plan="/plan.md",
+            current_task=2,
+            total_tasks=8,
+            worktree=str(worktree),
+            base_sha="abc123",
+        )
+    )
 
     env = {
         "HARNESS_SOCKET": socket_path,
@@ -319,7 +336,6 @@ def test_cli_session_start_with_active_workflow(integration_worktree):
 def test_cli_shutdown(integration_worktree):
     """Test shutdown command stops the daemon."""
     import sys
-    from harness.client import send_rpc
 
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
@@ -355,6 +371,7 @@ def test_cli_shutdown(integration_worktree):
 
     # Verify daemon is gone by trying to connect without auto-spawn
     import socket
+
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         sock.connect(socket_path)
