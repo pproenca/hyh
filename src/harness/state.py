@@ -9,7 +9,7 @@ StateManager handles persistence to JSON format.
 from pydantic import BaseModel, Field
 from typing import Literal
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import json
 import os
@@ -43,7 +43,14 @@ class Task(BaseModel):
             return False
         if not self.started_at:
             return False
-        elapsed = datetime.now() - self.started_at
+
+        # Ensure we compare UTC to UTC
+        started = self.started_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+
+        now = datetime.now(timezone.utc)
+        elapsed = now - started
         return elapsed.total_seconds() > self.timeout_seconds
 
 
@@ -196,7 +203,7 @@ class StateManager:
             is_new_claim = task.claimed_by != worker_id
 
             # ALWAYS renew the lease (prevents task stealing on retry)
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             task.started_at = now
 
             if is_new_claim:
@@ -240,7 +247,7 @@ class StateManager:
 
             # Update task
             task.status = TaskStatus.COMPLETED
-            task.completed_at = datetime.now()
+            task.completed_at = datetime.now(timezone.utc)
 
             # Update state and save
             self._state.tasks[task_id] = task

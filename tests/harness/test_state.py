@@ -124,6 +124,27 @@ def test_task_is_timed_out_completed():
     assert task.is_timed_out() is False
 
 
+def test_task_is_timed_out_with_timezone_aware_started_at():
+    """is_timed_out should handle timezone-aware started_at without crashing.
+
+    Bug: datetime.now() is naive, but Pydantic can deserialize ISO strings
+    to timezone-aware datetimes. Subtracting naive from aware raises TypeError.
+    """
+    from datetime import timezone
+
+    # Create task with timezone-aware started_at (as Pydantic would from JSON)
+    task = Task(
+        id="task-1",
+        description="Test task",
+        status=TaskStatus.RUNNING,
+        dependencies=[],
+        started_at=datetime.now(timezone.utc) - timedelta(seconds=700),
+        timeout_seconds=600,
+    )
+    # This should NOT raise TypeError
+    assert task.is_timed_out() is True
+
+
 # ============================================================================
 # TestWorkflowState: v2 schema with tasks dict, get_claimable_task
 # (no deps, with deps, multiple deps, none available, reclaims timed-out),
@@ -492,10 +513,10 @@ def test_claim_task_returns_existing(tmp_path):
 
 def test_claim_task_renews_lease_on_retry(tmp_path):
     """claim_task should renew started_at on idempotent retry to prevent task stealing."""
-    from datetime import timedelta
+    from datetime import timedelta, timezone
 
     manager = StateManager(tmp_path)
-    old_time = datetime.now() - timedelta(minutes=5)
+    old_time = datetime.now(timezone.utc) - timedelta(minutes=5)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -511,7 +532,7 @@ def test_claim_task_renews_lease_on_retry(tmp_path):
     manager.save(state)
 
     # Retry claim with same worker
-    before_claim = datetime.now()
+    before_claim = datetime.now(timezone.utc)
     task = manager.claim_task("worker-1")
 
     assert task is not None
@@ -523,11 +544,11 @@ def test_claim_task_renews_lease_on_retry(tmp_path):
 
 def test_claim_task_lease_renewal_prevents_stealing(tmp_path):
     """Verify that lease renewal prevents another worker from stealing a task."""
-    from datetime import timedelta
+    from datetime import timedelta, timezone
 
     manager = StateManager(tmp_path)
     # Task with nearly-expired lease (9 minutes old, 10 min timeout)
-    nearly_expired = datetime.now() - timedelta(minutes=9)
+    nearly_expired = datetime.now(timezone.utc) - timedelta(minutes=9)
     state = WorkflowState(
         tasks={
             "task-1": Task(
