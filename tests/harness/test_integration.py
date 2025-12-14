@@ -877,3 +877,34 @@ def test_cli_task_claim_and_complete(workflow_with_tasks):
     )
     assert result.returncode == 0, f"task complete failed: {result.stderr}"
     assert "Task task-1 completed" in result.stdout
+
+
+def test_cli_exec_with_timeout_and_signal(workflow_with_tasks):
+    """Test exec command with timeout produces signal_name in response."""
+    import sys
+
+    worktree = workflow_with_tasks["worktree"]
+    socket_path = workflow_with_tasks["socket"]
+
+    env = {
+        "HARNESS_SOCKET": socket_path,
+        "HARNESS_WORKTREE": str(worktree),
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
+    }
+
+    # Exec a command that exceeds timeout (sleep 10 with 1s timeout)
+    result = subprocess.run(
+        [sys.executable, "-m", "harness", "exec", "--timeout", "1", "--", "sleep", "10"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    # exec should return 0 (command ran, but inner process was killed)
+    assert result.returncode == 0, f"exec failed: {result.stderr}"
+
+    output = json.loads(result.stdout)
+    assert output["status"] == "ok"
+    # Process was killed with SIGTERM (signal 15)
+    assert output["data"]["returncode"] < 0
+    assert output["data"]["signal_name"] == "SIGTERM"
