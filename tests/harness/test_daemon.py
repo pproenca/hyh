@@ -571,3 +571,34 @@ def test_exec_logs_duration_ms(daemon_with_state, socket_path, worktree):
         assert "duration_ms" in event
         assert isinstance(event["duration_ms"], int)
         assert event["duration_ms"] >= 0
+
+
+def test_daemon_calls_check_capabilities_on_init(socket_path, worktree):
+    """HarnessDaemon should call runtime.check_capabilities() on init."""
+    from harness.daemon import HarnessDaemon
+    from unittest.mock import patch, MagicMock
+
+    with patch("harness.daemon.create_runtime") as mock_create:
+        mock_runtime = MagicMock()
+        mock_create.return_value = mock_runtime
+
+        daemon = HarnessDaemon(socket_path, str(worktree))
+
+        # check_capabilities should have been called
+        mock_runtime.check_capabilities.assert_called_once()
+
+        daemon.server_close()
+
+
+def test_daemon_fails_fast_on_capability_check_failure(socket_path, worktree):
+    """HarnessDaemon should fail immediately if check_capabilities fails."""
+    from harness.daemon import HarnessDaemon
+    from unittest.mock import patch, MagicMock
+
+    with patch("harness.daemon.create_runtime") as mock_create:
+        mock_runtime = MagicMock()
+        mock_runtime.check_capabilities.side_effect = RuntimeError("git not found")
+        mock_create.return_value = mock_runtime
+
+        with pytest.raises(RuntimeError, match="git not found"):
+            HarnessDaemon(socket_path, str(worktree))

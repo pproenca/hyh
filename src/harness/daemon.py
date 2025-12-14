@@ -288,6 +288,7 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
             self.worktree_root / ".claude" / "trajectory.jsonl"
         )
         self.runtime = create_runtime()
+        self.runtime.check_capabilities()  # Fail fast if dependencies unavailable
         self._lock_fd = None
 
         # Acquire exclusive lock to prevent multiple daemons
