@@ -180,13 +180,14 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                     "is_reclaim": is_reclaim,
                 }
             )
-            server.acp_emitter.emit(
-                {
-                    "event_type": "task_claim",
-                    "task_id": task.id,
-                    "worker_id": worker_id,
-                }
-            )
+            if server.acp_emitter:
+                server.acp_emitter.emit(
+                    {
+                        "event_type": "task_claim",
+                        "task_id": task.id,
+                        "worker_id": worker_id,
+                    }
+                )
 
             return {
                 "status": "ok",
@@ -223,12 +224,13 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                     "worker_id": worker_id,
                 }
             )
-            server.acp_emitter.emit(
-                {
-                    "event_type": "task_complete",
-                    "task_id": task_id,
-                }
-            )
+            if server.acp_emitter:
+                server.acp_emitter.emit(
+                    {
+                        "event_type": "task_complete",
+                        "task_id": task_id,
+                    }
+                )
 
             return {"status": "ok", "data": {"task_id": task_id}}
         except Exception as e:
@@ -327,13 +329,14 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                     "task_count": len(plan.tasks),
                 }
             )
-            server.acp_emitter.emit(
-                {
-                    "event_type": "plan_import",
-                    "goal": plan.goal,
-                    "task_count": len(plan.tasks),
-                }
-            )
+            if server.acp_emitter:
+                server.acp_emitter.emit(
+                    {
+                        "event_type": "plan_import",
+                        "goal": plan.goal,
+                        "task_count": len(plan.tasks),
+                    }
+                )
 
             return {"status": "ok", "data": {"goal": plan.goal, "task_count": len(plan.tasks)}}
         except ValueError as e:
@@ -357,19 +360,25 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     worktree_root: Path
     state_manager: StateManager
     trajectory_logger: TrajectoryLogger
-    acp_emitter: ACPEmitter
+    acp_emitter: ACPEmitter | None
     runtime: Runtime
     _lock_fd: TextIOWrapper | None
     _lock_path: str
 
-    def __init__(self, socket_path: str, worktree_root: str) -> None:
+    def __init__(
+        self,
+        socket_path: str,
+        worktree_root: str,
+        *,
+        acp_emitter: ACPEmitter | None = None,
+    ) -> None:
         self.socket_path = socket_path
         self.worktree_root = Path(worktree_root)
         self.state_manager = StateManager(self.worktree_root)
         self.trajectory_logger = TrajectoryLogger(
             self.worktree_root / ".claude" / "trajectory.jsonl"
         )
-        self.acp_emitter = ACPEmitter()
+        self.acp_emitter = acp_emitter
         self.runtime = create_runtime()
         self.runtime.check_capabilities()  # Fail fast if dependencies unavailable
         self._lock_fd = None
@@ -408,7 +417,8 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     def server_close(self) -> None:
         """Clean up on shutdown."""
         super().server_close()
-        self.acp_emitter.close()
+        if self.acp_emitter:
+            self.acp_emitter.close()
         socket_path = Path(self.socket_path)
         if socket_path.exists():
             socket_path.unlink()
