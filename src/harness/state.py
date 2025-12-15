@@ -90,11 +90,9 @@ class WorkflowState(BaseModel):
     def get_claimable_task(self) -> Task | None:
         """Find a task that can be claimed (pending or timed out with satisfied deps)."""
         for task in self.tasks.values():
-            # Check if task is pending or timed out
             if task.status == TaskStatus.PENDING or (
                 task.status == TaskStatus.RUNNING and task.is_timed_out()
             ):
-                # Check if all dependencies are completed
                 deps_satisfied = all(
                     self.tasks[dep_id].status == TaskStatus.COMPLETED
                     for dep_id in task.dependencies
@@ -106,12 +104,9 @@ class WorkflowState(BaseModel):
 
     def get_task_for_worker(self, worker_id: str) -> Task | None:
         """Get task for specific worker (idempotent - returns existing or assigns new)."""
-        # Check if worker already has a task
         for task in self.tasks.values():
             if task.claimed_by == worker_id and task.status == TaskStatus.RUNNING:
                 return task
-
-        # Assign new task
         return self.get_claimable_task()
 
 
@@ -134,6 +129,36 @@ class StateManager:
         self._state: WorkflowState | None = None
         self._lock = threading.Lock()
 
+    def _ensure_state_loaded(self) -> WorkflowState:
+        """Load state from disk if not cached. Must be called with lock held.
+
+        Returns:
+            The cached or freshly loaded WorkflowState.
+
+        Raises:
+            ValueError: If no state file exists and no state is cached.
+        """
+        if self._state:
+            return self._state
+        if self.state_file.exists():
+            content = self.state_file.read_text()
+            data = json.loads(content)
+            self._state = WorkflowState(**data)
+        if not self._state:
+            raise ValueError("No state loaded and no state file exists")
+        return self._state
+
+    def _write_atomic(self, state: WorkflowState) -> None:
+        """Write state to disk atomically using tmp-fsync-rename. Must be called with lock held."""
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        content = state.model_dump_json(indent=2)
+        temp_file = self.state_file.with_suffix(".tmp")
+        with temp_file.open("w") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        temp_file.rename(self.state_file)
+
     def load(self) -> WorkflowState | None:
         """Load state from disk (thread-safe)."""
         with self._lock:
@@ -150,15 +175,7 @@ class StateManager:
         with self._lock:
             state.validate_dag()  # Reject cycles before persisting
             self._state = state
-            self.state_file.parent.mkdir(parents=True, exist_ok=True)
-
-            content = state.model_dump_json(indent=2)
-            temp_file = self.state_file.with_suffix(".tmp")
-            with temp_file.open("w") as f:
-                f.write(content)
-                f.flush()
-                os.fsync(f.fileno())
-            temp_file.rename(self.state_file)
+            self._write_atomic(state)
 
     def update(self, **kwargs: Any) -> WorkflowState:
         """Update specific fields atomically (thread-safe).
@@ -167,14 +184,7 @@ class StateManager:
         Validates incoming data (Pydantic at the boundary).
         """
         with self._lock:
-            if not self._state:
-                # Auto-load if state not in memory
-                if self.state_file.exists():
-                    content = self.state_file.read_text()
-                    data = json.loads(content)
-                    self._state = WorkflowState(**data)
-                if not self._state:
-                    raise ValueError("No state loaded and no state file exists")
+            self._ensure_state_loaded()
 
             # Convert raw dicts to Task objects (Pydantic validation at boundary)
             if "tasks" in kwargs and isinstance(kwargs["tasks"], dict):
@@ -186,32 +196,17 @@ class StateManager:
                         validated_tasks[task_id] = task_data
                 kwargs["tasks"] = validated_tasks
 
-            self._state = self._state.model_copy(update=kwargs)
-            # Save without lock (we already hold it)
-            self.state_file.parent.mkdir(parents=True, exist_ok=True)
-            content = self._state.model_dump_json(indent=2)
-            temp_file = self.state_file.with_suffix(".tmp")
-            with temp_file.open("w") as f:
-                f.write(content)
-                f.flush()
-                os.fsync(f.fileno())
-            temp_file.rename(self.state_file)
+            self._state = self._state.model_copy(update=kwargs)  # type: ignore[union-attr]
+            self._write_atomic(self._state)
             return self._state
 
     def claim_task(self, worker_id: str) -> Task | None:
         """Atomically claim a task for worker (find + update + save in one critical section)."""
         with self._lock:
-            # Auto-load if state not in memory
-            if not self._state:
-                if self.state_file.exists():
-                    content = self.state_file.read_text()
-                    data = json.loads(content)
-                    self._state = WorkflowState(**data)
-                if not self._state:
-                    raise ValueError("No state loaded and no state file exists")
+            state = self._ensure_state_loaded()
 
             # Check if worker already has a task (idempotency)
-            task = self._state.get_task_for_worker(worker_id)
+            task = state.get_task_for_worker(worker_id)
             if not task:
                 return None
 
@@ -222,54 +217,29 @@ class StateManager:
             task.started_at = now
 
             if is_new_claim:
-                # New claim: set ownership
                 task.status = TaskStatus.RUNNING
                 task.claimed_by = worker_id
 
-            # Update state and save (both new claims AND renewals)
-            self._state.tasks[task.id] = task
-            content = self._state.model_dump_json(indent=2)
-            temp_file = self.state_file.with_suffix(".tmp")
-            with temp_file.open("w") as f:
-                f.write(content)
-                f.flush()
-                os.fsync(f.fileno())
-            temp_file.rename(self.state_file)
+            state.tasks[task.id] = task
+            self._write_atomic(state)
 
             return task
 
     def complete_task(self, task_id: str, worker_id: str) -> None:
         """Atomically complete a task with ownership validation."""
         with self._lock:
-            # Auto-load if state not in memory
-            if not self._state:
-                if self.state_file.exists():
-                    content = self.state_file.read_text()
-                    data = json.loads(content)
-                    self._state = WorkflowState(**data)
-                if not self._state:
-                    raise ValueError("No state loaded and no state file exists")
+            state = self._ensure_state_loaded()
 
-            # Validate task exists
-            if task_id not in self._state.tasks:
+            if task_id not in state.tasks:
                 raise ValueError(f"Task {task_id} not found")
 
-            task = self._state.tasks[task_id]
+            task = state.tasks[task_id]
 
-            # Validate ownership
             if task.claimed_by != worker_id:
                 raise ValueError(f"Task {task_id} is not claimed by {worker_id}")
 
-            # Update task
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now(UTC)
 
-            # Update state and save
-            self._state.tasks[task_id] = task
-            content = self._state.model_dump_json(indent=2)
-            temp_file = self.state_file.with_suffix(".tmp")
-            with temp_file.open("w") as f:
-                f.write(content)
-                f.flush()
-                os.fsync(f.fileno())
-            temp_file.rename(self.state_file)
+            state.tasks[task_id] = task
+            self._write_atomic(state)
