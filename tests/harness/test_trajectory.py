@@ -225,3 +225,46 @@ def test_log_calls_fsync_for_durability(temp_trajectory_dir, logger):
     trajectory_file = temp_trajectory_dir / ".claude" / "trajectory.jsonl"
     content = trajectory_file.read_text()
     assert "test_durability" in content
+
+
+def test_tail_limits_memory_on_corrupt_file(tmp_path):
+    """tail() must not read entire file into memory if newlines are missing.
+
+    Bug: If a corrupted file has no newlines (or very few), the algorithm
+    reads the ENTIRE file into the buffer trying to find enough lines.
+    This could exhaust memory on large corrupt files.
+
+    The fix should add a max_buffer_bytes parameter that limits how much
+    data is read before giving up (default 1MB).
+    """
+    trajectory_file = tmp_path / "trajectory.jsonl"
+
+    # Create a "corrupted" file with no newlines - continuous data
+    # 500KB file - we want to prove we DON'T read all of it
+    corrupt_size = 500_000
+    trajectory_file.write_bytes(b"x" * corrupt_size)
+
+    logger = TrajectoryLogger(trajectory_file)
+
+    # Call tail with a small max_buffer to prove the limit works
+    # BUG: Current implementation doesn't have max_buffer_bytes parameter
+    # After fix: Should accept max_buffer_bytes and stop early
+
+    # Test 1: Verify tail has max_buffer_bytes parameter (will fail before fix)
+    import inspect
+
+    sig = inspect.signature(logger.tail)
+    assert "max_buffer_bytes" in sig.parameters, (
+        "tail() should have max_buffer_bytes parameter to limit memory usage on corrupt files"
+    )
+
+    # Test 2: Verify the limit is respected
+    result = logger.tail(5, max_buffer_bytes=50_000)  # 50KB limit
+    assert result == [], "Corrupt file with no valid JSON should return empty list"
+
+    # Test 3: Verify we can still read normal files with default limit
+    # (This ensures the fix doesn't break normal operation)
+    trajectory_file.write_text('{"event": 1}\n{"event": 2}\n{"event": 3}\n')
+    result = logger.tail(2)
+    assert len(result) == 2
+    assert result[-1]["event"] == 3

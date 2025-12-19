@@ -49,7 +49,7 @@ class TrajectoryLogger:
                 f.flush()
                 os.fsync(f.fileno())
 
-    def tail(self, n: int) -> list[dict[str, Any]]:
+    def tail(self, n: int, max_buffer_bytes: int = 1_048_576) -> list[dict[str, Any]]:
         """Get the last N events from the trajectory log.
 
         Uses O(1) reverse-seek algorithm to efficiently read from the end of
@@ -57,6 +57,8 @@ class TrajectoryLogger:
 
         Args:
             n: Number of events to retrieve
+            max_buffer_bytes: Maximum bytes to read before giving up (default 1MB).
+                Prevents memory exhaustion on corrupt files with missing newlines.
 
         Returns:
             List of the last N events (or fewer if file has fewer than N events)
@@ -65,15 +67,17 @@ class TrajectoryLogger:
             return []
 
         with self._lock:
-            return self._tail_reverse_seek(n)
+            return self._tail_reverse_seek(n, max_buffer_bytes)
 
-    def _tail_reverse_seek(self, n: int) -> list[dict[str, Any]]:
+    def _tail_reverse_seek(self, n: int, max_buffer_bytes: int) -> list[dict[str, Any]]:
         """Efficiently read last N lines using reverse-seek.
 
-        Reads the file from the end in 4KB blocks until we have enough lines.
+        Reads the file from the end in 4KB blocks until we have enough lines
+        or reach the maximum buffer size.
 
         Args:
             n: Number of lines to retrieve
+            max_buffer_bytes: Maximum bytes to read before stopping
 
         Returns:
             List of the last N events
@@ -91,8 +95,13 @@ class TrajectoryLogger:
             # Read from end in blocks until we have enough lines
             buffer = b""
             position = file_size
+            bytes_read = 0
 
             while True:
+                # Check buffer limit to prevent memory exhaustion on corrupt files
+                if bytes_read >= max_buffer_bytes:
+                    break
+
                 # Determine how much to read
                 read_size = min(block_size, position)
                 position -= read_size
@@ -101,6 +110,7 @@ class TrajectoryLogger:
                 f.seek(position)
                 chunk = f.read(read_size)
                 buffer = chunk + buffer
+                bytes_read += read_size
 
                 # Try to split into lines
                 lines = buffer.split(b"\n")

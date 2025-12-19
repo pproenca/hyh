@@ -29,7 +29,7 @@ def test_safe_git_exec_uses_runtime():
 
 
 def test_safe_commit_uses_runtime():
-    """safe_commit should delegate to LocalRuntime."""
+    """safe_commit should delegate to LocalRuntime with external locking."""
     from harness.git import safe_commit
 
     with patch("harness.git._runtime") as mock_runtime:
@@ -41,19 +41,19 @@ def test_safe_commit_uses_runtime():
 
         result = safe_commit(cwd="/tmp", message="test commit")
 
-        # Verify both git add and git commit were called with exclusive=True
+        # Verify both git add and git commit were called
         assert mock_runtime.execute.call_count == 2
         calls = mock_runtime.execute.call_args_list
 
-        # First call: git add -A
+        # First call: git add -A (exclusive=False since lock is held externally)
         assert calls[0][0][0] == ["git", "add", "-A"]
         assert calls[0][1]["cwd"] == "/tmp"
-        assert calls[0][1]["exclusive"] is True
+        assert calls[0][1]["exclusive"] is False
 
-        # Second call: git commit -m
+        # Second call: git commit -m (exclusive=False since lock is held externally)
         assert calls[1][0][0] == ["git", "commit", "-m", "test commit"]
         assert calls[1][1]["cwd"] == "/tmp"
-        assert calls[1][1]["exclusive"] is True
+        assert calls[1][1]["exclusive"] is False
 
         assert result.returncode == 0
 
@@ -79,7 +79,11 @@ def test_uses_global_exec_lock():
 
 
 def test_git_uses_exclusive_locking(monkeypatch):
-    """Git operations must pass exclusive=True."""
+    """Git operations must use exclusive locking appropriately.
+
+    - safe_git_exec: uses exclusive=True per call (single operation)
+    - safe_commit: holds lock externally, uses exclusive=False per call (atomic multi-op)
+    """
     from harness.git import safe_commit, safe_git_exec
 
     # Track calls to runtime.execute
@@ -100,7 +104,7 @@ def test_git_uses_exclusive_locking(monkeypatch):
     with patch("harness.git._runtime") as mock_runtime:
         mock_runtime.execute = mock_execute
 
-        # Test safe_git_exec
+        # Test safe_git_exec - single operation uses exclusive=True
         safe_git_exec(["status"], cwd="/tmp")
         assert execute_calls[-1]["exclusive"] is True, "safe_git_exec must use exclusive=True"
 
@@ -108,10 +112,10 @@ def test_git_uses_exclusive_locking(monkeypatch):
         execute_calls.clear()
         safe_commit(cwd="/tmp", message="test")
 
-        # Both add and commit should use exclusive=True
+        # safe_commit holds lock externally, so individual calls use exclusive=False
         assert len(execute_calls) == 2
-        assert execute_calls[0]["exclusive"] is True, "git add must use exclusive=True"
-        assert execute_calls[1]["exclusive"] is True, "git commit must use exclusive=True"
+        assert execute_calls[0]["exclusive"] is False, "git add uses external lock"
+        assert execute_calls[1]["exclusive"] is False, "git commit uses external lock"
 
 
 def test_safe_commit_atomic_integration(tmp_path):
@@ -190,3 +194,46 @@ def test_safe_git_exec_raises_on_failure():
 
     assert result.returncode == 128
     assert "not a git repository" in result.stderr
+
+
+def test_safe_commit_is_atomic_single_lock():
+    """safe_commit must hold lock for ENTIRE add+commit sequence (no race window).
+
+    The fix is to hold GLOBAL_EXEC_LOCK externally and call execute with exclusive=False.
+    This ensures no other thread can interleave between add and commit.
+    """
+    from harness.git import safe_commit
+    from harness.runtime import GLOBAL_EXEC_LOCK
+
+    execute_calls = []
+    lock_held_during_calls = []
+
+    def tracking_execute(command, cwd=None, timeout=None, exclusive=False):
+        # Record if lock is held when execute is called
+        # Try to acquire non-blocking - if it fails, lock is held
+        lock_is_held = not GLOBAL_EXEC_LOCK.acquire(blocking=False)
+        if not lock_is_held:
+            GLOBAL_EXEC_LOCK.release()  # We acquired it, release it
+        lock_held_during_calls.append(lock_is_held)
+        execute_calls.append({"command": command, "exclusive": exclusive})
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("harness.git._runtime") as mock_runtime:
+        mock_runtime.execute.side_effect = tracking_execute
+
+        safe_commit("/tmp", "test commit")
+
+    # Verify both calls had lock held externally (not via exclusive flag)
+    assert len(execute_calls) == 2, f"Expected 2 execute calls, got {len(execute_calls)}"
+
+    # Both calls should NOT use exclusive=True (lock is held externally)
+    for call in execute_calls:
+        assert call["exclusive"] is False, (
+            f"Call {call} used exclusive=True, but lock should be held externally"
+        )
+
+    # Both calls should have seen the lock as held
+    assert all(lock_held_during_calls), (
+        f"Lock was not held during all calls: {lock_held_during_calls}. "
+        f"This creates a race window between git add and git commit."
+    )

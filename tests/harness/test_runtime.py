@@ -136,6 +136,38 @@ class TestPathMapper:
         # Container path outside root should pass through unchanged
         assert mapper.to_host("/other/container/path") == "/other/container/path"
 
+    def test_volume_mapper_path_with_similar_prefix_not_mapped(self):
+        """VolumeMapper should NOT map paths that share prefix but aren't children.
+
+        Bug: /host/work maps /host/workspace incorrectly due to startswith() check.
+        The path /host/workspace starts with /host/work, but is NOT a child of it.
+        """
+        from harness.runtime import VolumeMapper
+
+        mapper = VolumeMapper(host_root="/host/work", container_root="/container/work")
+
+        # /host/workspace is NOT a child of /host/work - should pass through unchanged
+        assert mapper.to_runtime("/host/workspace") == "/host/workspace"
+        assert mapper.to_runtime("/host/working") == "/host/working"
+        assert mapper.to_runtime("/host/work-extra") == "/host/work-extra"
+
+        # But actual children SHOULD be mapped
+        assert mapper.to_runtime("/host/work/file.txt") == "/container/work/file.txt"
+        assert mapper.to_runtime("/host/work") == "/container/work"
+
+    def test_volume_mapper_container_path_with_similar_prefix_not_mapped(self):
+        """VolumeMapper to_host should NOT map paths that share prefix but aren't children."""
+        from harness.runtime import VolumeMapper
+
+        mapper = VolumeMapper(host_root="/host/work", container_root="/container/work")
+
+        # /container/workspace is NOT a child of /container/work
+        assert mapper.to_host("/container/workspace") == "/container/workspace"
+        assert mapper.to_host("/container/working") == "/container/working"
+
+        # But actual children SHOULD be mapped
+        assert mapper.to_host("/container/work/file.txt") == "/host/work/file.txt"
+
 
 class TestLocalRuntime:
     """Test LocalRuntime execution."""

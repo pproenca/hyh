@@ -113,7 +113,8 @@ class VolumeMapper(PathMapper):
 
     def to_runtime(self, host_path: str) -> str:
         """Map a host path to a container path."""
-        if host_path.startswith(self.host_root):
+        # Check exact match or proper child path (avoid prefix collision)
+        if host_path == self.host_root or host_path.startswith(self.host_root + "/"):
             # Replace host root with container root
             relative_path = host_path[len(self.host_root) :]
             return self.container_root + relative_path
@@ -121,7 +122,10 @@ class VolumeMapper(PathMapper):
 
     def to_host(self, runtime_path: str) -> str:
         """Map a container path to a host path."""
-        if runtime_path.startswith(self.container_root):
+        # Check exact match or proper child path (avoid prefix collision)
+        if runtime_path == self.container_root or runtime_path.startswith(
+            self.container_root + "/"
+        ):
             # Replace container root with host root
             relative_path = runtime_path[len(self.container_root) :]
             return self.host_root + relative_path

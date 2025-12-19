@@ -40,22 +40,29 @@ def safe_git_exec(
 
 
 def safe_commit(cwd: str, message: str) -> ExecutionResult:
-    """Atomic add + commit operation with exclusive locking."""
-    # Stage all changes
-    add_result = _runtime.execute(
-        ["git", "add", "-A"],
-        cwd=cwd,
-        exclusive=True,
-    )
-    if add_result.returncode != 0:
-        return add_result
+    """Atomic add + commit operation with exclusive locking.
 
-    # Commit
-    return _runtime.execute(
-        ["git", "commit", "-m", message],
-        cwd=cwd,
-        exclusive=True,
-    )
+    Holds lock for ENTIRE sequence to prevent race conditions where
+    another thread could modify staging between add and commit.
+    """
+    from .runtime import GLOBAL_EXEC_LOCK
+
+    with GLOBAL_EXEC_LOCK:
+        # Stage all changes (no exclusive flag - we already hold the lock)
+        add_result = _runtime.execute(
+            ["git", "add", "-A"],
+            cwd=cwd,
+            exclusive=False,
+        )
+        if add_result.returncode != 0:
+            return add_result
+
+        # Commit (no exclusive flag - we already hold the lock)
+        return _runtime.execute(
+            ["git", "commit", "-m", message],
+            cwd=cwd,
+            exclusive=False,
+        )
 
 
 def get_head_sha(cwd: str) -> str | None:
