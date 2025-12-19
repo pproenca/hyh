@@ -44,6 +44,24 @@ uv run mypy src                     # Type check
 uv run python -m harness.daemon     # Start daemon
 ```
 
+## Harness CLI Commands
+```bash
+harness ping                        # Health check
+harness get-state                   # Get workflow state
+harness update-state KEY=VALUE      # Update state fields
+harness task claim                  # Claim next available task
+harness task complete ID            # Complete a task
+harness exec -- COMMAND             # Execute command via runtime
+harness git -- ARGS                 # Execute git command
+harness session-start               # Start new session
+harness check-state                 # Check state integrity
+harness check-commit                # Verify commit state
+harness worker-id                   # Get/show worker ID
+harness plan import FILE            # Import plan file
+harness plan template               # Generate plan template
+harness shutdown                    # Stop daemon
+```
+
 ## Git (macOS/Darwin)
 Standard Unix commands: `git`, `ls`, `cd`, `grep`, `find`
 Note: `find` on macOS is BSD find (differs from GNU find)

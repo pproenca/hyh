@@ -40,7 +40,7 @@ Before every PR, verify:
 - [ ] Negative return codes translated to signal names
 - [ ] All durations use `time.monotonic()`
 - [ ] Graph validates for cycles on plan load
-- [ ] No `Any` types - use `Literal` for states
+- [ ] No `Any` types - use `Literal` for states (except Pydantic model_copy kwargs)
 - [ ] Client uses only stdlib imports, <50ms startup
 
 ## Common Issues
@@ -48,3 +48,21 @@ Before every PR, verify:
 - Host paths in Docker container → path mapping needed
 - O(N) file reads on hot paths → use efficient algorithms
 - Reading from Pydantic-parsed datetime as string → it's already datetime
+- Forgetting `exclusive=True` for git operations → race conditions
+
+## Test Files
+```
+tests/harness/
+├── conftest.py              # Shared fixtures
+├── test_state.py            # StateManager, DAG, claim/complete
+├── test_daemon.py           # HarnessDaemon, HarnessHandler
+├── test_runtime.py          # LocalRuntime, DockerRuntime, PathMapper
+├── test_trajectory.py       # TrajectoryLogger, tail
+├── test_git.py              # Git operations
+├── test_client.py           # Client RPC
+├── test_plan.py             # Plan parsing
+├── test_acp.py              # ACP emitter
+├── test_performance.py      # Performance benchmarks
+├── test_integration.py      # End-to-end tests
+└── test_integration_council.py  # Council integration tests
+```
