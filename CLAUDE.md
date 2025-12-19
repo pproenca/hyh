@@ -16,22 +16,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Install dependencies
-uv pip install -e ".[dev]"
+make install                # or: uv sync --dev
 
-# Run all tests
-pytest
+# Run all tests (30s timeout per test)
+make test                   # or: pytest -v
+
+# Run tests without timeout (faster iteration)
+make test-fast
 
 # Run specific test file
-pytest tests/harness/test_state.py
+make test-file FILE=tests/harness/test_state.py
 
 # Run specific test
 pytest tests/harness/test_state.py::test_claim_task_atomic -v
 
-# Run tests with timeout (default 2min per test)
-pytest --timeout=30
+# Run all checks (lint + typecheck + test)
+make check
 
-# Type checking (Pydantic models are self-validating)
-# No mypy configured - rely on Pydantic runtime validation
+# Code quality
+make lint                   # ruff check + format check
+make typecheck              # mypy strict mode
+make format                 # Auto-format with ruff
 ```
 
 ---
@@ -45,7 +50,9 @@ src/harness/
 ├── state.py        # JSON persistence, DAG-based task state
 ├── trajectory.py   # JSONL event logging with O(1) tail
 ├── runtime.py      # LocalRuntime, DockerRuntime, PathMapper
-└── git.py          # Git operations via runtime abstraction
+├── git.py          # Git operations via runtime abstraction
+├── plan.py         # Markdown plan parser → WorkflowState
+└── acp.py          # ACP emitter (background thread event queue)
 ```
 
 **Data Flow:**
