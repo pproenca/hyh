@@ -41,11 +41,11 @@ def test_claim_task_scales_with_dag_size(tmp_path):
 
     # Measure claim_task performance - should find task-0
     start = time.monotonic()
-    task = manager.claim_task("worker-1")
+    result = manager.claim_task("worker-1")
     elapsed = (time.monotonic() - start) * 1000  # Convert to ms
 
-    assert task is not None, "Should claim task-0"
-    assert task.id == "task-0", "Should claim first task in chain"
+    assert result.task is not None, "Should claim task-0"
+    assert result.task.id == "task-0", "Should claim first task in chain"
     assert elapsed < 100, f"claim_task took {elapsed:.2f}ms, should be < 100ms (O(V+E) guarantee)"
 
 
@@ -164,11 +164,11 @@ def test_claim_task_with_complex_dependencies(tmp_path):
 
     # Should quickly find one of the 100 claimable tasks (first task of each group)
     start = time.monotonic()
-    task = manager.claim_task("worker-1")
+    result = manager.claim_task("worker-1")
     elapsed = (time.monotonic() - start) * 1000
 
-    assert task is not None, "Should claim one of the 100 claimable tasks"
-    assert task.id.endswith("-task-0"), "Should claim first task of a group"
+    assert result.task is not None, "Should claim one of the 100 claimable tasks"
+    assert result.task.id.endswith("-task-0"), "Should claim first task of a group"
     assert elapsed < 100, f"claim_task took {elapsed:.2f}ms, should be < 100ms"
 
 
@@ -284,10 +284,10 @@ def test_claim_task_performance_with_completed_tasks(tmp_path):
 
     # Should quickly find one of the 100 pending tasks
     start = time.monotonic()
-    task = manager.claim_task("worker-1")
+    result = manager.claim_task("worker-1")
     elapsed = (time.monotonic() - start) * 1000
 
-    assert task is not None
-    assert task.status == TaskStatus.RUNNING  # Now claimed
-    assert int(task.id.split("-")[1]) >= 900  # One of the pending tasks
+    assert result.task is not None
+    assert result.task.status == TaskStatus.RUNNING  # Now claimed
+    assert int(result.task.id.split("-")[1]) >= 900  # One of the pending tasks
     assert elapsed < 100, f"claim_task took {elapsed:.2f}ms, should be < 100ms"

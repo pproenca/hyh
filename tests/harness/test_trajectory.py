@@ -1,8 +1,10 @@
 """Tests for trajectory.py - TrajectoryLogger with efficient tail."""
 
 import json
+import os
 import threading
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -195,3 +197,31 @@ def test_trajectory_tail_handles_decode_error(tmp_path):
     assert len(events) == 2
     assert events[0]["event"] == "valid1"
     assert events[1]["event"] == "valid2"
+
+
+def test_log_calls_fsync_for_durability(temp_trajectory_dir, logger):
+    """Test that log() calls fsync to ensure durability on crash.
+
+    Per System Reliability Protocol: Assume the process will crash at any nanosecond.
+    Without fsync, data may be lost in OS buffers on crash.
+    """
+    # Store original fsync
+    original_fsync = os.fsync
+    fsync_calls = []
+
+    def track_fsync(fd):
+        fsync_calls.append(fd)
+        # Call real fsync to not break functionality
+        return original_fsync(fd)
+
+    # Patch os.fsync to track calls
+    with patch("os.fsync", track_fsync):
+        logger.log({"event": "test_durability"})
+
+    # fsync should have been called at least once
+    assert len(fsync_calls) >= 1, "fsync must be called for crash durability"
+
+    # Verify the event was actually written
+    trajectory_file = temp_trajectory_dir / ".claude" / "trajectory.jsonl"
+    content = trajectory_file.read_text()
+    assert "test_durability" in content

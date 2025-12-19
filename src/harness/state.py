@@ -133,6 +133,18 @@ class PendingHandoff(BaseModel):
     plan: str
 
 
+class ClaimResult(BaseModel):
+    """Result of claim_task operation with atomic metadata.
+
+    Provides is_retry and is_reclaim flags computed atomically with the claim,
+    preventing race conditions from stale state reads.
+    """
+
+    task: Task | None = None
+    is_retry: bool = False
+    is_reclaim: bool = False
+
+
 class StateManager:
     """Manages workflow state with file persistence.
 
@@ -146,16 +158,17 @@ class StateManager:
         self._lock = threading.Lock()
 
     def _ensure_state_loaded(self) -> WorkflowState:
-        """Load state from disk if not cached. Must be called with lock held.
+        """Load state from disk. Must be called with lock held.
+
+        Always re-reads from disk to ensure we see the latest state,
+        preventing issues when external processes modify the state file.
 
         Returns:
-            The cached or freshly loaded WorkflowState.
+            The freshly loaded WorkflowState.
 
         Raises:
-            ValueError: If no state file exists and no state is cached.
+            ValueError: If no state file exists.
         """
-        if self._state:
-            return self._state
         if self.state_file.exists():
             content = self.state_file.read_text()
             data = json.loads(content)
@@ -216,30 +229,41 @@ class StateManager:
             self._write_atomic(self._state)
             return self._state
 
-    def claim_task(self, worker_id: str) -> Task | None:
-        """Atomically claim a task for worker (find + update + save in one critical section)."""
+    def claim_task(self, worker_id: str) -> ClaimResult:
+        """Atomically claim a task for worker with retry/reclaim metadata.
+
+        Returns ClaimResult with is_retry and is_reclaim flags computed atomically,
+        preventing race conditions from stale state reads.
+        """
         with self._lock:
             state = self._ensure_state_loaded()
 
             # Check if worker already has a task (idempotency)
             task = state.get_task_for_worker(worker_id)
             if not task:
-                return None
+                return ClaimResult(task=None, is_retry=False, is_reclaim=False)
 
-            is_new_claim = task.claimed_by != worker_id
+            # Determine flags BEFORE modifying task
+            was_already_claimed_by_worker = task.claimed_by == worker_id
+            is_retry = was_already_claimed_by_worker and task.status == TaskStatus.RUNNING
+            is_reclaim = (
+                not was_already_claimed_by_worker
+                and task.status == TaskStatus.RUNNING
+                and task.is_timed_out()
+            )
 
             # ALWAYS renew the lease (prevents task stealing on retry)
             now = datetime.now(UTC)
             task.started_at = now
 
-            if is_new_claim:
+            if not was_already_claimed_by_worker:
                 task.status = TaskStatus.RUNNING
                 task.claimed_by = worker_id
 
             state.tasks[task.id] = task
             self._write_atomic(state)
 
-            return task
+            return ClaimResult(task=task, is_retry=is_retry, is_reclaim=is_reclaim)
 
     def complete_task(self, task_id: str, worker_id: str) -> None:
         """Atomically complete a task with ownership validation."""

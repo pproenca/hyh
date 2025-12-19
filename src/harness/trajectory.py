@@ -5,6 +5,7 @@ file and supports efficient O(1) tail operations using reverse-seek.
 """
 
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ class TrajectoryLogger:
         """Append an event to the trajectory log.
 
         Thread-safe operation that appends a JSON line to the file.
+        Uses flush + fsync for crash durability (System Reliability Protocol).
 
         Args:
             event: Dictionary to log as a JSON line
@@ -41,9 +43,11 @@ class TrajectoryLogger:
             # Create parent directory if it doesn't exist
             self.trajectory_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Append the event as a JSON line
+            # Append the event as a JSON line with durability guarantee
             with self.trajectory_file.open("a") as f:
                 f.write(json.dumps(event) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
 
     def tail(self, n: int) -> list[dict[str, Any]]:
         """Get the last N events from the trajectory log.

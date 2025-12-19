@@ -18,20 +18,24 @@ from typing import Any
 
 
 class ACPEmitter:
-    """Queue-based non-blocking telemetry emitter."""
+    """Queue-based non-blocking telemetry emitter.
+
+    Thread-safe: Uses threading.Event for the disabled flag to avoid
+    data races in Python 3.13t (free-threaded).
+    """
 
     def __init__(self, host: str = "127.0.0.1", port: int = 9100) -> None:
         self._host = host
         self._port = port
         self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
-        self._disabled = False
+        self._disabled = threading.Event()  # Thread-safe flag
         self._warned = False
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
 
     def emit(self, entry: dict[str, Any]) -> None:
         """Push to queue and return immediately. Strictly non-blocking."""
-        if not self._disabled:
+        if not self._disabled.is_set():
             self._queue.put_nowait(entry)
 
     def _worker(self) -> None:
@@ -41,7 +45,7 @@ class ACPEmitter:
             entry = self._queue.get()
             if entry is None:  # Shutdown signal
                 break
-            if self._disabled:
+            if self._disabled.is_set():
                 continue
 
             # Lazy connect
@@ -51,7 +55,7 @@ class ACPEmitter:
                     sock.settimeout(2.0)
                     sock.connect((self._host, self._port))
                 except OSError:
-                    self._disabled = True
+                    self._disabled.set()
                     sock = None
                     if not self._warned:
                         msg = f"ACP: Claude Code not available on port {self._port}"
@@ -64,7 +68,7 @@ class ACPEmitter:
                 msg = json.dumps(entry) + "\n"
                 sock.sendall(msg.encode())
             except OSError:
-                self._disabled = True
+                self._disabled.set()
                 with contextlib.suppress(OSError):
                     sock.close()
                 sock = None

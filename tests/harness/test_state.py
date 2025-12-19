@@ -510,12 +510,12 @@ def test_claim_task_atomic(tmp_path):
     manager.save(state)
 
     # Claim task
-    task = manager.claim_task("worker-1")
-    assert task is not None
-    assert task.id == "task-1"
-    assert task.claimed_by == "worker-1"
-    assert task.status == TaskStatus.RUNNING
-    assert task.started_at is not None
+    result = manager.claim_task("worker-1")
+    assert result.task is not None
+    assert result.task.id == "task-1"
+    assert result.task.claimed_by == "worker-1"
+    assert result.task.status == TaskStatus.RUNNING
+    assert result.task.started_at is not None
 
     # Verify persisted
     loaded = StateManager(tmp_path).load()
@@ -541,10 +541,10 @@ def test_claim_task_returns_existing(tmp_path):
     manager.save(state)
 
     # Claim task again with same worker
-    task = manager.claim_task("worker-1")
-    assert task is not None
-    assert task.id == "task-1"
-    assert task.claimed_by == "worker-1"
+    result = manager.claim_task("worker-1")
+    assert result.task is not None
+    assert result.task.id == "task-1"
+    assert result.task.claimed_by == "worker-1"
 
 
 def test_claim_task_renews_lease_on_retry(tmp_path):
@@ -569,13 +569,13 @@ def test_claim_task_renews_lease_on_retry(tmp_path):
 
     # Retry claim with same worker
     before_claim = datetime.now(UTC)
-    task = manager.claim_task("worker-1")
+    result = manager.claim_task("worker-1")
 
-    assert task is not None
-    assert task.id == "task-1"
-    assert task.claimed_by == "worker-1"
+    assert result.task is not None
+    assert result.task.id == "task-1"
+    assert result.task.claimed_by == "worker-1"
     # Critical: started_at must be renewed
-    assert task.started_at >= before_claim, "Lease was not renewed on retry"
+    assert result.task.started_at >= before_claim, "Lease was not renewed on retry"
 
 
 def test_claim_task_lease_renewal_prevents_stealing(tmp_path):
@@ -601,13 +601,13 @@ def test_claim_task_lease_renewal_prevents_stealing(tmp_path):
     manager.save(state)
 
     # Worker A retries (simulating crash recovery)
-    task_a = manager.claim_task("worker-A")
-    assert task_a is not None
-    assert task_a.started_at > nearly_expired, "Lease must be renewed"
+    result_a = manager.claim_task("worker-A")
+    assert result_a.task is not None
+    assert result_a.task.started_at > nearly_expired, "Lease must be renewed"
 
     # Worker B tries to claim - should get None (no claimable tasks)
-    task_b = manager.claim_task("worker-B")
-    assert task_b is None, "Worker B should not steal task after lease renewal"
+    result_b = manager.claim_task("worker-B")
+    assert result_b.task is None, "Worker B should not steal task after lease renewal"
 
 
 def test_claim_task_race_condition_prevented(tmp_path):
@@ -634,9 +634,9 @@ def test_claim_task_race_condition_prevented(tmp_path):
     results = []
 
     def claim_worker(worker_id):
-        task = manager.claim_task(worker_id)
-        if task:
-            results.append((worker_id, task.id))
+        result = manager.claim_task(worker_id)
+        if result.task:
+            results.append((worker_id, result.task.id))
 
     # Spawn multiple threads trying to claim tasks
     threads = []
@@ -920,9 +920,9 @@ def test_claim_task_auto_loads_state(tmp_path):
     )
 
     # Claim without calling load() - should auto-load
-    task = manager.claim_task("worker-1")
-    assert task is not None
-    assert task.id == "task-1"
+    result = manager.claim_task("worker-1")
+    assert result.task is not None
+    assert result.task.id == "task-1"
 
 
 def test_complete_task_auto_loads_state(tmp_path):
@@ -985,3 +985,91 @@ def test_detect_cycle_returns_cycle_node_for_cyclic_graph() -> None:
     graph = {"a": ["b"], "b": ["c"], "c": ["a"]}
     result = detect_cycle(graph)
     assert result in {"a", "b", "c"}  # Any node in the cycle
+
+
+# ============================================================================
+# TestClaimResult: claim_task returns atomic metadata (is_retry, is_reclaim)
+# ============================================================================
+
+
+def test_claim_task_returns_claim_result_with_is_retry(tmp_path) -> None:
+    """claim_task should return ClaimResult with is_retry flag atomically.
+
+    This prevents race conditions where is_retry is computed from stale state.
+    """
+    from harness.state import ClaimResult
+
+    manager = StateManager(tmp_path)
+    state = WorkflowState(
+        tasks={
+            "task1": Task(
+                id="task1",
+                description="Test task",
+                status=TaskStatus.PENDING,
+                dependencies=[],
+            ),
+        }
+    )
+    manager.save(state)
+
+    # First claim - should be new claim (not retry)
+    result1 = manager.claim_task("worker1")
+    assert isinstance(result1, ClaimResult)
+    assert result1.task is not None
+    assert result1.task.id == "task1"
+    assert result1.is_retry is False
+    assert result1.is_reclaim is False
+
+    # Second claim by same worker - should be retry
+    result2 = manager.claim_task("worker1")
+    assert isinstance(result2, ClaimResult)
+    assert result2.task is not None
+    assert result2.task.id == "task1"
+    assert result2.is_retry is True
+    assert result2.is_reclaim is False
+
+
+def test_claim_task_returns_claim_result_with_is_reclaim(tmp_path) -> None:
+    """claim_task should return ClaimResult with is_reclaim flag for timed out tasks."""
+    from harness.state import ClaimResult
+
+    manager = StateManager(tmp_path)
+    # Create a timed out task
+    state = WorkflowState(
+        tasks={
+            "task1": Task(
+                id="task1",
+                description="Timed out task",
+                status=TaskStatus.RUNNING,
+                dependencies=[],
+                claimed_by="worker_old",
+                started_at=datetime.now(UTC) - timedelta(seconds=700),
+                timeout_seconds=600,
+            ),
+        }
+    )
+    manager.save(state)
+
+    # Reclaim by new worker - should be reclaim
+    result = manager.claim_task("worker2")
+    assert isinstance(result, ClaimResult)
+    assert result.task is not None
+    assert result.task.id == "task1"
+    assert result.task.claimed_by == "worker2"
+    assert result.is_retry is False
+    assert result.is_reclaim is True
+
+
+def test_claim_task_returns_none_result_when_no_tasks(tmp_path) -> None:
+    """claim_task should return ClaimResult with task=None when no tasks available."""
+    from harness.state import ClaimResult
+
+    manager = StateManager(tmp_path)
+    state = WorkflowState(tasks={})
+    manager.save(state)
+
+    result = manager.claim_task("worker1")
+    assert isinstance(result, ClaimResult)
+    assert result.task is None
+    assert result.is_retry is False
+    assert result.is_reclaim is False

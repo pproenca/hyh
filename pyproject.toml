@@ -14,6 +14,7 @@ dev = [
     "pytest-timeout>=2.0",
     "ruff>=0.8",
     "mypy>=1.8",
+    "pre-commit>=4.0",
 ]
 
 [dependency-groups]
@@ -22,6 +23,7 @@ dev = [
     "pytest-timeout>=2.0",
     "ruff>=0.8",
     "mypy>=1.8",
+    "pre-commit>=4.0",
 ]
 
 [project.scripts]
@@ -41,7 +43,7 @@ addopts = "--timeout=30"
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = [

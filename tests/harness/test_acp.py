@@ -100,7 +100,7 @@ def test_acp_worker_send_error_disables():
     emitter.emit({"event": "test2"})
     time.sleep(0.3)
 
-    assert emitter._disabled is True
+    assert emitter._disabled.is_set() is True
     emitter.close()
     server.close()
 
@@ -146,3 +146,26 @@ def test_acp_worker_cleanup_on_shutdown_with_connection():
         with contextlib.suppress(OSError):
             conn.close()
     server.close()
+
+
+def test_acp_disabled_flag_is_thread_safe():
+    """_disabled should be thread-safe (use threading.Event for Python 3.13t free-threading).
+
+    Per CLAUDE.md Python 3.13t Concurrency Doctrine: threads are compute units.
+    Simple boolean flags without synchronization are data races in free-threaded Python.
+    """
+    emitter = ACPEmitter(port=59999)  # Nothing listening
+
+    # _disabled should be a threading.Event, not a boolean
+    assert isinstance(emitter._disabled, threading.Event), (
+        "_disabled must be threading.Event for thread-safe access in Python 3.13t"
+    )
+
+    # Verify Event semantics work correctly
+    assert not emitter._disabled.is_set()  # Initially not disabled
+
+    emitter.emit({"event": "test"})
+    time.sleep(0.2)  # Let worker attempt connection and disable
+
+    assert emitter._disabled.is_set()  # Should be disabled after connection failure
+    emitter.close()

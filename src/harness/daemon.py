@@ -31,7 +31,7 @@ from .acp import ACPEmitter
 from .git import safe_git_exec
 from .plan import parse_plan_content
 from .runtime import Runtime, create_runtime, decode_signal
-from .state import StateManager, Task, TaskStatus
+from .state import StateManager
 from .trajectory import TrajectoryLogger
 
 # Truncation limit for trajectory logs - agents need enough context to debug
@@ -137,38 +137,13 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             return {"status": "error", "message": "worker_id is required"}
 
         try:
-            # Check state BEFORE claiming to determine retry/reclaim flags
-            state_before = server.state_manager.load()
-            existing_task_id: str | None = None
-            task_was_timed_out = False
+            # Atomically claim task with is_retry/is_reclaim computed inside lock
+            claim_result = server.state_manager.claim_task(worker_id)
 
-            if state_before:
-                # Check if worker already has a running task (for retry detection)
-                for existing_task in state_before.tasks.values():
-                    is_claimed = existing_task.claimed_by == worker_id
-                    is_running = existing_task.status == TaskStatus.RUNNING
-                    if is_claimed and is_running:
-                        existing_task_id = existing_task.id
-                        break
-
-                # Check if the claimable task is a timed-out task
-                claimable = state_before.get_claimable_task()
-                if (
-                    claimable
-                    and claimable.status == TaskStatus.RUNNING
-                    and claimable.is_timed_out()
-                ):
-                    task_was_timed_out = True
-
-            # Atomically claim task (state lock released inside this call)
-            task: Task | None = server.state_manager.claim_task(worker_id)
-
-            if not task:
+            if not claim_result.task:
                 return {"status": "ok", "data": {"task": None}}
 
-            # Determine flags
-            is_retry = existing_task_id == task.id
-            is_reclaim = task_was_timed_out and not is_retry
+            task = claim_result.task
 
             # Log to trajectory AFTER state lock is released (lock convoy fix)
             server.trajectory_logger.log(
@@ -176,8 +151,8 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                     "event_type": "task_claim",
                     "task_id": task.id,
                     "worker_id": worker_id,
-                    "is_retry": is_retry,
-                    "is_reclaim": is_reclaim,
+                    "is_retry": claim_result.is_retry,
+                    "is_reclaim": claim_result.is_reclaim,
                 }
             )
             if server.acp_emitter:
@@ -193,8 +168,8 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                 "status": "ok",
                 "data": {
                     "task": task.model_dump(mode="json"),
-                    "is_retry": is_retry,
-                    "is_reclaim": is_reclaim,
+                    "is_retry": claim_result.is_retry,
+                    "is_reclaim": claim_result.is_reclaim,
                 },
             }
         except Exception as e:
