@@ -79,6 +79,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             "task_complete": self._handle_task_complete,
             "exec": self._handle_exec,
             "plan_import": self._handle_plan_import,
+            "plan_reset": self._handle_plan_reset,
         }
 
         if command is None:
@@ -319,6 +320,16 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             if "No JSON plan block found" in msg:
                 msg += ". Run 'harness plan template' to see the required JSON schema."
             return {"status": "error", "message": msg}
+
+    def _handle_plan_reset(self, _request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
+        """Reset workflow state (clear all tasks)."""
+        server.state_manager.reset()
+
+        server.trajectory_logger.log({"event_type": "plan_reset"})
+        if server.acp_emitter:
+            server.acp_emitter.emit({"event_type": "plan_reset"})
+
+        return {"status": "ok", "data": {"message": "Workflow state cleared"}}
 
 
 class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):

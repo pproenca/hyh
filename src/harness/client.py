@@ -314,6 +314,7 @@ def main() -> None:
     plan_import_parser = plan_sub.add_parser("import", help="Import plan from file")
     plan_import_parser.add_argument("--file", required=True, help="Plan file path")
     plan_sub.add_parser("template", help="Print JSON schema for plan format")
+    plan_sub.add_parser("reset", help="Clear all workflow state")
 
     # exec command
     exec_parser = subparsers.add_parser(
@@ -382,6 +383,8 @@ def main() -> None:
             _cmd_plan_import(socket_path, worktree_root, args.file)
         elif args.plan_command == "template":
             _cmd_plan_template()
+        elif args.plan_command == "reset":
+            _cmd_plan_reset(socket_path, worktree_root)
     elif args.command == "exec":
         # Strip leading -- separator if present
         command_args = args.command_args
@@ -665,6 +668,19 @@ def _cmd_plan_template() -> None:
     from harness.plan import get_plan_template
 
     print(get_plan_template())
+
+
+def _cmd_plan_reset(socket_path: str, worktree_root: str) -> None:
+    """Clear all workflow state."""
+    response = send_rpc(
+        socket_path,
+        {"command": "plan_reset"},
+        worktree_root,
+    )
+    if response["status"] != "ok":
+        print(f"Error: {response.get('message')}", file=sys.stderr)
+        sys.exit(1)
+    print("Workflow state cleared")
 
 
 if __name__ == "__main__":

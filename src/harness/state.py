@@ -298,3 +298,13 @@ class StateManager:
 
             state.tasks[task_id] = task
             self._write_atomic(state)
+
+    def reset(self) -> None:
+        """Clear all workflow state (thread-safe).
+
+        Removes the state file, allowing a fresh workflow to be started.
+        """
+        with self._lock:
+            if self.state_file.exists():
+                self.state_file.unlink()
+            self._state = None

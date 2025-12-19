@@ -1009,6 +1009,47 @@ def test_complete_task_raises_for_missing_task(tmp_path):
         manager.complete_task("nonexistent", "worker-1")
 
 
+def test_reset_clears_state_file(tmp_path):
+    """reset() should delete the state file and clear cached state."""
+    manager = StateManager(tmp_path)
+    state_file = tmp_path / ".claude" / "dev-workflow-state.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create a state with tasks
+    state = WorkflowState(
+        tasks={
+            "task-1": Task(
+                id="task-1",
+                description="Test task",
+                status=TaskStatus.PENDING,
+                dependencies=[],
+            )
+        }
+    )
+    manager.save(state)
+    assert state_file.exists()
+
+    # Reset should delete the file
+    manager.reset()
+    assert not state_file.exists()
+
+    # Subsequent load should return None
+    assert manager.load() is None
+
+
+def test_reset_is_idempotent(tmp_path):
+    """reset() should not raise if state file doesn't exist."""
+    manager = StateManager(tmp_path)
+    state_file = tmp_path / ".claude" / "dev-workflow-state.json"
+
+    # No state file exists
+    assert not state_file.exists()
+
+    # Reset should not raise
+    manager.reset()
+    assert not state_file.exists()
+
+
 def test_ensure_state_loaded_raises_when_file_deleted(tmp_path):
     """_ensure_state_loaded should raise error if state file deleted.
 

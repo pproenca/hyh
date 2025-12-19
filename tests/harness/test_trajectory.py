@@ -247,10 +247,8 @@ def test_tail_limits_memory_on_corrupt_file(tmp_path):
     logger = TrajectoryLogger(trajectory_file)
 
     # Call tail with a small max_buffer to prove the limit works
-    # BUG: Current implementation doesn't have max_buffer_bytes parameter
-    # After fix: Should accept max_buffer_bytes and stop early
 
-    # Test 1: Verify tail has max_buffer_bytes parameter (will fail before fix)
+    # Test 1: Verify tail has max_buffer_bytes parameter
     import inspect
 
     sig = inspect.signature(logger.tail)
