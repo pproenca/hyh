@@ -604,7 +604,7 @@ All harness environment variables and their defaults:
 |----------|---------|-------------|
 | `HARNESS_SOCKET` | `/tmp/harness-{user}.sock` | Unix socket path for client-daemon IPC |
 | `HARNESS_WORKTREE` | Git repository root | Override worktree detection |
-| `HARNESS_TIMEOUT` | `10` (seconds) | Daemon spawn timeout |
+| `HARNESS_TIMEOUT` | `5` (seconds) | Daemon spawn timeout |
 | `HARNESS_WORKER_ID_FILE` | `$XDG_RUNTIME_DIR/harness-worker-id` | Worker ID persistence file |
 | `HARNESS_CONTAINER_ID` | None | Docker container ID for DockerRuntime |
 | `HARNESS_HOST_ROOT` | None | Host path for Docker volume mapping |
@@ -637,9 +637,9 @@ Communication uses JSON-over-Unix-socket with newline delimiters.
 | `get_state` | - | Full workflow state |
 | `task_claim` | `worker_id` | Claimed task or null |
 | `task_complete` | `task_id`, `worker_id`, `success`, `output?`, `error?` | Updated task |
-| `task_skip` | `task_id`, `worker_id`, `reason` | Updated task |
 | `exec` | `args`, `cwd?`, `timeout?`, `exclusive?` | `returncode`, `stdout`, `stderr`, `signal?` |
 | `git` | `args`, `cwd?` | `returncode`, `stdout`, `stderr` |
 | `plan_import` | `content` | Imported plan |
 | `update_state` | `updates` (dict) | Updated state |
+| `ping` | - | Acknowledgment |
 | `shutdown` | - | Acknowledgment |
