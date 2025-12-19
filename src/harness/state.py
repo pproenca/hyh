@@ -17,6 +17,36 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+def detect_cycle(graph: dict[str, list[str]]) -> str | None:
+    """Detect cycle in directed graph using DFS.
+
+    Args:
+        graph: Adjacency list mapping node ID to list of dependency IDs.
+
+    Returns:
+        First node found in a cycle, or None if graph is acyclic.
+    """
+    visited: set[str] = set()
+    rec_stack: set[str] = set()
+
+    def dfs(node: str) -> str | None:
+        visited.add(node)
+        rec_stack.add(node)
+        for neighbor in graph.get(node, []):
+            if neighbor not in visited:
+                if cycle_node := dfs(neighbor):
+                    return cycle_node
+            elif neighbor in rec_stack:
+                return neighbor
+        rec_stack.discard(node)
+        return None
+
+    for node in graph:
+        if node not in visited and (cycle_node := dfs(node)):
+            return cycle_node
+    return None
+
+
 class TaskStatus(str, Enum):
     """Task execution status."""
 
@@ -69,23 +99,9 @@ class WorkflowState(BaseModel):
         Raises:
             ValueError: If a dependency cycle is detected.
         """
-        visited: set[str] = set()
-        path: set[str] = set()
-
-        def visit(node: str) -> None:
-            if node in path:
-                raise ValueError(f"Cycle detected at {node}")
-            if node in visited:
-                return
-            visited.add(node)
-            path.add(node)
-            if node in self.tasks:
-                for dep in self.tasks[node].dependencies:
-                    visit(dep)
-            path.remove(node)
-
-        for task_id in self.tasks:
-            visit(task_id)
+        graph = {task_id: task.dependencies for task_id, task in self.tasks.items()}
+        if cycle_node := detect_cycle(graph):
+            raise ValueError(f"Cycle detected at {cycle_node}")
 
     def get_claimable_task(self) -> Task | None:
         """Find a task that can be claimed (pending or timed out with satisfied deps)."""

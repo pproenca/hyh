@@ -963,3 +963,25 @@ def test_complete_task_raises_for_missing_task(tmp_path):
 
     with pytest.raises(ValueError, match="Task nonexistent not found"):
         manager.complete_task("nonexistent", "worker-1")
+
+
+# ============================================================================
+# TestDetectCycle: standalone cycle detection function (Task 3)
+# ============================================================================
+
+
+def test_detect_cycle_returns_none_for_acyclic_graph() -> None:
+    """detect_cycle should return None for valid DAG."""
+    from harness.state import detect_cycle
+
+    graph = {"a": ["b"], "b": ["c"], "c": []}
+    assert detect_cycle(graph) is None
+
+
+def test_detect_cycle_returns_cycle_node_for_cyclic_graph() -> None:
+    """detect_cycle should return a node in the cycle."""
+    from harness.state import detect_cycle
+
+    graph = {"a": ["b"], "b": ["c"], "c": ["a"]}
+    result = detect_cycle(graph)
+    assert result in {"a", "b", "c"}  # Any node in the cycle

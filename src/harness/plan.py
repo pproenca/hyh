@@ -10,7 +10,7 @@ import re
 
 from pydantic import BaseModel, Field
 
-from .state import Task, TaskStatus, WorkflowState
+from .state import Task, TaskStatus, WorkflowState, detect_cycle
 
 
 class PlanTaskDefinition(BaseModel):
@@ -38,22 +38,9 @@ class PlanDefinition(BaseModel):
                     raise ValueError(f"Missing dependency: {dep} (in {task_id})")
 
         # DFS cycle detection
-        visited: set[str] = set()
-        path: set[str] = set()
-
-        def visit(node: str) -> None:
-            if node in path:
-                raise ValueError(f"Cycle detected at {node}")
-            if node in visited:
-                return
-            visited.add(node)
-            path.add(node)
-            for dep in self.tasks[node].dependencies:
-                visit(dep)
-            path.remove(node)
-
-        for task_id in self.tasks:
-            visit(task_id)
+        graph = {task_id: task.dependencies for task_id, task in self.tasks.items()}
+        if cycle_node := detect_cycle(graph):
+            raise ValueError(f"Cycle detected at {cycle_node}")
 
     def to_workflow_state(self) -> WorkflowState:
         """Convert to internal WorkflowState."""
