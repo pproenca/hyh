@@ -309,6 +309,29 @@ def test_get_claimable_task_all_deps_completed():
     assert task.id == "task-3"
 
 
+def test_get_claimable_task_raises_on_missing_dependency():
+    """get_claimable_task should raise error if dependency doesn't exist.
+
+    Bug: The code has `if dep_id in self.tasks` which silently treats
+    missing dependencies as satisfied. This could allow a task to be
+    claimed when its dependency doesn't exist.
+    """
+    # Create state with missing dependency (bypassing validation for test)
+    state = WorkflowState(
+        tasks={
+            "task-a": Task(
+                id="task-a",
+                description="Task A",
+                status=TaskStatus.PENDING,
+                dependencies=["task-nonexistent"],  # References missing task!
+            ),
+        }
+    )
+    # Should raise error, not silently return task-a as claimable
+    with pytest.raises(ValueError, match="[Mm]issing dependency"):
+        state.get_claimable_task()
+
+
 def test_get_claimable_task_none_available():
     """get_claimable_task should return None when no tasks available."""
     state = WorkflowState(
@@ -815,6 +838,27 @@ def test_validate_dag_empty_tasks():
     state.validate_dag()
 
 
+def test_validate_dag_detects_missing_dependency():
+    """validate_dag should raise ValueError for missing dependency.
+
+    Bug: WorkflowState.validate_dag only checks cycles, not missing deps.
+    PlanDefinition.validate_dag checks both. This inconsistency could allow
+    invalid state if constructed directly (not via plan import).
+    """
+    state = WorkflowState(
+        tasks={
+            "task-a": Task(
+                id="task-a",
+                description="Task A",
+                status=TaskStatus.PENDING,
+                dependencies=["task-nonexistent"],  # References missing task!
+            ),
+        }
+    )
+    with pytest.raises(ValueError, match="[Mm]issing dependency"):
+        state.validate_dag()
+
+
 # ============================================================================
 # TestStateManagerValidatesDAG: save validates DAG (Amendment C - Part 2)
 # ============================================================================
@@ -963,6 +1007,39 @@ def test_complete_task_raises_for_missing_task(tmp_path):
 
     with pytest.raises(ValueError, match="Task nonexistent not found"):
         manager.complete_task("nonexistent", "worker-1")
+
+
+def test_ensure_state_loaded_raises_when_file_deleted(tmp_path):
+    """_ensure_state_loaded should raise error if state file deleted.
+
+    Bug: If state was loaded previously, then file deleted,
+    _ensure_state_loaded returns stale cached state instead of raising.
+    The docstring says "Always re-reads from disk" but doesn't enforce this.
+    """
+    manager = StateManager(tmp_path)
+
+    # Create and load state
+    state = WorkflowState(
+        tasks={
+            "task-1": Task(
+                id="task-1",
+                description="Task 1",
+                status=TaskStatus.PENDING,
+                dependencies=[],
+            ),
+        }
+    )
+    manager.save(state)
+    manager.load()  # Populates _state cache
+
+    # Delete the file
+    manager.state_file.unlink()
+    assert not manager.state_file.exists()
+
+    # claim_task calls _ensure_state_loaded internally
+    # Should raise error, not return stale cached state
+    with pytest.raises(ValueError, match="[Nn]o state"):
+        manager.claim_task("worker-1")
 
 
 # ============================================================================

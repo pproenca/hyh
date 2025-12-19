@@ -94,25 +94,40 @@ class WorkflowState(BaseModel):
     tasks: dict[str, Task] = Field(default_factory=dict, description="Task DAG")
 
     def validate_dag(self) -> None:
-        """Ensure no circular dependencies exist.
+        """Ensure no circular dependencies and all dependencies exist.
 
         Raises:
-            ValueError: If a dependency cycle is detected.
+            ValueError: If a dependency cycle is detected or dependency is missing.
         """
+        # Check all dependencies exist
+        for task_id, task in self.tasks.items():
+            for dep in task.dependencies:
+                if dep not in self.tasks:
+                    raise ValueError(f"Missing dependency: {dep} (in {task_id})")
+
+        # Check for cycles
         graph = {task_id: task.dependencies for task_id, task in self.tasks.items()}
         if cycle_node := detect_cycle(graph):
             raise ValueError(f"Cycle detected at {cycle_node}")
 
     def get_claimable_task(self) -> Task | None:
-        """Find a task that can be claimed (pending or timed out with satisfied deps)."""
+        """Find a task that can be claimed (pending or timed out with satisfied deps).
+
+        Raises:
+            ValueError: If a dependency references a non-existent task.
+        """
         for task in self.tasks.values():
             if task.status == TaskStatus.PENDING or (
                 task.status == TaskStatus.RUNNING and task.is_timed_out()
             ):
+                # Fail-fast on missing dependencies (defensive coding)
+                for dep_id in task.dependencies:
+                    if dep_id not in self.tasks:
+                        raise ValueError(f"Missing dependency: {dep_id} (in {task.id})")
+
                 deps_satisfied = all(
                     self.tasks[dep_id].status == TaskStatus.COMPLETED
                     for dep_id in task.dependencies
-                    if dep_id in self.tasks
                 )
                 if deps_satisfied:
                     return task
@@ -167,14 +182,14 @@ class StateManager:
             The freshly loaded WorkflowState.
 
         Raises:
-            ValueError: If no state file exists.
+            ValueError: If no state file exists (never falls back to cache).
         """
-        if self.state_file.exists():
-            content = self.state_file.read_text()
-            data = json.loads(content)
-            self._state = WorkflowState(**data)
-        if not self._state:
+        if not self.state_file.exists():
             raise ValueError("No state loaded and no state file exists")
+
+        content = self.state_file.read_text()
+        data = json.loads(content)
+        self._state = WorkflowState(**data)
         return self._state
 
     def _write_atomic(self, state: WorkflowState) -> None:
