@@ -41,3 +41,4 @@ htmlcov/
 # Local development
 *.local.md
 .claude/dev-workflow-state.local.md
+.claude/
