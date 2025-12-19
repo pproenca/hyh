@@ -136,3 +136,57 @@ def test_safe_commit_atomic_integration(tmp_path):
     sha = get_head_sha(str(tmp_path))
     assert sha is not None
     assert len(sha) == 40
+
+
+def test_get_head_sha_handles_failure():
+    """Verify get_head_sha returns None on failure."""
+    from harness.git import get_head_sha
+
+    mock_result = MagicMock(returncode=128, stdout="", stderr="fatal: not a git repository")
+
+    with patch("harness.git._runtime.execute", return_value=mock_result):
+        sha = get_head_sha("/tmp/not-a-repo")
+
+    assert sha is None
+
+
+def test_safe_commit_stages_and_commits():
+    """Verify safe_commit calls git add and git commit."""
+    from harness.git import safe_commit
+
+    calls = []
+
+    def mock_execute(args, cwd, timeout=None, exclusive=False):
+        calls.append(args)
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("harness.git._runtime.execute", side_effect=mock_execute):
+        safe_commit("/tmp/repo", "test commit message")
+
+    assert ["git", "add", "-A"] in calls
+    assert any("commit" in call and "-m" in call for call in calls)
+
+
+def test_get_head_sha_returns_commit_hash():
+    """Verify get_head_sha extracts commit hash from git output."""
+    from harness.git import get_head_sha
+
+    mock_result = MagicMock(returncode=0, stdout="abc123def456\n", stderr="")
+
+    with patch("harness.git._runtime.execute", return_value=mock_result):
+        sha = get_head_sha("/tmp/repo")
+
+    assert sha == "abc123def456"
+
+
+def test_safe_git_exec_raises_on_failure():
+    """Verify git failures are properly reported."""
+    from harness.git import safe_git_exec
+
+    mock_result = MagicMock(returncode=128, stdout="", stderr="fatal: not a git repository")
+
+    with patch("harness.git._runtime.execute", return_value=mock_result):
+        result = safe_git_exec(["status"], "/tmp")
+
+    assert result.returncode == 128
+    assert "not a git repository" in result.stderr
