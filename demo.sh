@@ -171,7 +171,9 @@ cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
       "started_at": null,
       "completed_at": null,
       "claimed_by": null,
-      "timeout_seconds": 600
+      "timeout_seconds": 600,
+      "instructions": "Initialize project structure with src/ and tests/ directories",
+      "role": null
     },
     "backend": {
       "id": "backend",
@@ -181,7 +183,9 @@ cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
       "started_at": null,
       "completed_at": null,
       "claimed_by": null,
-      "timeout_seconds": 600
+      "timeout_seconds": 600,
+      "instructions": "Create REST endpoints with JSON responses",
+      "role": "backend"
     },
     "frontend": {
       "id": "frontend",
@@ -191,7 +195,9 @@ cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
       "started_at": null,
       "completed_at": null,
       "claimed_by": null,
-      "timeout_seconds": 600
+      "timeout_seconds": 600,
+      "instructions": "Build React components with TypeScript",
+      "role": "frontend"
     },
     "integration": {
       "id": "integration",
@@ -201,7 +207,9 @@ cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
       "started_at": null,
       "completed_at": null,
       "claimed_by": null,
-      "timeout_seconds": 600
+      "timeout_seconds": 600,
+      "instructions": null,
+      "role": null
     },
     "deploy": {
       "id": "deploy",
@@ -211,7 +219,9 @@ cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
       "started_at": null,
       "completed_at": null,
       "claimed_by": null,
-      "timeout_seconds": 600
+      "timeout_seconds": 600,
+      "instructions": null,
+      "role": null
     }
   }
 }
@@ -324,6 +334,14 @@ run_command "harness get-state | jq '.tasks | to_entries[] | {id: .key, status: 
 
 print_explanation "Notice the 'instructions' and 'role' fields - metadata for LLM agents"
 print_explanation "The parser extracts JSON from markdown, ignoring thinking tokens"
+echo ""
+
+print_step "Get the plan template (shows format documentation)"
+echo ""
+
+run_command "harness plan template | head -30"
+
+print_explanation "Use 'plan template' to get the full JSON schema for LLM prompting"
 
 wait_for_user
 
@@ -339,7 +357,9 @@ cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
       "started_at": null,
       "completed_at": null,
       "claimed_by": null,
-      "timeout_seconds": 600
+      "timeout_seconds": 600,
+      "instructions": "Initialize project structure with src/ and tests/ directories",
+      "role": null
     },
     "backend": {
       "id": "backend",
@@ -349,7 +369,9 @@ cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
       "started_at": null,
       "completed_at": null,
       "claimed_by": null,
-      "timeout_seconds": 600
+      "timeout_seconds": 600,
+      "instructions": "Create REST endpoints with JSON responses",
+      "role": "backend"
     },
     "frontend": {
       "id": "frontend",
@@ -359,7 +381,9 @@ cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
       "started_at": null,
       "completed_at": null,
       "claimed_by": null,
-      "timeout_seconds": 600
+      "timeout_seconds": 600,
+      "instructions": "Build React components with TypeScript",
+      "role": "frontend"
     },
     "integration": {
       "id": "integration",
@@ -369,7 +393,9 @@ cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
       "started_at": null,
       "completed_at": null,
       "claimed_by": null,
-      "timeout_seconds": 600
+      "timeout_seconds": 600,
+      "instructions": null,
+      "role": null
     },
     "deploy": {
       "id": "deploy",
@@ -379,7 +405,9 @@ cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
       "started_at": null,
       "completed_at": null,
       "claimed_by": null,
-      "timeout_seconds": 600
+      "timeout_seconds": 600,
+      "instructions": null,
+      "role": null
     }
   }
 }
@@ -740,6 +768,7 @@ echo -e "    ${YELLOW}harness worker-id${NC}         Print stable worker ID"
 echo ""
 echo -e "  ${BOLD}Plan Management${NC}"
 echo -e "    ${YELLOW}harness plan import --file${NC}  Import LLM-generated plan"
+echo -e "    ${YELLOW}harness plan template${NC}       Show plan JSON format"
 echo ""
 echo -e "  ${BOLD}State Management${NC}"
 echo -e "    ${YELLOW}harness get-state${NC}         Get current workflow state"
@@ -773,11 +802,14 @@ echo "     src/harness/daemon.py    - ThreadingMixIn server"
 echo "     src/harness/state.py     - Pydantic models + StateManager"
 echo "     src/harness/trajectory.py - JSONL logging"
 echo "     src/harness/runtime.py   - Local/Docker execution"
+echo "     src/harness/plan.py      - Markdown plan parser → WorkflowState"
+echo "     src/harness/git.py       - Git operations via runtime"
+echo "     src/harness/acp.py       - Background event emitter"
 echo ""
 echo -e "  ${BOLD}2. Run the tests${NC}"
-echo "     pytest                              # All tests"
-echo "     pytest tests/harness/test_state.py  # State management"
-echo "     pytest tests/harness/test_integration.py -v  # Full workflow"
+echo "     make test                           # All tests (30s timeout)"
+echo "     make test-fast                      # No timeout (faster iteration)"
+echo "     make check                          # lint + typecheck + test"
 echo ""
 echo -e "  ${BOLD}3. Read the architecture docs${NC}"
 echo "     CLAUDE.md                           # Development guidelines"
