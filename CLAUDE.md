@@ -593,3 +593,21 @@ if task.claimed_by == worker_id:
 | Unit Hygiene | All Time is UTC, all Paths are Absolute | `assert dt.tzinfo is not None` |
 | Boundary Mapping | Transform every arg crossing system boundaries | Integration tests |
 | Lease Writes | Authority extension requires a write operation | `test_lease_renewal_prevents_stealing` |
+
+---
+
+## X. Environment Variables
+
+All harness environment variables and their defaults:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HARNESS_SOCKET` | `/tmp/harness-{user}.sock` | Unix socket path for client-daemon IPC |
+| `HARNESS_WORKTREE` | Git repository root | Override worktree detection |
+| `HARNESS_TIMEOUT` | `10` (seconds) | Daemon spawn timeout |
+| `HARNESS_WORKER_ID_FILE` | `$XDG_RUNTIME_DIR/harness-worker-id` | Worker ID persistence file |
+| `HARNESS_CONTAINER_ID` | None | Docker container ID for DockerRuntime |
+| `HARNESS_HOST_ROOT` | None | Host path for Docker volume mapping |
+| `HARNESS_CONTAINER_ROOT` | None | Container path for Docker volume mapping |
+
+**Note:** `XDG_RUNTIME_DIR` follows the XDG Base Directory specification. Falls back to `/tmp` if unset.
