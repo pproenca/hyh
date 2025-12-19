@@ -611,3 +611,35 @@ All harness environment variables and their defaults:
 | `HARNESS_CONTAINER_ROOT` | None | Container path for Docker volume mapping |
 
 **Note:** `XDG_RUNTIME_DIR` follows the XDG Base Directory specification. Falls back to `/tmp` if unset.
+
+---
+
+## XI. Client-Daemon RPC Protocol
+
+Communication uses JSON-over-Unix-socket with newline delimiters.
+
+### Request Format
+
+```json
+{"command": "<command_name>", ...additional_fields}
+```
+
+### Response Format
+
+```json
+{"status": "ok" | "error", "data": {...}, "message": "<error_string>"}
+```
+
+### Command Reference
+
+| Command | Request Fields | Response Data |
+|---------|---------------|---------------|
+| `get_state` | - | Full workflow state |
+| `task_claim` | `worker_id` | Claimed task or null |
+| `task_complete` | `task_id`, `worker_id`, `success`, `output?`, `error?` | Updated task |
+| `task_skip` | `task_id`, `worker_id`, `reason` | Updated task |
+| `exec` | `args`, `cwd?`, `timeout?`, `exclusive?` | `returncode`, `stdout`, `stderr`, `signal?` |
+| `git` | `args`, `cwd?` | `returncode`, `stdout`, `stderr` |
+| `plan_import` | `content` | Imported plan |
+| `update_state` | `updates` (dict) | Updated state |
+| `shutdown` | - | Acknowledgment |
