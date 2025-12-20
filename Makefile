@@ -36,9 +36,21 @@ TEST_FILES := $(shell find $(TEST_DIR) -name '*.py' 2>/dev/null)
 all: install  ## Default: bootstrap project for development
 
 .PHONY: install
-install:  ## Install all dependencies
+install:  ## Install all dependencies (local dev)
 	$(UV) sync --dev
 	@echo "Dependencies installed"
+
+.PHONY: install-global
+install-global:  ## Install harness globally (editable, uses repo code)
+	$(UV) tool install --editable . --force
+	@echo ""
+	@echo "Installed globally. Run 'harness --help' from anywhere."
+	@echo "Changes to repo code take effect immediately."
+
+.PHONY: uninstall-global
+uninstall-global:  ## Remove global harness installation
+	$(UV) tool uninstall harness || true
+	@echo "Uninstalled global harness"
 
 ##@ Development
 
