@@ -951,3 +951,42 @@ def test_handle_status_returns_workflow_summary(daemon_with_state, socket_path):
     assert data["summary"]["pending"] >= 0
     assert "tasks" in data
     assert "events" in data
+
+
+def test_handle_status_no_workflow(socket_path, worktree):
+    """Status returns inactive when no workflow exists."""
+    from harness.daemon import HarnessDaemon
+
+    daemon = HarnessDaemon(socket_path, str(worktree))
+    server_thread = threading.Thread(target=daemon.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+    time.sleep(0.1)
+
+    try:
+        response = send_command(socket_path, {"command": "status"})
+
+        assert response["status"] == "ok"
+        assert response["data"]["active"] is False
+        assert response["data"]["summary"]["total"] == 0
+    finally:
+        daemon.shutdown()
+        daemon.server_close()
+        server_thread.join(timeout=2)
+
+
+def test_handle_status_with_running_task(daemon_with_state, socket_path):
+    """Status shows active workers for running tasks."""
+    daemon, worktree = daemon_with_state
+
+    # Claim a task first
+    claim_response = send_command(
+        socket_path, {"command": "task_claim", "worker_id": "test-worker"}
+    )
+    assert claim_response["status"] == "ok"
+
+    response = send_command(socket_path, {"command": "status"})
+
+    assert response["status"] == "ok"
+    assert response["data"]["summary"]["running"] >= 1
+    assert "test-worker" in response["data"]["active_workers"]
