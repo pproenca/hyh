@@ -36,6 +36,10 @@ class TrajectoryLogger:
         Thread-safe via O_APPEND (POSIX atomic append guarantee).
         Uses fsync for crash durability (System Reliability Protocol).
 
+        Note: O_APPEND atomicity is guaranteed for writes up to PIPE_BUF
+        (typically 4KB-64KB depending on platform). Typical trajectory
+        events are well under this limit (<1KB).
+
         Args:
             event: Dictionary to log as a JSON line
         """
