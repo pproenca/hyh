@@ -35,8 +35,8 @@ def detect_cycle(graph: dict[str, list[str]]) -> str | None:
         if start_node in visited:
             continue
 
-        # Stack entries: (node, iterator over neighbors, entering)
-        # entering=True means we're entering the node, False means we're leaving
+        # Stack entries: (node, neighbors list, current index into neighbors)
+        # idx=0 means first visit; idx >= len(neighbors) means all neighbors processed
         stack: list[tuple[str, list[str], int]] = [(start_node, graph.get(start_node, []), 0)]
 
         while stack:

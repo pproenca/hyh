@@ -372,10 +372,10 @@ def test_handle_task_claim_reclaims_timed_out(daemon_with_state, socket_path):
     daemon, worktree = daemon_with_state
     from datetime import datetime, timedelta
 
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState
 
-    # Create a timed out task
-    manager = StateManager(worktree)
+    # Create a timed out task using daemon's StateManager (not a separate instance)
+    # This ensures the daemon sees the state change (caching is per-instance)
     state = WorkflowState(
         tasks={
             "task1": Task(
@@ -389,7 +389,7 @@ def test_handle_task_claim_reclaims_timed_out(daemon_with_state, socket_path):
             ),
         }
     )
-    manager.save(state)
+    daemon.state_manager.save(state)
 
     # Reclaim by new worker
     response = send_command(
