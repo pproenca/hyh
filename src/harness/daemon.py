@@ -71,6 +71,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             Callable[[dict[str, Any], HarnessDaemon], dict[str, Any]],
         ] = {
             "get_state": self._handle_get_state,
+            "status": self._handle_status,
             "update_state": self._handle_update_state,
             "git": self._handle_git,
             "ping": self._handle_ping,
@@ -96,6 +97,63 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         if state is None:
             return {"status": "ok", "data": None}
         return {"status": "ok", "data": state.model_dump(mode="json")}
+
+    def _handle_status(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
+        """Return workflow status summary with task counts and recent events."""
+        from .state import TaskStatus
+
+        state = server.state_manager.load()
+
+        if state is None:
+            return {
+                "status": "ok",
+                "data": {
+                    "active": False,
+                    "summary": {
+                        "total": 0,
+                        "completed": 0,
+                        "running": 0,
+                        "pending": 0,
+                        "failed": 0,
+                    },
+                    "tasks": {},
+                    "events": [],
+                    "active_workers": [],
+                },
+            }
+
+        # Compute summary counts
+        tasks = state.tasks
+        summary = {
+            "total": len(tasks),
+            "completed": sum(1 for t in tasks.values() if t.status == TaskStatus.COMPLETED),
+            "running": sum(1 for t in tasks.values() if t.status == TaskStatus.RUNNING),
+            "pending": sum(1 for t in tasks.values() if t.status == TaskStatus.PENDING),
+            "failed": sum(1 for t in tasks.values() if t.status == TaskStatus.FAILED),
+        }
+
+        # Get active workers from running tasks
+        active_workers = list(
+            {
+                t.claimed_by
+                for t in tasks.values()
+                if t.status == TaskStatus.RUNNING and t.claimed_by
+            }
+        )
+
+        # Get recent events from trajectory
+        events = server.trajectory_logger.tail(n=request.get("event_count", 10))
+
+        return {
+            "status": "ok",
+            "data": {
+                "active": True,
+                "summary": summary,
+                "tasks": {tid: t.model_dump(mode="json") for tid, t in tasks.items()},
+                "events": events,
+                "active_workers": active_workers,
+            },
+        }
 
     def _handle_update_state(
         self, request: dict[str, Any], server: HarnessDaemon

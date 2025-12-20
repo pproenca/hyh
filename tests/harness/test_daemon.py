@@ -934,3 +934,20 @@ def test_plan_import_legacy_markdown_gives_helpful_error(daemon_manager):
     assert result["status"] == "error"
     assert "No JSON plan block found" in result["message"]
     assert "harness plan template" in result["message"]
+
+
+def test_handle_status_returns_workflow_summary(daemon_with_state, socket_path):
+    """Status command returns workflow summary with task counts."""
+    daemon, worktree = daemon_with_state
+
+    response = send_command(socket_path, {"command": "status"})
+
+    assert response["status"] == "ok"
+    data = response["data"]
+    assert "summary" in data
+    assert data["summary"]["total"] == 2
+    assert data["summary"]["completed"] >= 0
+    assert data["summary"]["running"] >= 0
+    assert data["summary"]["pending"] >= 0
+    assert "tasks" in data
+    assert "events" in data
