@@ -120,15 +120,15 @@ class WorkflowState(BaseModel):
             if task.status == TaskStatus.PENDING or (
                 task.status == TaskStatus.RUNNING and task.is_timed_out()
             ):
-                # Fail-fast on missing dependencies (defensive coding)
+                # Combined existence check and satisfaction check with early exit
+                deps_satisfied = True
                 for dep_id in task.dependencies:
                     if dep_id not in self.tasks:
                         raise ValueError(f"Missing dependency: {dep_id} (in {task.id})")
+                    if self.tasks[dep_id].status != TaskStatus.COMPLETED:
+                        deps_satisfied = False
+                        break  # Early exit on first unsatisfied dependency
 
-                deps_satisfied = all(
-                    self.tasks[dep_id].status == TaskStatus.COMPLETED
-                    for dep_id in task.dependencies
-                )
                 if deps_satisfied:
                     return task
         return None
