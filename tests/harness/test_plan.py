@@ -101,9 +101,9 @@ def test_get_plan_template_returns_markdown():
 
     # Verify it's Markdown with expected sections
     assert "# Plan Template" in template
-    assert "## Template Structure" in template
-    assert "## Complete Example" in template
-    # Verify JSON blocks are present
+    assert "## Recommended: Structured Markdown" in template
+    assert "## Legacy: JSON Format" in template
+    # Verify JSON blocks are present (for backward compatibility)
     assert "```json" in template
     assert '"goal":' in template
     assert '"tasks":' in template
@@ -341,3 +341,15 @@ Instructions.
     # This should pass (no cycle with single task)
     plan = parse_plan_content(content)
     assert plan.goal == "Cycle test"
+
+
+def test_get_plan_template_includes_markdown_format():
+    """get_plan_template should show Markdown format as recommended."""
+    from harness.plan import get_plan_template
+
+    template = get_plan_template()
+
+    assert "**Goal:**" in template
+    assert "| Task Group |" in template
+    assert "### Task" in template
+    assert "(Recommended)" in template or "Markdown" in template

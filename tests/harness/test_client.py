@@ -445,8 +445,8 @@ def test_plan_template_outputs_markdown():
 
     assert result.returncode == 0
     assert "# Plan Template" in result.stdout
-    assert "## Template Structure" in result.stdout
-    assert "## Complete Example" in result.stdout
+    assert "## Recommended: Structured Markdown" in result.stdout
+    assert "## Legacy: JSON Format" in result.stdout
     assert "```json" in result.stdout
 
 

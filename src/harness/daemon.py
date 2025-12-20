@@ -376,8 +376,8 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             return {"status": "ok", "data": {"goal": plan.goal, "task_count": len(plan.tasks)}}
         except ValueError as e:
             msg = str(e)
-            if "No JSON plan block found" in msg:
-                msg += ". Run 'harness plan template' to see the required JSON schema."
+            if "No valid plan found" in msg:
+                msg += ". Run 'harness plan template' to see the required format."
             return {"status": "error", "message": msg}
 
     def _handle_plan_reset(self, _request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:

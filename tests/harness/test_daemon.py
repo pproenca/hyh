@@ -933,7 +933,7 @@ def test_plan_import_legacy_markdown_gives_helpful_error(daemon_manager):
     result = send_command(daemon.socket_path, {"command": "plan_import", "content": legacy_content})
 
     assert result["status"] == "error"
-    assert "No JSON plan block found" in result["message"]
+    assert "No valid plan found" in result["message"]
     assert "harness plan template" in result["message"]
 
 

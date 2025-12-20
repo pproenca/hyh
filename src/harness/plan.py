@@ -186,27 +186,108 @@ def parse_plan_content(content: str) -> PlanDefinition:
 def get_plan_template() -> str:
     """Generate Markdown template for plan format.
 
-    Provides LLM-friendly documentation with:
-    1. Template structure showing all fields
-    2. Complete realistic example
+    Shows the recommended Markdown format with Task Groups,
+    plus legacy JSON format for backward compatibility.
     """
     return """\
 # Plan Template
 
-Submit plans as a JSON block inside markdown fences.
+## Recommended: Structured Markdown
 
-## Template Structure
+```markdown
+# Implementation Plan Title
+
+> **Execution:** Use `/dev-workflow:execute-plan path/to/plan.md` to implement.
+
+**Goal:** One sentence description of the objective
+
+**Architecture:** Brief architectural summary
+**Tech Stack:** Python 3.13t, etc.
+
+---
+
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | 1, 2  | Core infrastructure (parallel) |
+| Group 2    | 3     | Feature (depends on Group 1) |
+| Group 3    | 4     | Tests (depends on Group 2) |
+
+---
+
+### Task 1: Create User Model
+
+**Files:**
+- Create: `src/models/user.py`
+
+**Step 1: Write failing test**
+```python
+def test_user_model():
+    user = User(email="test@example.com")
+    assert user.email == "test@example.com"
+```
+
+**Step 2: Run test to verify failure**
+```bash
+pytest tests/test_user.py::test_user_model -v
+```
+
+**Step 3: Implement minimal code**
+```python
+class User:
+    def __init__(self, email: str):
+        self.email = email
+```
+
+### Task 2: Add Password Hashing
+
+**Files:**
+- Modify: `src/models/user.py`
+
+**Step 1: Write failing test**
+Test password hashing with bcrypt.
+
+### Task 3: Create Login Endpoint
+
+**Files:**
+- Create: `src/routes/auth.py`
+
+**Step 1: Implement /login**
+Return JWT on success.
+
+### Task 4: Integration Tests
+
+**Files:**
+- Create: `tests/test_auth_integration.py`
+
+**Step 1: Test full auth flow**
+Test registration, login, protected routes.
+```
+
+**Dependency Rules:**
+- Tasks in Group N depend on ALL tasks in Group N-1
+- Tasks within the same group are independent (can run in parallel)
+
+---
+
+## Legacy: JSON Format (Backward Compatible)
 
 ```json
 {
-  "goal": "<one-sentence description of what this plan achieves>",
+  "goal": "Add user authentication with JWT tokens",
   "tasks": {
-    "<task_id>": {
-      "description": "<what this task does>",
-      "dependencies": ["<task_id>", "..."],
-      "timeout_seconds": 600,
-      "instructions": "<detailed step-by-step instructions or null>",
-      "role": "<specialist role like 'backend' or 'frontend' or null>"
+    "models": {
+      "description": "Create User model with password hashing",
+      "dependencies": [],
+      "timeout_seconds": 300,
+      "instructions": "Use bcrypt for password hashing.",
+      "role": "backend"
+    },
+    "auth-endpoints": {
+      "description": "Implement /login and /register endpoints",
+      "dependencies": ["models"],
+      "timeout_seconds": 600
     }
   }
 }
@@ -220,35 +301,4 @@ Submit plans as a JSON block inside markdown fences.
 - `timeout_seconds`: Max execution time in seconds (default: 600)
 - `instructions`: Detailed guidance for the agent (optional)
 - `role`: Specialist designation for task routing (optional)
-
-## Complete Example
-
-```json
-{
-  "goal": "Add user authentication with JWT tokens",
-  "tasks": {
-    "models": {
-      "description": "Create User model with password hashing",
-      "dependencies": [],
-      "timeout_seconds": 300,
-      "instructions": "Use bcrypt for password hashing. Include email, hashed_password fields.",
-      "role": "backend"
-    },
-    "auth-endpoints": {
-      "description": "Implement /login and /register endpoints",
-      "dependencies": ["models"],
-      "timeout_seconds": 600,
-      "instructions": "Return JWT on successful login. Validate email format on register.",
-      "role": "backend"
-    },
-    "auth-tests": {
-      "description": "Write integration tests for auth flow",
-      "dependencies": ["auth-endpoints"],
-      "timeout_seconds": 300,
-      "instructions": "Test: valid login, invalid password, duplicate registration, token expiry.",
-      "role": "backend"
-    }
-  }
-}
-```
 """
