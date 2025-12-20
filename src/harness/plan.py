@@ -62,6 +62,89 @@ class PlanDefinition(BaseModel):
         return WorkflowState(tasks=tasks)
 
 
+def parse_markdown_plan(content: str) -> PlanDefinition:
+    """Parse structured Markdown plan format.
+
+    Extracts:
+    1. Goal from `**Goal:** <text>`
+    2. Task groups from `| Group N | task_ids |` table rows
+    3. Task definitions from `### Task <ID>: <Description>` headers
+
+    Dependencies: Tasks in Group N depend on ALL tasks in Group N-1.
+    """
+    # 1. Extract Goal
+    goal_match = re.search(r"\*\*Goal:\*\*\s*(.+)", content)
+    goal = goal_match.group(1).strip() if goal_match else "Goal not specified"
+
+    # 2. Extract Task Groups (for dependency calculation)
+    # Pattern: | Group 1 | task-1, auth-service | ... (captures group number and task list)
+    # Supports semantic IDs: alphanumeric, dashes, underscores
+    group_pattern = r"\|\s*Group\s*(\d+)\s*\|\s*([\w\-,\s]+)\s*\|"
+    groups: dict[int, list[str]] = {}
+
+    for match in re.finditer(group_pattern, content):
+        group_id = int(match.group(1))
+        task_ids = [t.strip() for t in match.group(2).split(",") if t.strip()]
+        groups[group_id] = task_ids
+
+    # 3. Extract Task Content
+    # Split by "### Task <ID>: <Description>" headers
+    # Supports semantic IDs: "Task 1", "Task auth-service", "Task db_migration"
+    task_pattern = r"^### Task ([\w\-]+):\s*(.+)$"
+    parts = re.split(task_pattern, content, flags=re.MULTILINE)
+
+    # parts[0] is preamble. Then groups of 3: [id, desc, body, id, desc, body, ...]
+    tasks_data: dict[str, dict[str, str | list[str]]] = {}
+
+    for i in range(1, len(parts), 3):
+        if i + 2 > len(parts):
+            break
+        t_id = parts[i].strip()
+        t_desc = parts[i + 1].strip()
+        t_body = parts[i + 2].strip()
+
+        tasks_data[t_id] = {
+            "description": t_desc,
+            "instructions": t_body,
+            "dependencies": [],
+        }
+
+    # 4. Calculate Dependencies based on Groups
+    # Group N depends on all tasks from Group N-1
+    sorted_group_ids = sorted(groups.keys())
+    for i, group_id in enumerate(sorted_group_ids):
+        if i > 0:
+            prev_group_id = sorted_group_ids[i - 1]
+            prev_tasks = groups[prev_group_id]
+
+            for t_id in groups[group_id]:
+                if t_id in tasks_data:
+                    tasks_data[t_id]["dependencies"] = prev_tasks
+
+    # 5. Validate: All tasks must be in a group (no orphans)
+    all_grouped_tasks = {t for tasks in groups.values() for t in tasks}
+    orphan_tasks = set(tasks_data.keys()) - all_grouped_tasks
+    if orphan_tasks:
+        raise ValueError(
+            f"Orphan tasks not in any group: {', '.join(sorted(orphan_tasks))}. "
+            "Add them to the Task Groups table."
+        )
+
+    # 6. Construct PlanDefinition
+    final_tasks = {}
+    for t_id, t_data in tasks_data.items():
+        deps = t_data["dependencies"]
+        final_tasks[t_id] = PlanTaskDefinition(
+            description=str(t_data["description"]),
+            instructions=str(t_data["instructions"]),
+            dependencies=deps if isinstance(deps, list) else [],
+            timeout_seconds=600,
+            role=None,
+        )
+
+    return PlanDefinition(goal=goal, tasks=final_tasks)
+
+
 def parse_plan_content(content: str) -> PlanDefinition:
     """Extract JSON plan from LLM output.
 

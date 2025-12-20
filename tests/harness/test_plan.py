@@ -121,3 +121,179 @@ def test_get_plan_template_includes_all_fields():
     assert "timeout_seconds" in template
     assert "instructions" in template
     assert "role" in template
+
+
+def test_parse_markdown_plan_basic():
+    """parse_markdown_plan extracts goal, tasks, and dependencies from Markdown."""
+    from harness.plan import parse_markdown_plan
+
+    content = """\
+# Feature Plan
+
+**Goal:** Implement user authentication
+
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | 1, 2  | Core setup |
+| Group 2    | 3     | Depends on Group 1 |
+
+---
+
+### Task 1: Create User Model
+
+**Files:**
+- Create: `src/models/user.py`
+
+**Step 1: Define User class**
+```python
+class User:
+    pass
+```
+
+### Task 2: Add Password Hashing
+
+**Files:**
+- Modify: `src/models/user.py`
+
+**Step 1: Add bcrypt**
+Use bcrypt for hashing.
+
+### Task 3: Create Login Endpoint
+
+**Files:**
+- Create: `src/routes/auth.py`
+
+**Step 1: Implement /login**
+Return JWT token.
+"""
+    plan = parse_markdown_plan(content)
+
+    assert plan.goal == "Implement user authentication"
+    assert len(plan.tasks) == 3
+    assert plan.tasks["1"].description == "Create User Model"
+    assert plan.tasks["2"].description == "Add Password Hashing"
+    assert plan.tasks["3"].description == "Create Login Endpoint"
+    # Group 1 tasks have no dependencies
+    assert plan.tasks["1"].dependencies == []
+    assert plan.tasks["2"].dependencies == []
+    # Group 2 tasks depend on all Group 1 tasks
+    assert set(plan.tasks["3"].dependencies) == {"1", "2"}
+
+
+def test_parse_markdown_plan_missing_goal():
+    """parse_markdown_plan uses fallback when Goal not found."""
+    from harness.plan import parse_markdown_plan
+
+    content = """\
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | 1     | Only task |
+
+### Task 1: Solo Task
+
+Do something.
+"""
+    plan = parse_markdown_plan(content)
+    assert plan.goal == "Goal not specified"
+    assert len(plan.tasks) == 1
+
+
+def test_parse_markdown_plan_multi_group_dependencies():
+    """Tasks in Group 3 depend on Group 2, not Group 1."""
+    from harness.plan import parse_markdown_plan
+
+    content = """\
+**Goal:** Three group test
+
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | 1     | First |
+| Group 2    | 2     | Second |
+| Group 3    | 3     | Third |
+
+### Task 1: First
+
+Content 1.
+
+### Task 2: Second
+
+Content 2.
+
+### Task 3: Third
+
+Content 3.
+"""
+    plan = parse_markdown_plan(content)
+
+    assert plan.tasks["1"].dependencies == []
+    assert plan.tasks["2"].dependencies == ["1"]
+    assert plan.tasks["3"].dependencies == ["2"]
+
+
+def test_parse_markdown_plan_semantic_ids():
+    """parse_markdown_plan supports semantic IDs like auth-service."""
+    from harness.plan import parse_markdown_plan
+
+    content = """\
+**Goal:** Semantic ID test
+
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | auth-service, db-migration | Core |
+| Group 2    | api-endpoints | Depends on core |
+
+### Task auth-service: Authentication Service
+
+Set up auth.
+
+### Task db-migration: Database Migration
+
+Run migrations.
+
+### Task api-endpoints: API Endpoints
+
+Create endpoints.
+"""
+    plan = parse_markdown_plan(content)
+
+    assert len(plan.tasks) == 3
+    assert "auth-service" in plan.tasks
+    assert "db-migration" in plan.tasks
+    assert "api-endpoints" in plan.tasks
+    assert plan.tasks["auth-service"].dependencies == []
+    assert set(plan.tasks["api-endpoints"].dependencies) == {"auth-service", "db-migration"}
+
+
+def test_parse_markdown_plan_rejects_orphan_tasks():
+    """parse_markdown_plan rejects tasks not in any group."""
+    import pytest
+
+    from harness.plan import parse_markdown_plan
+
+    content = """\
+**Goal:** Orphan test
+
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | 1     | Only task 1 in group |
+
+### Task 1: Grouped Task
+
+In a group.
+
+### Task 2: Orphan Task
+
+Not in any group - should fail!
+"""
+    with pytest.raises(ValueError, match="Orphan tasks not in any group: 2"):
+        parse_markdown_plan(content)
