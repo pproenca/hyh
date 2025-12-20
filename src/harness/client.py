@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 import uuid
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -279,8 +279,6 @@ def _format_duration(seconds: float) -> str:
 
 def _format_relative_time(iso_timestamp: str) -> str:
     """Format ISO timestamp as relative time (e.g., '2m ago')."""
-    from datetime import datetime
-
     dt = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
     now = datetime.now(UTC)
     delta = (now - dt).total_seconds()
@@ -412,8 +410,6 @@ def _cmd_status(
             if status == "completed" and task.get("completed_at"):
                 time_info = _format_relative_time(task["completed_at"])
             elif status == "running" and task.get("started_at"):
-                from datetime import datetime
-
                 started = datetime.fromisoformat(task["started_at"].replace("Z", "+00:00"))
                 elapsed = (datetime.now(UTC) - started).total_seconds()
                 time_info = _format_duration(elapsed)
@@ -439,8 +435,6 @@ def _cmd_status(
             for evt in events[-5:]:
                 ts = evt.get("timestamp", "")
                 if ts:
-                    from datetime import datetime
-
                     try:
                         dt = datetime.fromtimestamp(ts, tz=UTC)
                         ts_str = dt.strftime("%H:%M:%S")
