@@ -14,6 +14,7 @@ PYTHON := $(UV) run python
 PYTEST := $(UV) run pytest
 RUFF := $(UV) run ruff
 MYPY := $(UV) run mypy
+PYUPGRADE := $(UV) run pyupgrade
 
 # Source directories
 SRC_DIR := src
@@ -83,6 +84,7 @@ check: lint typecheck test  ## Run all checks (lint + typecheck + test)
 
 .PHONY: lint
 lint:  ## Check code style and quality (no auto-fix)
+	@find $(SRC_DIR) $(TEST_DIR) -name '*.py' -exec $(PYUPGRADE) --py313-plus {} +
 	$(RUFF) check $(SRC_DIR) $(TEST_DIR)
 	$(RUFF) format --check $(SRC_DIR) $(TEST_DIR)
 
