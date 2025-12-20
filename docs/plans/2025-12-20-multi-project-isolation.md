@@ -6,7 +6,7 @@
 
 **Architecture:** Each worktree gets a unique socket at `~/.harness/sockets/{hash16}.sock` derived from the absolute worktree path. A registry at `~/.harness/registry.json` tracks all projects for `--all` queries. CLI auto-detects project from cwd with `--project` override.
 
-**Tech Stack:** Python 3.13t, hashlib.sha256, Pydantic for registry schema, fcntl.flock for daemon singleton.
+**Tech Stack:** Python 3.13t, hashlib.sha256, stdlib json (no Pydantic in client), fcntl.flock for registry and daemon singleton.
 
 ---
 
@@ -63,7 +63,30 @@ def test_registry_register_project(tmp_path: Path) -> None:
     projects = registry2.list_projects()
 
     assert len(projects) == 1
-    assert worktree in [p["path"] for p in projects.values()]
+    assert str(worktree) in [p["path"] for p in projects.values()]
+
+
+def test_registry_concurrent_registration(tmp_path: Path) -> None:
+    """Concurrent registrations don't lose data (race condition safety)."""
+    import concurrent.futures
+
+    registry_file = tmp_path / "registry.json"
+    projects = [tmp_path / f"project_{i}" for i in range(10)]
+    for p in projects:
+        p.mkdir()
+
+    def register_project(proj: Path) -> str:
+        registry = ProjectRegistry(registry_file)
+        return registry.register(proj)
+
+    # Register 10 projects concurrently
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        list(executor.map(register_project, projects))
+
+    # Verify all 10 projects were registered (no lost writes)
+    registry = ProjectRegistry(registry_file)
+    registered = registry.list_projects()
+    assert len(registered) == 10
 ```
 
 **Step 2: Run test to verify it fails** (30 sec)
@@ -81,34 +104,53 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'harness.registry'`
 """Project registry for multi-project isolation.
 
 Tracks registered projects in ~/.harness/registry.json for --all queries.
-Uses atomic write pattern for crash safety.
+Uses fcntl.flock for race-condition safety across concurrent daemons.
+
+CRITICAL: This module MUST NOT import pydantic (client.py constraint).
 """
 
 from __future__ import annotations
 
+import fcntl
+import hashlib
 import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# Default registry location
-DEFAULT_REGISTRY_PATH = Path.home() / ".harness" / "registry.json"
+
+def _get_default_registry_path() -> Path:
+    """Get default registry path, respecting HARNESS_REGISTRY_FILE env var."""
+    env_path = os.getenv("HARNESS_REGISTRY_FILE")
+    if env_path:
+        return Path(env_path)
+    return Path.home() / ".harness" / "registry.json"
 
 
 class ProjectRegistry:
-    """Thread-safe project registry with atomic persistence."""
+    """Process-safe project registry with file locking."""
 
     def __init__(self, registry_file: Path | None = None) -> None:
-        self.registry_file = registry_file or DEFAULT_REGISTRY_PATH
+        self.registry_file = Path(registry_file) if registry_file else _get_default_registry_path()
         self._ensure_parent_dir()
+        self._lock_file = self.registry_file.with_suffix(".lock")
 
     def _ensure_parent_dir(self) -> None:
         """Create parent directory if needed."""
         self.registry_file.parent.mkdir(parents=True, exist_ok=True)
 
-    def _load(self) -> dict[str, Any]:
-        """Load registry from disk."""
+    def _with_lock(self, fn: "Callable[[], T]") -> "T":
+        """Execute fn while holding exclusive lock on registry."""
+        with open(self._lock_file, "w") as lock_fd:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            try:
+                return fn()
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+
+    def _load_unlocked(self) -> dict[str, Any]:
+        """Load registry from disk (caller must hold lock)."""
         if not self.registry_file.exists():
             return {"projects": {}}
         try:
@@ -116,8 +158,8 @@ class ProjectRegistry:
         except (json.JSONDecodeError, OSError):
             return {"projects": {}}
 
-    def _save(self, data: dict[str, Any]) -> None:
-        """Atomic write to registry file."""
+    def _save_unlocked(self, data: dict[str, Any]) -> None:
+        """Atomic write to registry file (caller must hold lock)."""
         tmp = self.registry_file.with_suffix(".tmp")
         content = json.dumps(data, indent=2)
         with open(tmp, "w") as f:
@@ -127,29 +169,27 @@ class ProjectRegistry:
         tmp.rename(self.registry_file)
 
     def register(self, worktree: Path) -> str:
-        """Register a project, return its hash ID."""
-        import hashlib
-
+        """Register a project, return its hash ID. Thread/process-safe."""
         worktree = worktree.resolve()
         path_hash = hashlib.sha256(str(worktree).encode()).hexdigest()[:16]
 
-        data = self._load()
-        data["projects"][path_hash] = {
-            "path": str(worktree),
-            "last_active": datetime.now(timezone.utc).isoformat(),
-        }
-        self._save(data)
-        return path_hash
+        def _do_register() -> str:
+            data = self._load_unlocked()
+            data["projects"][path_hash] = {
+                "path": str(worktree),
+                "last_active": datetime.now(timezone.utc).isoformat(),
+            }
+            self._save_unlocked(data)
+            return path_hash
+
+        return self._with_lock(_do_register)
 
     def list_projects(self) -> dict[str, dict[str, Any]]:
         """Return all registered projects."""
-        data = self._load()
-        return data.get("projects", {})
+        return self._with_lock(lambda: self._load_unlocked().get("projects", {}))
 
     def get_hash_for_path(self, worktree: Path) -> str:
-        """Compute hash for a worktree path."""
-        import hashlib
-
+        """Compute hash for a worktree path (no lock needed)."""
         worktree = worktree.resolve()
         return hashlib.sha256(str(worktree).encode()).hexdigest()[:16]
 ```
@@ -160,7 +200,7 @@ class ProjectRegistry:
 pytest tests/harness/test_registry.py -v
 ```
 
-Expected: PASS (2 passed)
+Expected: PASS (3 passed)
 
 **Step 5: Commit** (30 sec)
 
@@ -502,7 +542,7 @@ Add to `tests/harness/test_daemon.py`:
 
 ```python
 def test_daemon_registers_with_registry(
-    tmp_path: Path, socket_path: str
+    tmp_path: Path, socket_path: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Daemon registers project in registry on spawn."""
     from harness.daemon import HarnessDaemon
@@ -513,12 +553,11 @@ def test_daemon_registers_with_registry(
     worktree.mkdir()
     (worktree / ".claude").mkdir()
 
-    # Spawn daemon with custom registry
-    daemon = HarnessDaemon(
-        socket_path,
-        str(worktree),
-        registry_file=registry_file,
-    )
+    # Use env var to configure registry path (keeps HarnessDaemon signature clean)
+    monkeypatch.setenv("HARNESS_REGISTRY_FILE", str(registry_file))
+
+    # Spawn daemon
+    daemon = HarnessDaemon(socket_path, str(worktree))
 
     try:
         # Verify project was registered
@@ -536,30 +575,19 @@ def test_daemon_registers_with_registry(
 pytest tests/harness/test_daemon.py::test_daemon_registers_with_registry -v
 ```
 
-Expected: FAIL with `TypeError: HarnessDaemon.__init__() got an unexpected keyword argument 'registry_file'`
+Expected: FAIL with `AssertionError` (daemon doesn't register yet)
 
-**Step 3: Update HarnessDaemon.__init__ to accept registry_file** (3 min)
+**Step 3: Update HarnessDaemon.__init__ to register with registry** (3 min)
 
-In `src/harness/daemon.py`, update `HarnessDaemon.__init__`:
+In `src/harness/daemon.py`, add registration after state manager init (around line 423):
 
 ```python
-def __init__(
-    self,
-    socket_path: str,
-    worktree_root: str,
-    *,
-    acp_emitter: ACPEmitter | None = None,
-    registry_file: Path | None = None,
-) -> None:
-    # ... existing init code ...
+# After: self.state_manager = StateManager(self.worktree_root)
+# Add:
+from harness.registry import ProjectRegistry
 
-    # Register project in registry
-    from harness.registry import ProjectRegistry
-
-    registry = ProjectRegistry(registry_file)
-    registry.register(Path(worktree_root))
-
-    # ... rest of init ...
+registry = ProjectRegistry()  # Uses HARNESS_REGISTRY_FILE env var
+registry.register(self.worktree_root)
 ```
 
 **Step 4: Run test to verify it passes** (30 sec)
@@ -597,10 +625,9 @@ git commit -m "feat(daemon): register project in registry on spawn"
 Add to `tests/harness/test_integration.py`:
 
 ```python
-def test_multi_project_isolation(tmp_path: Path) -> None:
+def test_multi_project_isolation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Two projects run concurrently with isolated daemons."""
     import subprocess
-    import time
 
     from harness.registry import ProjectRegistry
 
@@ -612,7 +639,12 @@ def test_multi_project_isolation(tmp_path: Path) -> None:
         (p / ".claude").mkdir()
         subprocess.run(["git", "init"], cwd=p, capture_output=True)
 
+    # Configure shared registry via env var
     registry_file = tmp_path / "registry.json"
+    monkeypatch.setenv("HARNESS_REGISTRY_FILE", str(registry_file))
+
+    # Clear HARNESS_SOCKET to use hash-based paths
+    monkeypatch.delenv("HARNESS_SOCKET", raising=False)
 
     # Use unique socket paths based on worktree hash
     from harness.client import get_socket_path
@@ -626,18 +658,18 @@ def test_multi_project_isolation(tmp_path: Path) -> None:
     # Spawn daemon for project A
     from harness.daemon import HarnessDaemon
 
-    daemon_a = HarnessDaemon(socket_a, str(project_a), registry_file=registry_file)
+    daemon_a = HarnessDaemon(socket_a, str(project_a))
 
     try:
         # Spawn daemon for project B
-        daemon_b = HarnessDaemon(socket_b, str(project_b), registry_file=registry_file)
+        daemon_b = HarnessDaemon(socket_b, str(project_b))
 
         try:
             # Both daemons running concurrently
             assert Path(socket_a).exists()
             assert Path(socket_b).exists()
 
-            # Registry has both projects
+            # Registry has both projects (tests race-condition safety)
             registry = ProjectRegistry(registry_file)
             projects = registry.list_projects()
             assert len(projects) == 2
