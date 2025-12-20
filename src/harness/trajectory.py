@@ -33,21 +33,25 @@ class TrajectoryLogger:
     def log(self, event: dict[str, Any]) -> None:
         """Append an event to the trajectory log.
 
-        Thread-safe operation that appends a JSON line to the file.
-        Uses flush + fsync for crash durability (System Reliability Protocol).
+        Thread-safe via O_APPEND (POSIX atomic append guarantee).
+        Uses fsync for crash durability (System Reliability Protocol).
 
         Args:
             event: Dictionary to log as a JSON line
         """
-        with self._lock:
-            # Create parent directory if it doesn't exist
-            self.trajectory_file.parent.mkdir(parents=True, exist_ok=True)
+        line = (json.dumps(event) + "\n").encode("utf-8")
 
-            # Append the event as a JSON line with durability guarantee
-            with self.trajectory_file.open("a") as f:
-                f.write(json.dumps(event) + "\n")
-                f.flush()
-                os.fsync(f.fileno())
+        # Create parent directory (idempotent)
+        self.trajectory_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # O_APPEND: kernel guarantees atomic append (no interleaving)
+        # This eliminates the need for self._lock during writes
+        fd = os.open(self.trajectory_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        try:
+            os.write(fd, line)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
     def tail(self, n: int, max_buffer_bytes: int = 1_048_576) -> list[dict[str, Any]]:
         """Get the last N events from the trajectory log.

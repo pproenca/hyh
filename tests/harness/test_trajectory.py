@@ -333,3 +333,71 @@ def test_tail_reverse_seek_joins_outside_loop(tmp_path):
         f"Found join() calls inside while loop at relative lines {joins_inside_loop}. "
         "Move buffer reconstruction outside the loop to achieve O(k) complexity."
     )
+
+
+def test_log_does_not_hold_lock_during_fsync(tmp_path):
+    """Verify log() releases lock before calling fsync.
+
+    Bug: fsync() under lock creates convoy effect (1-10ms blocking).
+    Fix: Use O_APPEND for atomic appends, no lock needed for writes.
+
+    This test verifies that concurrent log calls can interleave,
+    which is only possible if the lock is not held during fsync.
+    """
+    import threading
+    import time
+
+    from harness.trajectory import TrajectoryLogger
+
+    logger = TrajectoryLogger(tmp_path / "trajectory.jsonl")
+
+    # Track when each thread completes
+    completion_times: list[tuple[float, int]] = []  # (end_time, thread_id)
+    original_fsync = os.fsync
+
+    def slow_fsync(fd):
+        """Simulate slow disk with 10ms fsync."""
+        time.sleep(0.01)  # 10ms
+        original_fsync(fd)
+
+    # Patch fsync to be slow
+    os.fsync = slow_fsync
+
+    try:
+        threads = []
+        start_barrier = threading.Barrier(5)
+        start_time = [0.0]
+
+        def log_event(thread_id):
+            start_barrier.wait()  # All threads start together
+            if thread_id == 0:
+                start_time[0] = time.monotonic()
+            logger.log({"thread": thread_id, "data": "x" * 100})
+            completion_times.append((time.monotonic(), thread_id))
+
+        for i in range(5):
+            t = threading.Thread(target=log_event, args=(i,))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        # If fsync is INSIDE lock: 5 threads x 10ms = 50ms total (serialized)
+        # If fsync is OUTSIDE lock or uses O_APPEND: concurrent execution
+
+        total_time = max(t for t, _ in completion_times) - start_time[0]
+        total_time_ms = total_time * 1000
+
+        # With lock during fsync, this would take ~50ms (serialized)
+        # With O_APPEND or fsync outside lock, concurrent fsyncs still happen
+        # but without the convoy effect on the lock
+        # Note: Even with O_APPEND, we still expect some serialization at kernel level
+        # The key is that the Python-level lock doesn't cause convoy
+        assert total_time_ms < 40, (
+            f"5 concurrent log() calls took {total_time_ms:.1f}ms. "
+            "With O_APPEND, should be faster than 50ms serial execution. "
+            "If it's ~50ms, the lock is held during fsync (convoy effect)."
+        )
+    finally:
+        os.fsync = original_fsync
