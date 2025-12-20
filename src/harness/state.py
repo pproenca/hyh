@@ -193,20 +193,26 @@ class StateManager:
         self._lock = threading.Lock()
 
     def _ensure_state_loaded(self) -> WorkflowState:
-        """Load state from disk. Must be called with lock held.
+        """Return cached state, lazy-loading from disk if necessary.
 
-        Always re-reads from disk to ensure we see the latest state,
-        preventing issues when external processes modify the state file.
+        Uses memory-first strategy: returns cached state if available,
+        otherwise loads from disk on first access and caches for subsequent calls.
 
         Returns:
-            The freshly loaded WorkflowState.
+            The WorkflowState (from cache or freshly loaded).
 
         Raises:
-            ValueError: If no state file exists (never falls back to cache).
+            ValueError: If no state file exists and no state cached.
         """
+        # 1. Fast path: Memory hit
+        if self._state is not None:
+            return self._state
+
+        # 2. Slow path: First load (Cold start)
         if not self.state_file.exists():
             raise ValueError("No state loaded and no state file exists")
 
+        # Load, Cache, Return
         content = self.state_file.read_text()
         data = json.loads(content)
         self._state = WorkflowState(**data)
@@ -235,10 +241,10 @@ class StateManager:
             return self._state
 
     def save(self, state: WorkflowState) -> None:
-        """Save state to disk atomically (thread-safe)."""
+        """Save state to disk and cache in memory."""
         with self._lock:
             state.validate_dag()  # Reject cycles before persisting
-            self._state = state
+            self._state = state  # Cache the state
             self._write_atomic(state)
 
     def update(self, **kwargs: Any) -> WorkflowState:

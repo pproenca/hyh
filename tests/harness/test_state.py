@@ -1051,11 +1051,10 @@ def test_reset_is_idempotent(tmp_path):
 
 
 def test_ensure_state_loaded_raises_when_file_deleted(tmp_path):
-    """_ensure_state_loaded should raise error if state file deleted.
+    """StateManager should use cached state even if file is deleted.
 
-    Bug: If state was loaded previously, then file deleted,
-    _ensure_state_loaded returns stale cached state instead of raising.
-    The docstring says "Always re-reads from disk" but doesn't enforce this.
+    The daemon owns the state. Once loaded, external file deletion
+    should not affect operations until explicit reload.
     """
     manager = StateManager(tmp_path)
 
@@ -1071,16 +1070,41 @@ def test_ensure_state_loaded_raises_when_file_deleted(tmp_path):
         }
     )
     manager.save(state)
-    manager.load()  # Populates _state cache
 
     # Delete the file
     manager.state_file.unlink()
-    assert not manager.state_file.exists()
 
-    # claim_task calls _ensure_state_loaded internally
-    # Should raise error, not return stale cached state
-    with pytest.raises(ValueError, match="[Nn]o state"):
-        manager.claim_task("worker-1")
+    # Should still work with cached state
+    result = manager.claim_task("worker-1")
+    assert result.task is not None
+    assert result.task.id == "task-1"
+
+
+def test_state_manager_caches_state_in_memory(tmp_path):
+    """StateManager should cache state in memory, not re-read from disk on every operation.
+
+    Bug: _ensure_state_loaded() always reads from disk, even when state is already loaded.
+    Fix: Load once at save/load, return cached _state thereafter.
+    """
+    manager = StateManager(tmp_path)
+    state = WorkflowState(
+        tasks={
+            "task-1": Task(
+                id="task-1",
+                description="Task 1",
+                status=TaskStatus.PENDING,
+                dependencies=[],
+            ),
+        }
+    )
+    manager.save(state)
+
+    # Delete the file after save - if caching works, claim_task should still work
+    manager.state_file.unlink()
+
+    # This should use cached state, not fail with "No state loaded"
+    result = manager.claim_task("worker-1")
+    assert result.task is not None, "StateManager should use cached state, not re-read from disk"
 
 
 # ============================================================================
