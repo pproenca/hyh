@@ -176,8 +176,8 @@ Return JWT token.
     assert plan.tasks["2"].description == "Add Password Hashing"
     assert plan.tasks["3"].description == "Create Login Endpoint"
     # Group 1 tasks have no dependencies
-    assert plan.tasks["1"].dependencies == []
-    assert plan.tasks["2"].dependencies == []
+    assert set(plan.tasks["1"].dependencies) == set()
+    assert set(plan.tasks["2"].dependencies) == set()
     # Group 2 tasks depend on all Group 1 tasks
     assert set(plan.tasks["3"].dependencies) == {"1", "2"}
 
@@ -231,9 +231,9 @@ Content 3.
 """
     plan = parse_markdown_plan(content)
 
-    assert plan.tasks["1"].dependencies == []
-    assert plan.tasks["2"].dependencies == ["1"]
-    assert plan.tasks["3"].dependencies == ["2"]
+    assert set(plan.tasks["1"].dependencies) == set()
+    assert set(plan.tasks["2"].dependencies) == {"1"}
+    assert set(plan.tasks["3"].dependencies) == {"2"}
 
 
 def test_parse_markdown_plan_semantic_ids():
@@ -268,7 +268,7 @@ Create endpoints.
     assert "auth-service" in plan.tasks
     assert "db-migration" in plan.tasks
     assert "api-endpoints" in plan.tasks
-    assert plan.tasks["auth-service"].dependencies == []
+    assert set(plan.tasks["auth-service"].dependencies) == set()
     assert set(plan.tasks["api-endpoints"].dependencies) == {"auth-service", "db-migration"}
 
 

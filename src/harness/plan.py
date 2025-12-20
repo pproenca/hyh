@@ -7,10 +7,19 @@ We extract the JSON, validate the DAG, and convert to WorkflowState.
 
 import json
 import re
+from typing import TypedDict
 
 from pydantic import BaseModel, Field
 
 from .state import Task, TaskStatus, WorkflowState, detect_cycle
+
+
+class _TaskData(TypedDict):
+    """Intermediate task data during Markdown parsing."""
+
+    description: str
+    instructions: str
+    dependencies: list[str]
 
 
 class PlanTaskDefinition(BaseModel):
@@ -94,7 +103,7 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
     parts = re.split(task_pattern, content, flags=re.MULTILINE)
 
     # parts[0] is preamble. Then groups of 3: [id, desc, body, id, desc, body, ...]
-    tasks_data: dict[str, dict[str, str | list[str]]] = {}
+    tasks_data: dict[str, _TaskData] = {}
 
     for i in range(1, len(parts), 3):
         if i + 2 > len(parts):
@@ -103,11 +112,11 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
         t_desc = parts[i + 1].strip()
         t_body = parts[i + 2].strip()
 
-        tasks_data[t_id] = {
-            "description": t_desc,
-            "instructions": t_body,
-            "dependencies": [],
-        }
+        tasks_data[t_id] = _TaskData(
+            description=t_desc,
+            instructions=t_body,
+            dependencies=[],
+        )
 
     # 4. Calculate Dependencies based on Groups
     # Group N depends on all tasks from Group N-1
@@ -133,11 +142,10 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
     # 6. Construct PlanDefinition
     final_tasks = {}
     for t_id, t_data in tasks_data.items():
-        deps = t_data["dependencies"]
         final_tasks[t_id] = PlanTaskDefinition(
-            description=str(t_data["description"]),
-            instructions=str(t_data["instructions"]),
-            dependencies=deps if isinstance(deps, list) else [],
+            description=t_data["description"],
+            instructions=t_data["instructions"],
+            dependencies=t_data["dependencies"],
             timeout_seconds=600,
             role=None,
         )
