@@ -63,7 +63,6 @@ def test_get_plan_template_returns_markdown():
 
     template = get_plan_template()
 
-    # Verify it's Markdown with expected sections
     assert "# Plan Template" in template
     assert "## Recommended: Structured Markdown" in template
     # Legacy JSON section should NOT exist
@@ -123,10 +122,8 @@ Return JWT token.
     assert plan.tasks["1"].description == "Create User Model"
     assert plan.tasks["2"].description == "Add Password Hashing"
     assert plan.tasks["3"].description == "Create Login Endpoint"
-    # Group 1 tasks have no dependencies
     assert set(plan.tasks["1"].dependencies) == set()
     assert set(plan.tasks["2"].dependencies) == set()
-    # Group 2 tasks depend on all Group 1 tasks
     assert set(plan.tasks["3"].dependencies) == {"1", "2"}
 
 
@@ -284,7 +281,6 @@ def test_parse_plan_content_markdown_cycle_rejected():
 
 Instructions.
 """
-    # This should pass (no cycle with single task)
     plan = parse_plan_content(content)
     assert plan.goal == "Cycle test"
 

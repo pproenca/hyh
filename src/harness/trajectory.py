@@ -45,7 +45,6 @@ class TrajectoryLogger:
         """
         line = (json.dumps(event) + "\n").encode("utf-8")
 
-        # Create parent directory (idempotent)
         self.trajectory_file.parent.mkdir(parents=True, exist_ok=True)
 
         # O_APPEND: kernel guarantees atomic append (no interleaving)
@@ -72,7 +71,6 @@ class TrajectoryLogger:
             List of the last N events (or fewer if file has fewer than N events).
             Empty list if n <= 0.
         """
-        # Handle edge cases: n <= 0 returns empty list
         if n <= 0:
             return []
 
@@ -85,8 +83,6 @@ class TrajectoryLogger:
     def _tail_reverse_seek(self, n: int, max_buffer_bytes: int) -> list[dict[str, Any]]:
         """Efficiently read last N lines using reverse-seek.
 
-        Reads the file from the end in 4KB blocks until we have enough lines
-        or reach the maximum buffer size.
 
         Complexity: O(k) where k = number of blocks read (NOT O(k²)).
 
@@ -97,11 +93,11 @@ class TrajectoryLogger:
         Returns:
             List of the last N events
         """
-        block_size = 4096  # 4KB blocks
+        block_size = 4096
 
         with self.trajectory_file.open("rb") as f:
             # Get file size
-            f.seek(0, 2)  # Seek to end
+            f.seek(0, 2)
             file_size = f.tell()
 
             if file_size == 0:
@@ -118,11 +114,9 @@ class TrajectoryLogger:
                 if bytes_read >= max_buffer_bytes:
                     break
 
-                # Determine how much to read
                 read_size = min(block_size, position)
                 position -= read_size
 
-                # Seek to position and read
                 f.seek(position)
                 chunk = f.read(read_size)
                 chunks.append(chunk)  # O(1) append
@@ -140,7 +134,6 @@ class TrajectoryLogger:
             buffer = b"".join(reversed(chunks))
             lines = buffer.split(b"\n")
 
-            # Parse JSON lines, skipping corrupt ones
             events: list[dict[str, Any]] = []
             for line in lines:
                 line = line.strip()
@@ -153,5 +146,4 @@ class TrajectoryLogger:
                     # Skip corrupt lines (crash resilience)
                     continue
 
-            # Return last n events
             return events[-n:] if len(events) > n else events

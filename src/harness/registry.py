@@ -1,6 +1,6 @@
 """Project registry for multi-project isolation.
 
-Tracks registered projects in ~/.harness/registry.json for --all queries.
+Tracks registered projects for --all queries.
 Uses fcntl.flock for race-condition safety across concurrent daemons.
 
 CRITICAL: This module MUST NOT import pydantic (client.py constraint).

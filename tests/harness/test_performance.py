@@ -35,11 +35,9 @@ def test_claim_task_scales_with_dag_size(tmp_path):
             timeout_seconds=600,
         )
 
-    # Mark first task as available (no dependencies)
     state = WorkflowState(tasks=tasks)
     manager.save(state)
 
-    # Measure claim_task performance - should find task-0
     start = time.monotonic()
     result = manager.claim_task("worker-1")
     elapsed = (time.monotonic() - start) * 1000  # Convert to ms
@@ -58,15 +56,12 @@ def test_trajectory_tail_on_large_file(tmp_path):
     trajectory_file = tmp_path / "trajectory.jsonl"
     logger = TrajectoryLogger(trajectory_file)
 
-    # Create a large file with 50K events (~5MB)
     for i in range(50_000):
         logger.log({"event": f"event-{i}", "data": "x" * 100})
 
-    # Verify file size is substantial
     file_size = trajectory_file.stat().st_size
     assert file_size > 5_000_000, "File should be > 5MB for performance test"
 
-    # Measure tail performance - should use O(k) reverse seek, not O(N) full read
     start = time.monotonic()
     result = logger.tail(10)
     elapsed = (time.monotonic() - start) * 1000  # Convert to ms
@@ -88,7 +83,6 @@ def test_dag_validation_on_large_graph(tmp_path):
     # This creates a more complex graph than linear chain
     tasks = {}
 
-    # Layer 0: 1 root task
     tasks["root"] = Task(
         id="root",
         description="Root task",
@@ -126,7 +120,6 @@ def test_dag_validation_on_large_graph(tmp_path):
 
     state = WorkflowState(tasks=tasks)
 
-    # Measure validation performance
     start = time.monotonic()
     state.validate_dag()  # Should not raise (no cycles)
     elapsed = (time.monotonic() - start) * 1000  # Convert to ms
@@ -162,7 +155,6 @@ def test_claim_task_with_complex_dependencies(tmp_path):
     state = WorkflowState(tasks=tasks)
     manager.save(state)
 
-    # Should quickly find one of the 100 claimable tasks (first task of each group)
     start = time.monotonic()
     result = manager.claim_task("worker-1")
     elapsed = (time.monotonic() - start) * 1000
@@ -181,7 +173,6 @@ def test_trajectory_tail_performance_with_large_events(tmp_path):
     trajectory_file = tmp_path / "trajectory.jsonl"
     logger = TrajectoryLogger(trajectory_file)
 
-    # Create events with large payloads (1KB each)
     large_payload = "x" * 1000
     for i in range(10_000):
         logger.log(
@@ -192,11 +183,9 @@ def test_trajectory_tail_performance_with_large_events(tmp_path):
             }
         )
 
-    # File should be ~10MB
     file_size = trajectory_file.stat().st_size
     assert file_size > 10_000_000, "File should be > 10MB"
 
-    # tail() should still be fast (O(k) block reads, not O(N) full parse)
     start = time.monotonic()
     result = logger.tail(5)
     elapsed = (time.monotonic() - start) * 1000
@@ -266,7 +255,6 @@ def test_claim_task_performance_with_completed_tasks(tmp_path):
     """
     manager = StateManager(tmp_path)
 
-    # Create 1000 tasks: 900 completed, 100 pending
     tasks = {}
     for i in range(1000):
         task_id = f"task-{i}"
@@ -282,7 +270,6 @@ def test_claim_task_performance_with_completed_tasks(tmp_path):
     state = WorkflowState(tasks=tasks)
     manager.save(state)
 
-    # Should quickly find one of the 100 pending tasks
     start = time.monotonic()
     result = manager.claim_task("worker-1")
     elapsed = (time.monotonic() - start) * 1000

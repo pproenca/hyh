@@ -20,8 +20,6 @@ def test_registry_register_project(tmp_path: Path) -> None:
 
     worktree = Path("/Users/test/project")
     registry.register(worktree)
-
-    # Reload to verify persistence
     registry2 = ProjectRegistry(registry_file)
     projects = registry2.list_projects()
 
@@ -42,11 +40,9 @@ def test_registry_concurrent_registration(tmp_path: Path) -> None:
         registry = ProjectRegistry(registry_file)
         return registry.register(proj)
 
-    # Register 10 projects concurrently
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         list(executor.map(register_project, projects))
 
-    # Verify all 10 projects were registered (no lost writes)
     registry = ProjectRegistry(registry_file)
     registered = registry.list_projects()
     assert len(registered) == 10

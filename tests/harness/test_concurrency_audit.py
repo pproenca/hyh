@@ -37,12 +37,11 @@ class TestSocketMessageFragmentation:
         """Large responses exceeding buffer size should be fully received."""
         from harness.client import send_rpc
 
-        # Create a server that sends a large response
         large_data = {"key": "x" * 10000}  # >4KB response
 
         class LargeResponseHandler(socketserver.StreamRequestHandler):
             def handle(self) -> None:
-                self.rfile.readline()  # Read request
+                self.rfile.readline()
                 response = json.dumps({"status": "ok", "data": large_data}) + "\n"
                 self.wfile.write(response.encode())
                 self.wfile.flush()
@@ -56,7 +55,6 @@ class TestSocketMessageFragmentation:
             time.sleep(0.1)
 
             try:
-                # Send request and check if full response is received
                 response = send_rpc(sock_path, {"command": "test"})
 
                 # If fragmentation bug exists, data would be truncated
@@ -171,14 +169,13 @@ class TestConcurrentTrajectoryRace:
             for t in threads:
                 t.join()
 
-            # Read all lines and verify each is valid JSON
             lines = traj_file.read_text().strip().split("\n")
             assert len(lines) == num_threads * events_per_thread
 
             for i, line in enumerate(lines):
                 try:
                     data = json.loads(line)
-                    # Verify marker is complete (no interleaving)
+
                     marker = data["marker"]
                     assert marker.startswith("T") and "E" in marker, (
                         f"Line {i} has corrupted marker: {marker}"
@@ -236,7 +233,6 @@ class TestDatetimeTimezoneConfusion:
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = StateManager(Path(tmpdir))
 
-            # Save with aware datetime
             task = Task(
                 id="task-1",
                 description="Test",
@@ -248,12 +244,10 @@ class TestDatetimeTimezoneConfusion:
             state = WorkflowState(tasks={"task-1": task})
             manager.save(state)
 
-            # Reload and verify datetime handling
             loaded = manager.load()
             assert loaded is not None
             assert loaded.tasks["task-1"].started_at is not None
 
-            # is_timed_out should work without TypeError
             result = loaded.tasks["task-1"].is_timed_out()
             assert isinstance(result, bool)
 
@@ -291,10 +285,8 @@ class TestWorkerIdRaceCondition:
                 for t in threads:
                     t.join()
 
-            # All threads should complete without errors
             assert len(errors) == 0, f"Errors during concurrent get_worker_id: {errors}"
 
-            # The file should not be corrupted
             if worker_id_file.exists():
                 content = worker_id_file.read_text().strip()
                 assert content.startswith("worker-")
@@ -320,14 +312,12 @@ class TestLockContention:
                 lock_acquisition_times.append(elapsed)
                 time.sleep(0.01)  # Hold lock briefly
 
-        # Multiple threads trying to acquire lock
         threads = [threading.Thread(target=timed_lock_acquire) for _ in range(5)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
 
-        # All should complete
         assert len(lock_acquisition_times) == 5
 
         # Later threads should wait longer
@@ -367,7 +357,6 @@ class TestStateManagerLocking:
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = StateManager(Path(tmpdir))
 
-            # Create multiple tasks
             tasks = {}
             for i in range(10):
                 tasks[f"task-{i}"] = Task(
@@ -398,7 +387,6 @@ class TestStateManagerLocking:
                 except Exception as e:
                     errors.append(e)
 
-            # Multiple workers claiming tasks concurrently
             threads = [
                 threading.Thread(target=claim_and_complete, args=(f"worker-{i}",))
                 for i in range(10)

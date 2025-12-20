@@ -88,7 +88,6 @@ class TestPathMapper:
 
         mapper = VolumeMapper(host_root="/host/workspace", container_root="/workspace")
 
-        # Host to container
         assert mapper.to_runtime("/host/workspace/src/file.py") == "/workspace/src/file.py"
         assert mapper.to_runtime("/host/workspace/README.md") == "/workspace/README.md"
 
@@ -98,7 +97,6 @@ class TestPathMapper:
 
         mapper = VolumeMapper(host_root="/host/workspace", container_root="/workspace")
 
-        # Container to host
         assert mapper.to_host("/workspace/src/file.py") == "/host/workspace/src/file.py"
         assert mapper.to_host("/workspace/README.md") == "/host/workspace/README.md"
 
@@ -117,7 +115,6 @@ class TestPathMapper:
 
         mapper = VolumeMapper(host_root="/host/workspace", container_root="/workspace")
 
-        # Paths outside the workspace should still be transformed
         result = mapper.to_runtime("/host/workspace/nested/deep/file.txt")
         assert result == "/workspace/nested/deep/file.txt"
 
@@ -126,7 +123,7 @@ class TestPathMapper:
         from harness.runtime import VolumeMapper
 
         mapper = VolumeMapper("/host/workspace", "/container/workspace")
-        # Host path outside root should pass through unchanged
+
         assert mapper.to_runtime("/other/path") == "/other/path"
 
     def test_volume_mapper_path_outside_container_root(self):
@@ -134,7 +131,7 @@ class TestPathMapper:
         from harness.runtime import VolumeMapper
 
         mapper = VolumeMapper("/host/workspace", "/container/workspace")
-        # Container path outside root should pass through unchanged
+
         assert mapper.to_host("/other/container/path") == "/other/container/path"
 
     def test_volume_mapper_path_with_similar_prefix_not_mapped(self):
@@ -228,7 +225,6 @@ class TestLocalRuntime:
 
         runtime = LocalRuntime()
 
-        # Acquire the lock in this thread
         with GLOBAL_EXEC_LOCK:
             # If execute() tries to acquire the lock, this will deadlock/timeout
             # We use a thread to test this
@@ -252,11 +248,9 @@ class TestLocalRuntime:
 
         runtime = LocalRuntime()
 
-        # Acquire the lock in this thread
         GLOBAL_EXEC_LOCK.acquire()
 
         try:
-            # Try to execute with exclusive=True in another thread
             result_container = {}
 
             def run_command():
@@ -272,7 +266,6 @@ class TestLocalRuntime:
             # Thread should be blocked waiting for lock
             assert thread.is_alive(), "Command should block waiting for lock"
 
-            # Release lock
             GLOBAL_EXEC_LOCK.release()
 
             # Thread should now complete
@@ -308,7 +301,6 @@ class TestDockerRuntime:
         runtime = DockerRuntime(container_id="test-container", path_mapper=IdentityMapper())
         runtime.execute(["echo", "hello"])
 
-        # Check that docker exec was called
         mock_run.assert_called_once()
         args = mock_run.call_args[0][0]
         assert args[0] == "docker"
@@ -325,7 +317,6 @@ class TestDockerRuntime:
         runtime = DockerRuntime(container_id="test-container", path_mapper=IdentityMapper())
         runtime.execute(["echo", "hello"])
 
-        # Check that --user flag is present
         args = mock_run.call_args[0][0]
         assert "--user" in args
         user_index = args.index("--user")
@@ -347,11 +338,9 @@ class TestDockerRuntime:
         runtime = DockerRuntime(container_id="test-container", path_mapper=IdentityMapper())
         runtime.execute(["echo", "test"], env={"API_KEY": "secret123", "DEBUG": "true"})
 
-        # Check that -e flags are present
         args = mock_run.call_args[0][0]
         assert "-e" in args
 
-        # Find all -e flags and their values
         env_vars = {}
         for i, arg in enumerate(args):
             if arg == "-e" and i + 1 < len(args):
@@ -374,7 +363,6 @@ class TestDockerRuntime:
         runtime = DockerRuntime(container_id="test-container", path_mapper=mapper)
         runtime.execute(["pwd"], cwd="/host/workspace/src")
 
-        # Check that -w flag uses mapped path
         args = mock_run.call_args[0][0]
         assert "-w" in args
         w_index = args.index("-w")
@@ -390,7 +378,6 @@ class TestDockerRuntime:
         runtime = DockerRuntime(container_id="test-container", path_mapper=IdentityMapper())
         runtime.execute(["sleep", "1"], timeout=5.0)
 
-        # Check that timeout was passed
         assert mock_run.call_args[1]["timeout"] == 5.0
 
     @patch("subprocess.run")
@@ -434,11 +421,9 @@ class TestDockerRuntime:
 
         mock_run.side_effect = slow_run
 
-        # Acquire the lock in this thread
         GLOBAL_EXEC_LOCK.acquire()
 
         try:
-            # Try to execute with exclusive=True in another thread
             result_container = {}
 
             def run_command():
@@ -454,7 +439,6 @@ class TestDockerRuntime:
             # Thread should be blocked waiting for lock
             assert thread.is_alive(), "Command should block waiting for lock when exclusive=True"
 
-            # Release lock
             GLOBAL_EXEC_LOCK.release()
 
             # Thread should now complete
@@ -492,7 +476,7 @@ class TestRuntimeFactory:
 
         runtime = create_runtime()
         assert isinstance(runtime, DockerRuntime)
-        # Access container_id attribute
+
         assert runtime.container_id == "test-container"
 
     @patch.dict(
@@ -516,7 +500,6 @@ class TestRuntimeFactory:
         """DockerRuntime should use IdentityMapper when no paths in env."""
         from harness.runtime import DockerRuntime, IdentityMapper, create_runtime
 
-        # Remove any path variables
         os.environ.pop("HARNESS_HOST_ROOT", None)
         os.environ.pop("HARNESS_CONTAINER_ROOT", None)
 
@@ -582,7 +565,6 @@ class TestRuntimeCapabilityCheck:
         runtime = DockerRuntime("test-container", IdentityMapper())
         runtime.check_capabilities()
 
-        # Verify docker info was called
         calls = [c[0][0] for c in mock_run.call_args_list]
         assert any("docker" in str(c) and "info" in str(c) for c in calls)
 

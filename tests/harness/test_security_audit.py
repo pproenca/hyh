@@ -81,7 +81,7 @@ class TestPathTraversalVolumeMapper:
 
         for path in traversal_paths:
             result = mapper.to_runtime(path)
-            # Normalize both to check if escape happened
+
             normalized = os.path.normpath(result)
             # Either should start with container root or remain unchanged (not mapped)
             is_safe = normalized.startswith("/workspace") or result == path
@@ -119,7 +119,6 @@ class TestGitArgumentInjection:
         from harness.git import safe_git_exec
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Initialize git repo
             subprocess.run(["git", "init"], cwd=tmpdir, capture_output=True, check=True)
             subprocess.run(
                 ["git", "config", "user.email", "test@test.com"],

@@ -34,7 +34,6 @@ def get_worker_id() -> str:
         username = os.getenv("USER", "default")
         worker_id_file = Path(f"{runtime_dir}/harness-worker-{username}.id")
 
-    # Try to read existing worker ID
     if worker_id_file.exists():
         try:
             worker_id = worker_id_file.read_text().strip()
@@ -43,15 +42,12 @@ def get_worker_id() -> str:
             if worker_id.startswith("worker-") and len(worker_id) == 19:
                 return worker_id
         except OSError:
-            pass  # Fall through to regenerate
+            pass
 
-    # Generate new ID
     worker_id = f"worker-{uuid.uuid4().hex[:12]}"
 
-    # ATOMIC WRITE PATTERN (Council Requirement)
     tmp_file = worker_id_file.with_suffix(".tmp")
     try:
-        # Create with 600 permissions (User Read/Write ONLY)
         # Using open with low-level flags to ensure permissions from creation
         fd = os.open(str(tmp_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
@@ -59,7 +55,6 @@ def get_worker_id() -> str:
             f.flush()
             os.fsync(f.fileno())  # Durability
 
-        # Atomic rename
         tmp_file.rename(worker_id_file)
     except OSError:
         # If persistence fails (e.g. read-only FS), return ephemeral ID
@@ -69,7 +64,7 @@ def get_worker_id() -> str:
     return worker_id
 
 
-# Generate stable WORKER_ID on module load (Council Fix: Lost Ack)
+# Generate stable WORKER_ID on module load
 WORKER_ID = get_worker_id()
 
 
@@ -88,12 +83,10 @@ def get_socket_path(worktree: "Path | None" = None) -> str:
     if env_socket:
         return env_socket
 
-    # Resolve worktree path
     if worktree is None:
         worktree = Path.cwd()
     worktree = Path(worktree).resolve()
 
-    # Hash-based socket in ~/.harness/sockets/
     harness_dir = Path.home() / ".harness" / "sockets"
     harness_dir.mkdir(parents=True, exist_ok=True)
 
@@ -114,7 +107,6 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
     import contextlib
     import tempfile
 
-    # Create temporary files for stderr and status communication
     with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".stderr") as stderr_file:
         stderr_path = stderr_file.name
 
@@ -122,25 +114,20 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
         status_path = status_file.name
 
     try:
-        # First fork - create intermediate child
         pid = os.fork()
         if pid == 0:
-            # Intermediate child process
             try:
                 # Create new session to detach from terminal
                 os.setsid()
 
-                # Second fork - create daemon (grandchild)
                 daemon_pid = os.fork()
                 if daemon_pid == 0:
-                    # Daemon process (grandchild)
                     try:
-                        # Redirect stdio
                         null_fd = os.open("/dev/null", os.O_RDWR)
-                        os.dup2(null_fd, 0)  # stdin
-                        os.dup2(null_fd, 1)  # stdout
+                        os.dup2(null_fd, 0)
+                        os.dup2(null_fd, 1)
                         stderr_fd = os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
-                        os.dup2(stderr_fd, 2)  # stderr
+                        os.dup2(stderr_fd, 2)
                         if null_fd > 2:
                             os.close(null_fd)
                         if stderr_fd > 2:
@@ -163,18 +150,15 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
                             Path(stderr_path).write_text(str(e))
                         os._exit(1)
                 else:
-                    # Intermediate child - write daemon PID to status file and exit
                     Path(status_path).write_text(str(daemon_pid))
                     os._exit(0)
             except Exception:
                 os._exit(1)
         else:
-            # Parent process - wait for intermediate child
             _, status = os.waitpid(pid, 0)
             if status != 0:
                 raise RuntimeError("Failed to fork daemon process")
 
-        # Read daemon PID from status file
         daemon_pid_str = Path(status_path).read_text().strip()
         if not daemon_pid_str:
             raise RuntimeError("Failed to get daemon PID")
@@ -187,13 +171,10 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
             timeout_seconds = 5
         iterations = timeout_seconds * 10  # 0.1s per iteration
 
-        # Check if daemon started successfully
         for _ in range(iterations):
-            # Check if daemon crashed (process no longer exists)
             try:
                 os.kill(daemon_pid, 0)  # Signal 0 checks if process exists
             except OSError as err:
-                # Process died - read error from stderr file
                 stderr_content = ""
                 with contextlib.suppress(Exception):
                     stderr_content = Path(stderr_path).read_text().strip()
@@ -204,7 +185,6 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
                 return
             time.sleep(0.1)
 
-        # Timeout - check if daemon is still running
         try:
             os.kill(daemon_pid, 0)
         except OSError as err:
@@ -217,7 +197,6 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
             f"Daemon failed to start (timeout {timeout_seconds}s waiting for socket)"
         )
     finally:
-        # Clean up temporary files
         for path in [stderr_path, status_path]:
             with contextlib.suppress(OSError):
                 Path(path).unlink(missing_ok=True)
@@ -243,7 +222,6 @@ def send_rpc(
             sock.connect(socket_path)
             sock.sendall(json.dumps(request).encode() + b"\n")
 
-            # Read response
             response = b""
             while True:
                 chunk = sock.recv(4096)
@@ -256,9 +234,8 @@ def send_rpc(
             result: dict[str, Any] = json.loads(response.decode().strip())
             return result
 
-        except (FileNotFoundError, ConnectionRefusedError):
+        except (FileNotFoundError, ConnectionRefusedError, BrokenPipeError, OSError):
             if attempt < max_retries and worktree_root:
-                # Auto-spawn daemon
                 spawn_daemon(worktree_root, socket_path)
                 continue
             raise
@@ -327,11 +304,10 @@ def _cmd_status_all() -> int:
     print("Projects:")
     for hash_id, info in projects.items():
         path = info["path"]
-        # Check if daemon is running by testing socket
+
         sock_path = str(Path.home() / ".harness" / "sockets" / f"{hash_id}.sock")
         status = "[running]" if Path(sock_path).exists() else "[stopped]"
 
-        # Check if path exists
         if not Path(path).exists():
             status = "[stale - path not found]"
 
@@ -342,7 +318,7 @@ def _cmd_status_all() -> int:
 
 def _cmd_status(args: argparse.Namespace, socket_path: str, worktree_root: str) -> None:
     """Display workflow status with progress, tasks, and recent events."""
-    # Handle --all flag
+
     if getattr(args, "all", False):
         _cmd_status_all()
         return
@@ -390,7 +366,6 @@ def _cmd_status(args: argparse.Namespace, socket_path: str, worktree_root: str) 
         data = response["data"]
 
         if json_output:
-            # Include daemon status in JSON output
             data["daemon"] = True
             print(json.dumps(data, indent=2))
             return bool(data.get("active", False))
@@ -412,13 +387,11 @@ def _cmd_status(args: argparse.Namespace, socket_path: str, worktree_root: str) 
         events = data["events"]
         workers = data.get("active_workers", [])
 
-        # Header
         print("=" * 65)
         print(" HARNESS STATUS")
         print("=" * 65)
         print()
 
-        # Progress bar (16 chars)
         total = summary["total"]
         completed = summary["completed"]
         if total > 0:
@@ -429,18 +402,15 @@ def _cmd_status(args: argparse.Namespace, socket_path: str, worktree_root: str) 
         else:
             print(" Progress: No tasks")
 
-        # Workers
         running = summary["running"]
         idle = len(workers) - running if workers else 0
         print(f" Workers:  {len(workers)} active" + (f", {idle} idle" if idle > 0 else ""))
         print()
 
-        # Tasks table
         print("-" * 65)
         print(" TASKS")
         print("-" * 65)
 
-        # Sort tasks by ID (numeric if possible)
         def task_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, str]:
             tid = item[0]
             try:
@@ -453,11 +423,9 @@ def _cmd_status(args: argparse.Namespace, socket_path: str, worktree_root: str) 
             desc = task.get("description", "")[:40]
             worker = task.get("claimed_by", "")
 
-            # Status icon
             icons = {"completed": "✓", "running": "⟳", "pending": "○", "failed": "✗"}
             icon = icons.get(status, "?")
 
-            # Time info
             time_info = ""
             if status == "completed" and task.get("completed_at"):
                 time_info = _format_relative_time(task["completed_at"])
@@ -466,7 +434,6 @@ def _cmd_status(args: argparse.Namespace, socket_path: str, worktree_root: str) 
                 elapsed = (datetime.now(UTC) - started).total_seconds()
                 time_info = _format_duration(elapsed)
 
-            # Blocking deps for pending tasks
             if status == "pending" and task.get("dependencies"):
                 incomplete = [
                     d for d in task["dependencies"] if tasks.get(d, {}).get("status") != "completed"
@@ -479,7 +446,6 @@ def _cmd_status(args: argparse.Namespace, socket_path: str, worktree_root: str) 
 
         print()
 
-        # Recent events
         if events:
             print("-" * 65)
             print(" RECENT EVENTS")
@@ -511,11 +477,9 @@ def _cmd_status(args: argparse.Namespace, socket_path: str, worktree_root: str) 
         print()
         return True
 
-    # Watch mode: loop with refresh
     if watch_interval is not None:
         try:
             while True:
-                # Clear screen
                 print("\033[2J\033[H", end="")
                 active = render_once()
                 if not active:
@@ -541,13 +505,10 @@ def main() -> None:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # ping
     subparsers.add_parser("ping", help="Check if daemon is running")
 
-    # get-state
     subparsers.add_parser("get-state", help="Get current workflow state")
 
-    # update-state
     upd = subparsers.add_parser("update-state", help="Update workflow state fields")
     upd.add_argument(
         "--field",
@@ -558,7 +519,6 @@ def main() -> None:
         help="Field to update (repeatable)",
     )
 
-    # git -- <args>
     git = subparsers.add_parser(
         "git",
         help="Execute git command with mutex (Usage: harness git -- <args>)",
@@ -572,14 +532,12 @@ def main() -> None:
         help="Git arguments after -- separator (e.g., harness git -- commit -m 'msg')",
     )
 
-    # task subcommand with claim and complete
     task = subparsers.add_parser("task", help="Task management commands")
     task_subparsers = task.add_subparsers(dest="task_command", required=True)
     task_subparsers.add_parser("claim", help="Claim next available task")
     task_complete = task_subparsers.add_parser("complete", help="Mark task as complete")
     task_complete.add_argument("--id", required=True, help="Task ID to complete")
 
-    # plan subcommand
     plan_parser = subparsers.add_parser("plan", help="Plan management")
     plan_sub = plan_parser.add_subparsers(dest="plan_command", required=True)
     plan_import_parser = plan_sub.add_parser("import", help="Import plan from file")
@@ -587,7 +545,6 @@ def main() -> None:
     plan_sub.add_parser("template", help="Print Markdown template for plan format")
     plan_sub.add_parser("reset", help="Clear all workflow state")
 
-    # exec command
     exec_parser = subparsers.add_parser(
         "exec",
         help="Execute command with mutex (Usage: harness exec -- <command>)",
@@ -611,22 +568,16 @@ def main() -> None:
         help="Command and arguments after -- separator",
     )
 
-    # session-start
     subparsers.add_parser("session-start", help="Handle SessionStart hook")
 
-    # check-state
     subparsers.add_parser("check-state", help="Handle Stop hook")
 
-    # check-commit
     subparsers.add_parser("check-commit", help="Handle SubagentStop hook")
 
-    # shutdown
     subparsers.add_parser("shutdown", help="Shutdown daemon")
 
-    # worker-id
     subparsers.add_parser("worker-id", help="Print stable worker ID")
 
-    # status
     status_parser = subparsers.add_parser("status", help="Show workflow status and recent events")
     status_parser.add_argument("--json", action="store_true", help="Output raw JSON")
     status_parser.add_argument(
@@ -645,14 +596,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Update worktree resolution to respect --project flag
     if args.project:
         worktree_root = str(Path(args.project).resolve())
     else:
         worktree_root = os.getenv("HARNESS_WORKTREE") or _get_git_root()
     socket_path = get_socket_path(Path(worktree_root))
 
-    # Route commands
     if args.command == "ping":
         _cmd_ping(socket_path, worktree_root)
     elif args.command == "get-state":
@@ -660,7 +609,6 @@ def main() -> None:
     elif args.command == "update-state":
         _cmd_update_state(socket_path, worktree_root, args.fields or [])
     elif args.command == "git":
-        # Strip leading -- separator if present
         git_args = args.git_args
         if git_args and git_args[0] == "--":
             git_args = git_args[1:]
@@ -678,7 +626,6 @@ def main() -> None:
         elif args.plan_command == "reset":
             _cmd_plan_reset(socket_path, worktree_root)
     elif args.command == "exec":
-        # Strip leading -- separator if present
         command_args = args.command_args
         if command_args and command_args[0] == "--":
             command_args = command_args[1:]
@@ -734,7 +681,7 @@ def _cmd_update_state(socket_path: str, worktree_root: str, fields: list[list[st
     NOTE: All values are passed as raw strings to the daemon.
     Pydantic handles type coercion based on the schema.
     """
-    updates = {key: value for key, value in fields}  # Raw strings, no coercion
+    updates = {key: value for key, value in fields}
 
     response = send_rpc(
         socket_path,

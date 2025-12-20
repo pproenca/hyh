@@ -63,7 +63,6 @@ class TestAtomicFileWriteRace:
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = StateManager(Path(tmpdir))
 
-            # Initial state
             initial = WorkflowState(
                 tasks={
                     "t1": Task(
@@ -91,7 +90,6 @@ class TestAtomicFileWriteRace:
                 except Exception as e:
                     errors.append((version, e))
 
-            # Concurrent saves
             threads = [threading.Thread(target=save_state, args=(i,)) for i in range(10)]
             for t in threads:
                 t.start()
@@ -131,7 +129,6 @@ class TestSymlinkAttacks:
             worktree = Path(tmpdir) / "repo"
             worktree.mkdir()
 
-            # Get the socket path that would be used
             socket_path = get_socket_path(worktree)
 
             # This is predictable based on worktree hash
@@ -167,7 +164,6 @@ class TestCacheInvalidation:
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = StateManager(Path(tmpdir))
 
-            # Initial state
             state1 = WorkflowState(
                 tasks={
                     "t1": Task(
@@ -177,12 +173,10 @@ class TestCacheInvalidation:
             )
             manager.save(state1)
 
-            # Load to cache
             loaded = manager.load()
             assert loaded is not None
             assert loaded.tasks["t1"].description == "original"
 
-            # External modification (simulating another process)
             manager.state_file.write_text(
                 json.dumps(
                     {
@@ -218,7 +212,7 @@ class TestCacheInvalidation:
                 }
             )
             manager.save(state)
-            manager.load()  # Cache it
+            manager.load()
 
             # Claim should use cached state
             result = manager.claim_task("worker-1")
@@ -240,10 +234,8 @@ class TestTrajectoryFilePermissions:
             traj_file = Path(tmpdir) / "trajectory.jsonl"
             logger = TrajectoryLogger(traj_file)
 
-            # Log an event to create the file
             logger.log({"event": "test"})
 
-            # Check file permissions
             file_stat = traj_file.stat()
             mode = stat.S_IMODE(file_stat.st_mode)
 
@@ -257,7 +249,6 @@ class TestTrajectoryFilePermissions:
         from harness.trajectory import TrajectoryLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create in a subdirectory that doesn't exist
             traj_file = Path(tmpdir) / "subdir" / "trajectory.jsonl"
             logger = TrajectoryLogger(traj_file)
 
@@ -305,7 +296,6 @@ class TestUTF8Truncation:
         test_string = "日本語" * 1000  # Multi-byte characters
         encoded = test_string.encode("utf-8")
 
-        # Simulate truncation at arbitrary position
         truncated = encoded[:10]  # Likely breaks a character
 
         # This shows the vulnerability - truncation may break UTF-8 encoding
@@ -336,7 +326,6 @@ class TestPartialJSONRecovery:
             state_file = manager.state_file
             state_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write partial JSON
             state_file.write_text('{"tasks": {"t1":')
 
             # Load should raise clear error, not crash
@@ -350,7 +339,6 @@ class TestPartialJSONRecovery:
             state_file = manager.state_file
             state_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write empty file
             state_file.write_text("")
 
             # Should raise or return empty state

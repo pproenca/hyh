@@ -18,11 +18,6 @@ _SAFE_TASK_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-\.]*$")
 
 
 def _validate_task_id(task_id: str) -> None:
-    """Validate task ID is safe (no shell metacharacters).
-
-    Raises:
-        ValueError: If task ID contains dangerous characters
-    """
     if not task_id:
         raise ValueError("Task ID cannot be empty")
 
@@ -35,16 +30,12 @@ def _validate_task_id(task_id: str) -> None:
 
 
 class _TaskData(TypedDict):
-    """Intermediate task data during Markdown parsing."""
-
     description: str
     instructions: str
     dependencies: list[str]
 
 
 class PlanTaskDefinition(BaseModel):
-    """User-facing task definition."""
-
     description: str
     dependencies: list[str] = Field(default_factory=list)
     timeout_seconds: int = 600
@@ -53,26 +44,20 @@ class PlanTaskDefinition(BaseModel):
 
 
 class PlanDefinition(BaseModel):
-    """User-facing plan with goal and tasks."""
-
     goal: str
     tasks: dict[str, PlanTaskDefinition]
 
     def validate_dag(self) -> None:
-        """Reject cycles and missing dependencies."""
-        # Check deps exist
         for task_id, task in self.tasks.items():
             for dep in task.dependencies:
                 if dep not in self.tasks:
                     raise ValueError(f"Missing dependency: {dep} (in {task_id})")
 
-        # DFS cycle detection
         graph = {task_id: task.dependencies for task_id, task in self.tasks.items()}
         if cycle_node := detect_cycle(graph):
             raise ValueError(f"Cycle detected at {cycle_node}")
 
     def to_workflow_state(self) -> WorkflowState:
-        """Convert to internal WorkflowState."""
         tasks = {
             tid: Task(
                 id=tid,
@@ -105,41 +90,31 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
     - Rejects orphan tasks (in body but not in table)
     - Rejects phantom tasks (in table but not in body)
     """
-    # 1. Extract Goal
     goal_match = re.search(r"\*\*Goal:\*\*\s*(.+)", content)
     goal = goal_match.group(1).strip() if goal_match else "Goal not specified"
 
-    # 2. Extract Task Groups (for dependency calculation)
-    # Pattern: | Group 1 | task-1, auth-service | ... (captures group number and task list)
-    # Supports semantic IDs: alphanumeric, dashes, underscores, dots
     group_pattern = r"\|\s*Group\s*(\d+)\s*\|\s*([\w\-\.,\s]+)\s*\|"
     groups: dict[int, list[str]] = {}
 
     for match in re.finditer(group_pattern, content):
         group_id = int(match.group(1))
         task_ids = [t.strip() for t in match.group(2).split(",") if t.strip()]
-        # Validate each task ID from the group table
         for tid in task_ids:
             _validate_task_id(tid)
         groups[group_id] = task_ids
 
-    # 3. Extract Task Content
-    # Relaxed pattern: "### Task <ID>" with optional colon and description
-    # Supports: "### Task 1: Desc", "### Task 1 : Desc", "### Task 1", "### Task 1.1: Desc"
     task_pattern = r"^### Task\s+([\w\-\.]+)\s*(?::\s*(.*))?$"
     parts = re.split(task_pattern, content, flags=re.MULTILINE)
 
-    # parts[0] is preamble. Then groups of 3: [id, desc, body, id, desc, body, ...]
     tasks_data: dict[str, _TaskData] = {}
 
     for i in range(1, len(parts), 3):
         if i + 2 > len(parts):
             break
         t_id = parts[i].strip()
-        t_desc = (parts[i + 1] or "").strip()  # Description may be None if no colon
+        t_desc = (parts[i + 1] or "").strip()
         t_body = parts[i + 2].strip()
 
-        # Validate task ID from header
         _validate_task_id(t_id)
 
         tasks_data[t_id] = _TaskData(
@@ -148,8 +123,6 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
             dependencies=[],
         )
 
-    # 4. Calculate Dependencies based on Groups
-    # Group N depends on all tasks from Group N-1
     sorted_group_ids = sorted(groups.keys())
     for i, group_id in enumerate(sorted_group_ids):
         if i > 0:
@@ -160,10 +133,8 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
                 if t_id in tasks_data:
                     tasks_data[t_id]["dependencies"] = prev_tasks
 
-    # 5. Bidirectional Validation
     all_grouped_tasks = {t for tasks in groups.values() for t in tasks}
 
-    # 5a. Orphan tasks: in body but not in table
     orphan_tasks = set(tasks_data.keys()) - all_grouped_tasks
     if orphan_tasks:
         raise ValueError(
@@ -171,7 +142,6 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
             "Add them to the Task Groups table."
         )
 
-    # 5b. Phantom tasks: in table but not in body (CRITICAL - silent failures)
     phantom_tasks = all_grouped_tasks - set(tasks_data.keys())
     if phantom_tasks:
         raise ValueError(
@@ -179,7 +149,6 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
             "Check for typos in ### Task headers (missing space, wrong ID)."
         )
 
-    # 6. Construct PlanDefinition
     final_tasks = {}
     for t_id, t_data in tasks_data.items():
         final_tasks[t_id] = PlanTaskDefinition(
@@ -194,22 +163,11 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
 
 
 def parse_plan_content(content: str) -> PlanDefinition:
-    """Extract plan from LLM output (Markdown format only).
-
-    Detection:
-    - Markdown: Contains `**Goal:**` AND `| Task Group |`
-
-    Raises:
-        ValueError: If content is empty, whitespace-only, or no valid plan found
-    """
-    # Check for empty/whitespace content
     if not content or not content.strip():
         raise ValueError("No valid plan found: content is empty or whitespace-only")
 
-    # Check for Markdown Plan signature
     if "**Goal:**" in content and "| Task Group |" in content:
         plan = parse_markdown_plan(content)
-        # Also check that tasks were actually parsed
         if not plan.tasks:
             raise ValueError("No valid plan found: no tasks defined in plan")
         plan.validate_dag()
@@ -219,7 +177,6 @@ def parse_plan_content(content: str) -> PlanDefinition:
 
 
 def get_plan_template() -> str:
-    """Generate Markdown template for plan format."""
     return """\
 # Plan Template
 

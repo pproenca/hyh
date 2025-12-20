@@ -10,6 +10,7 @@ The daemon provides:
 
 import json
 import socket
+import sys
 import threading
 import time
 from pathlib import Path
@@ -44,7 +45,7 @@ def test_daemon_get_state(socket_path, worktree):
     from harness.daemon import HarnessDaemon
     from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
-    # Create state file with v2 JSON schema (task DAG)
+    # Create state file with v2 JSON schema
     manager = StateManager(worktree)
     manager.save(
         WorkflowState(
@@ -67,7 +68,6 @@ def test_daemon_get_state(socket_path, worktree):
 
     daemon = HarnessDaemon(socket_path, str(worktree))
 
-    # Start daemon in background thread
     server_thread = threading.Thread(target=daemon.serve_forever)
     server_thread.daemon = True
     server_thread.start()
@@ -90,7 +90,6 @@ def test_daemon_update_state(socket_path, worktree):
     from harness.daemon import HarnessDaemon
     from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
-    # Create state with v2 JSON schema (task DAG)
     manager = StateManager(worktree)
     manager.save(
         WorkflowState(
@@ -112,7 +111,6 @@ def test_daemon_update_state(socket_path, worktree):
     time.sleep(0.1)
 
     try:
-        # Update by adding a new task to the task DAG
         new_tasks = {
             "task-1": {
                 "id": "task-1",
@@ -144,7 +142,6 @@ def test_daemon_update_state(socket_path, worktree):
         )
         assert response["status"] == "ok"
 
-        # Verify persisted
         loaded = StateManager(worktree).load()
         assert loaded is not None
         assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
@@ -188,7 +185,6 @@ def test_daemon_parallel_clients(socket_path, worktree):
     from harness.daemon import HarnessDaemon
     from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
-    # Create state with v2 JSON schema (task DAG)
     manager = StateManager(worktree)
     manager.save(
         WorkflowState(
@@ -220,7 +216,6 @@ def test_daemon_parallel_clients(socket_path, worktree):
             errors.append((client_id, str(e)))
 
     try:
-        # Launch 5 parallel clients
         threads = [threading.Thread(target=client_request, args=(i,)) for i in range(5)]
         for t in threads:
             t.start()
@@ -262,7 +257,6 @@ def daemon_with_state(socket_path, worktree):
     from harness.daemon import HarnessDaemon
     from harness.state import StateManager, Task, TaskStatus, WorkflowState
 
-    # Create state with tasks
     manager = StateManager(worktree)
     state = WorkflowState(
         tasks={
@@ -394,7 +388,6 @@ def test_handle_task_claim_reclaims_timed_out(daemon_with_state, socket_path):
     )
     daemon.state_manager.save(state)
 
-    # Reclaim by new worker
     response = send_command(
         socket_path,
         {"command": "task_claim", "worker_id": "worker2"},
@@ -411,7 +404,6 @@ def test_handle_task_complete_marks_completed(daemon_with_state, socket_path):
     """task_complete should mark task as COMPLETED."""
     daemon, worktree = daemon_with_state
 
-    # First claim the task
     claim_response = send_command(
         socket_path,
         {"command": "task_claim", "worker_id": "worker1"},
@@ -419,7 +411,6 @@ def test_handle_task_complete_marks_completed(daemon_with_state, socket_path):
     assert claim_response["status"] == "ok"
     task_id = claim_response["data"]["task"]["id"]
 
-    # Complete the task
     response = send_command(
         socket_path,
         {
@@ -445,7 +436,6 @@ def test_handle_task_complete_validates_ownership(daemon_with_state, socket_path
     """task_complete should validate worker owns the task."""
     daemon, worktree = daemon_with_state
 
-    # Claim task with worker1
     claim_response = send_command(
         socket_path,
         {"command": "task_claim", "worker_id": "worker1"},
@@ -453,7 +443,6 @@ def test_handle_task_complete_validates_ownership(daemon_with_state, socket_path
     assert claim_response["status"] == "ok"
     task_id = claim_response["data"]["task"]["id"]
 
-    # Try to complete with different worker
     response = send_command(
         socket_path,
         {
@@ -471,7 +460,6 @@ def test_task_claim_logs_trajectory_after_state_update(daemon_with_state, socket
     """task_claim should log to trajectory AFTER state update (lock convoy fix)."""
     daemon, worktree_path = daemon_with_state
 
-    # Claim a task
     response = send_command(
         socket_path,
         {"command": "task_claim", "worker_id": "worker1"},
@@ -479,11 +467,9 @@ def test_task_claim_logs_trajectory_after_state_update(daemon_with_state, socket
 
     assert response["status"] == "ok"
 
-    # Verify trajectory was logged
     trajectory_file = worktree_path / ".claude" / "trajectory.jsonl"
     assert trajectory_file.exists()
 
-    # Read the trajectory
     import json
 
     with open(trajectory_file) as f:
@@ -532,13 +518,12 @@ def test_exec_logs_duration_ms(daemon_with_state, socket_path, worktree):
 
     assert response["status"] == "ok"
 
-    # Verify trajectory has duration_ms
     import json
 
     trajectory_file = worktree_path / ".claude" / "trajectory.jsonl"
     with open(trajectory_file) as f:
         lines = f.readlines()
-        # Find the exec event
+
         exec_events = [json.loads(line) for line in lines if "exec" in line]
         assert len(exec_events) >= 1
         event = exec_events[-1]
@@ -596,7 +581,7 @@ def test_exec_trajectory_log_truncation_limit(daemon_with_state, socket_path, wo
         socket_path,
         {
             "command": "exec",
-            "args": ["python", "-c", f"print('x' * {char_count})"],
+            "args": [sys.executable, "-c", f"print('x' * {char_count})"],
         },
     )
 
@@ -648,7 +633,6 @@ Implementation details.
     assert resp["status"] == "ok"
     assert resp["data"]["task_count"] == 2
 
-    # Verify state
     state = send_command(daemon.socket_path, {"command": "get_state"})
     assert "1" in state["data"]["tasks"]
 
@@ -711,14 +695,11 @@ def test_daemon_server_close_removes_lock_file(worktree):
 
     daemon = HarnessDaemon(socket_path, str(worktree))
 
-    # Verify files exist after init
     assert Path(socket_path).exists()
     assert Path(lock_path).exists()
 
-    # Close daemon
     daemon.server_close()
 
-    # Verify files are cleaned up
     assert not Path(socket_path).exists()
     assert not Path(lock_path).exists()
 
@@ -732,11 +713,9 @@ def test_daemon_stale_socket_removed_on_init(worktree):
 
     socket_path = f"/tmp/harness-stale-{uuid.uuid4().hex[:8]}.sock"
 
-    # Create stale socket file
     Path(socket_path).touch()
     assert Path(socket_path).exists()
 
-    # Init should remove stale socket
     daemon = HarnessDaemon(socket_path, str(worktree))
 
     # Daemon should have started successfully
@@ -752,7 +731,7 @@ def test_handle_empty_request_line(daemon_manager):
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(daemon.socket_path)
-    sock.sendall(b"\n")  # Empty line
+    sock.sendall(b"\n")
     sock.close()
     # Should not crash daemon - verify with ping
     resp = send_command(daemon.socket_path, {"command": "ping"})

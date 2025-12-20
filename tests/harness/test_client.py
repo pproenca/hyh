@@ -17,16 +17,14 @@ import pytest
 
 def test_client_has_no_heavy_imports():
     """Client must only import stdlib modules."""
-    # Import the module and check its imports
+
     import harness.client as client_module
 
-    # Get all imported modules
     import_names = set()
     for name, obj in vars(client_module).items():
         if hasattr(obj, "__module__"):
             import_names.add(obj.__module__)
 
-    # These are forbidden (heavy imports)
     forbidden = {"pydantic", "harness.state"}
     violations = import_names & forbidden
     assert not violations, f"Client has forbidden imports: {violations}"
@@ -43,7 +41,7 @@ def test_client_does_not_import_pydantic():
 import sys
 import harness.client
 
-# Check if pydantic is in loaded modules
+
 pydantic_loaded = any('pydantic' in mod for mod in sys.modules)
 if pydantic_loaded:
     print("FAIL: pydantic imported")
@@ -72,7 +70,7 @@ def test_client_startup_time():
     The client must be a fast, dumb RPC wrapper. Any validation/logic lives
     in the daemon. This test ensures we don't accidentally add heavy imports.
     """
-    # Run in subprocess to measure cold import time
+
     script = """
 import sys
 import time
@@ -104,7 +102,7 @@ print(f"{elapsed_ms:.2f}")
 @pytest.fixture
 def worktree_with_daemon(tmp_path):
     """Create worktree and let client auto-spawn daemon."""
-    # Initialize git repo
+
     subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
@@ -121,7 +119,6 @@ def worktree_with_daemon(tmp_path):
         ["git", "commit", "-m", "initial"], cwd=tmp_path, capture_output=True, check=True
     )
 
-    # Create state file (v2 JSON schema with task DAG)
     state_dir = tmp_path / ".claude"
     state_dir.mkdir()
     state_file = state_dir / "dev-workflow-state.json"
@@ -159,7 +156,7 @@ def worktree_with_daemon(tmp_path):
 
     yield {"socket": socket_path, "worktree": tmp_path}
 
-    # Cleanup: gracefully shutdown daemon and remove socket
+    # Cleanup
     from .conftest import cleanup_daemon_subprocess
 
     cleanup_daemon_subprocess(socket_path)
@@ -172,7 +169,6 @@ def test_client_auto_spawns_daemon(worktree_with_daemon):
     socket_path = worktree_with_daemon["socket"]
     worktree = worktree_with_daemon["worktree"]
 
-    # No daemon running yet - client should auto-spawn
     response = send_rpc(
         socket_path,
         {"command": "ping"},
@@ -196,7 +192,7 @@ def test_client_get_state(worktree_with_daemon):
     )
 
     assert response["status"] == "ok"
-    # v2 schema uses task DAG
+
     assert "tasks" in response["data"]
     assert "task-1" in response["data"]["tasks"]
     assert response["data"]["tasks"]["task-1"]["status"] == "pending"
@@ -232,19 +228,17 @@ def test_spawn_daemon_detects_crash(tmp_path):
 
     # Use short socket path in /tmp to avoid macOS path length limit
     socket_id = uuid.uuid4().hex[:8]
-    # Create a directory for the socket but make it unwritable
+
     socket_dir = Path(f"/tmp/harness-test-crash-{socket_id}")
     socket_dir.mkdir()
     socket_path = str(socket_dir / "harness.sock")
 
-    # Make socket directory unwritable to cause daemon to fail
     socket_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)  # r-x only
 
     try:
         with pytest.raises(RuntimeError, match="crashed|failed"):
             spawn_daemon(str(tmp_path), socket_path)
     finally:
-        # Restore permissions and cleanup
         socket_dir.chmod(stat.S_IRWXU)
         if os.path.exists(socket_path):
             os.unlink(socket_path)
@@ -253,7 +247,6 @@ def test_spawn_daemon_detects_crash(tmp_path):
         socket_dir.rmdir()
 
 
-# TestWorkerID
 class TestWorkerID:
     """Tests for WORKER_ID constant."""
 
@@ -283,7 +276,7 @@ class TestWorkerID:
 
         Bug regression test: uuid.uuid4() generates new ID per process.
         """
-        # Script that prints the worker ID
+
         script = """
 import sys
 sys.path.insert(0, 'src')
@@ -293,15 +286,14 @@ print(get_worker_id())
         script_file = tmp_path / "get_worker_id.py"
         script_file.write_text(script)
 
-        # Run twice as separate processes
         result1 = subprocess.run(
-            ["python", str(script_file)],
+            [sys.executable, str(script_file)],
             capture_output=True,
             text=True,
             cwd=Path(__file__).parent.parent.parent,  # Project root
         )
         result2 = subprocess.run(
-            ["python", str(script_file)],
+            [sys.executable, str(script_file)],
             capture_output=True,
             text=True,
             cwd=Path(__file__).parent.parent.parent,
@@ -321,7 +313,6 @@ print(get_worker_id())
         )
 
 
-# TestTaskCommands
 class TestTaskCommands:
     """Tests for task claim/complete commands."""
 
@@ -332,7 +323,6 @@ class TestTaskCommands:
         socket_path = worktree_with_daemon["socket"]
         worktree = worktree_with_daemon["worktree"]
 
-        # Task claim should include WORKER_ID
         import harness.client as client_module
 
         response = send_rpc(
@@ -342,7 +332,7 @@ class TestTaskCommands:
         )
 
         assert response["status"] == "ok"
-        # Daemon will return task data (format determined by daemon)
+
         assert "data" in response
 
     def test_task_complete_requires_id(self, worktree_with_daemon):
@@ -369,7 +359,6 @@ class TestTaskCommands:
         assert "status" in response
 
 
-# TestExecCommand
 class TestExecCommand:
     """Tests for exec command."""
 
@@ -446,7 +435,7 @@ def test_plan_template_outputs_markdown():
     assert result.returncode == 0
     assert "# Plan Template" in result.stdout
     assert "## Recommended: Structured Markdown" in result.stdout
-    # Legacy JSON section should NOT exist
+
     assert "## Legacy:" not in result.stdout
 
 
@@ -481,7 +470,7 @@ def test_get_socket_path_uses_worktree_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Socket path includes hash of worktree for project isolation."""
-    # Clear env override
+
     monkeypatch.delenv("HARNESS_SOCKET", raising=False)
 
     worktree1 = tmp_path / "project1"
@@ -494,13 +483,10 @@ def test_get_socket_path_uses_worktree_hash(
     path1 = get_socket_path(worktree1)
     path2 = get_socket_path(worktree2)
 
-    # Different worktrees get different sockets
     assert path1 != path2
 
-    # Same worktree always gets same socket
     assert get_socket_path(worktree1) == path1
 
-    # Socket is in ~/.harness/sockets/
     assert ".harness/sockets/" in path1
     assert path1.endswith(".sock")
 
@@ -522,23 +508,18 @@ def test_status_project_flag_overrides_cwd(tmp_path: Path, monkeypatch: pytest.M
     project_a.mkdir()
     project_b.mkdir()
 
-    # Initialize git repos
     import subprocess
 
     for p in [project_a, project_b]:
         subprocess.run(["git", "init"], cwd=p, capture_output=True)
 
-    # Run from project_a but query project_b
     monkeypatch.chdir(project_a)
     monkeypatch.delenv("HARNESS_SOCKET", raising=False)
     monkeypatch.delenv("HARNESS_WORKTREE", raising=False)
 
     from harness.client import get_socket_path
 
-    # Without --project, would use project_a
     socket_a = get_socket_path(project_a)
-
-    # With --project, should use project_b
     socket_b = get_socket_path(project_b)
 
     assert socket_a != socket_b
@@ -551,7 +532,6 @@ def test_status_all_flag_lists_projects(tmp_path: Path, monkeypatch: pytest.Monk
     registry_file = tmp_path / "registry.json"
     registry = ProjectRegistry(registry_file)
 
-    # Register two projects
     project_a = tmp_path / "project_a"
     project_b = tmp_path / "project_b"
     project_a.mkdir()
@@ -559,7 +539,6 @@ def test_status_all_flag_lists_projects(tmp_path: Path, monkeypatch: pytest.Monk
     registry.register(project_a)
     registry.register(project_b)
 
-    # Verify both are listed
     projects = registry.list_projects()
     paths = [p["path"] for p in projects.values()]
     assert str(project_a) in paths

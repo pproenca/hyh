@@ -18,7 +18,7 @@ import pytest
 @pytest.fixture
 def integration_worktree(tmp_path):
     """Create a complete test environment."""
-    # Initialize git repo
+
     subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
@@ -113,7 +113,6 @@ def test_parallel_git_operations_no_race(integration_worktree):
                 errors.append((client_id, str(e)))
 
     try:
-        # Launch 10 parallel git status commands
         threads = [threading.Thread(target=git_status, args=(i,)) for i in range(10)]
         for t in threads:
             t.start()
@@ -137,7 +136,6 @@ def test_state_persistence_across_daemon_restart(integration_worktree):
     socket_path = integration_worktree["socket"]
     worktree = integration_worktree["worktree"]
 
-    # Create initial state with v2 JSON schema (task DAG)
     manager = StateManager(worktree)
     manager.save(
         WorkflowState(
@@ -152,7 +150,6 @@ def test_state_persistence_across_daemon_restart(integration_worktree):
         )
     )
 
-    # Connect and update state (auto-spawns daemon)
     new_tasks = {
         "task-1": {
             "id": "task-1",
@@ -172,9 +169,8 @@ def test_state_persistence_across_daemon_restart(integration_worktree):
     )
     assert resp["status"] == "ok"
 
-    # Shutdown daemon
     send_rpc(socket_path, {"command": "shutdown"}, None)
-    # Wait for daemon to fully shutdown
+
     time.sleep(0.5)
 
     # Reconnect (should auto-spawn new daemon)
@@ -202,7 +198,6 @@ def test_cli_commands(integration_worktree):
         "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
     }
 
-    # Test ping (auto-spawns daemon)
     result = subprocess.run(
         [sys.executable, "-m", "harness", "ping"],
         capture_output=True,
@@ -212,7 +207,6 @@ def test_cli_commands(integration_worktree):
     assert result.returncode == 0, f"ping failed: {result.stderr}"
     assert "ok" in result.stdout
 
-    # Test git command
     result = subprocess.run(
         [sys.executable, "-m", "harness", "git", "--", "status"],
         capture_output=True,
@@ -255,7 +249,6 @@ def test_cli_update_state(integration_worktree):
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
 
-    # Create initial state with v2 JSON schema (task DAG)
     manager = StateManager(worktree)
     manager.save(
         WorkflowState(
@@ -292,7 +285,6 @@ def test_cli_update_state(integration_worktree):
     )
     assert resp["status"] == "ok"
 
-    # Verify state was updated
     loaded = StateManager(worktree).load()
     assert loaded is not None
     assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
@@ -307,7 +299,6 @@ def test_cli_session_start_with_active_workflow(integration_worktree):
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
 
-    # Create active workflow state with v2 JSON schema (task DAG)
     # 2 completed, 6 pending = 2/8 progress
     manager = StateManager(worktree)
     tasks = {}
@@ -355,7 +346,6 @@ def test_cli_shutdown(integration_worktree):
         "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
     }
 
-    # First spawn daemon via ping
     result = subprocess.run(
         [sys.executable, "-m", "harness", "ping"],
         capture_output=True,
@@ -364,7 +354,6 @@ def test_cli_shutdown(integration_worktree):
     )
     assert result.returncode == 0
 
-    # Now shutdown
     result = subprocess.run(
         [sys.executable, "-m", "harness", "shutdown"],
         capture_output=True,
@@ -374,10 +363,8 @@ def test_cli_shutdown(integration_worktree):
     assert result.returncode == 0
     assert "Shutdown" in result.stdout
 
-    # Wait for daemon to shutdown
     time.sleep(0.5)
 
-    # Verify daemon is gone by trying to connect without auto-spawn
     import socket
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -402,7 +389,6 @@ def workflow_with_tasks(integration_worktree):
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
 
-    # Create workflow state with DAG
     manager = StateManager(worktree)
     state = WorkflowState(
         tasks={
@@ -428,7 +414,6 @@ def workflow_with_tasks(integration_worktree):
     )
     manager.save(state)
 
-    # Start daemon
     daemon = HarnessDaemon(socket_path, str(worktree))
     server_thread = threading.Thread(target=daemon.serve_forever)
     server_thread.daemon = True
@@ -482,7 +467,6 @@ def test_full_task_workflow(workflow_with_tasks):
     send_command = workflow_with_tasks["send_command"]
     manager = workflow_with_tasks["manager"]
 
-    # Worker 1 claims a task (should get task-1 - no deps)
     resp = send_command({"command": "task_claim", "worker_id": "worker-1"})
     assert resp["status"] == "ok"
     assert resp["data"]["task"]["id"] == "task-1"
@@ -493,7 +477,6 @@ def test_full_task_workflow(workflow_with_tasks):
     assert resp["status"] == "ok"
     assert resp["data"]["task"] is None  # No claimable tasks
 
-    # Complete task-1
     resp = send_command({"command": "task_complete", "task_id": "task-1", "worker_id": "worker-1"})
     assert resp["status"] == "ok"
 
@@ -502,7 +485,6 @@ def test_full_task_workflow(workflow_with_tasks):
     assert resp["status"] == "ok"
     assert resp["data"]["task"]["id"] in ["task-2", "task-3"]
 
-    # Verify state
     state = manager.load()
     assert state.tasks["task-1"].status == TaskStatus.COMPLETED
     assert (
@@ -515,17 +497,14 @@ def test_dag_dependency_enforcement(workflow_with_tasks):
     """Can't claim blocked tasks - dependencies must be satisfied first."""
     send_command = workflow_with_tasks["send_command"]
 
-    # Try to claim any task - should only get task-1 (no deps)
     resp = send_command({"command": "task_claim", "worker_id": "worker-1"})
     assert resp["status"] == "ok"
     assert resp["data"]["task"]["id"] == "task-1"
 
-    # Second worker tries to claim - should get nothing (task-2/3 blocked, task-1 taken)
     resp = send_command({"command": "task_claim", "worker_id": "worker-2"})
     assert resp["status"] == "ok"
     assert resp["data"]["task"] is None
 
-    # Complete task-1
     resp = send_command({"command": "task_complete", "task_id": "task-1", "worker_id": "worker-1"})
     assert resp["status"] == "ok"
 
@@ -541,7 +520,6 @@ def test_trajectory_logging(workflow_with_tasks):
     worktree = workflow_with_tasks["worktree"]
     trajectory_file = worktree / ".claude" / "trajectory.jsonl"
 
-    # Claim task
     resp = send_command({"command": "task_claim", "worker_id": "worker-1"})
     assert resp["status"] == "ok"
 
@@ -550,7 +528,6 @@ def test_trajectory_logging(workflow_with_tasks):
     lines = trajectory_file.read_text().strip().split("\n")
     assert len(lines) >= 1
 
-    # Parse last line (claim event)
     event = json.loads(lines[-1])
     assert event["event_type"] == "task_claim"
     assert event["worker_id"] == "worker-1"
@@ -563,18 +540,15 @@ def test_json_state_persistence(workflow_with_tasks):
     worktree = workflow_with_tasks["worktree"]
     state_file = worktree / ".claude" / "dev-workflow-state.json"
 
-    # Claim and complete a task
     resp = send_command({"command": "task_claim", "worker_id": "worker-1"})
     assert resp["status"] == "ok"
 
     resp = send_command({"command": "task_complete", "task_id": "task-1", "worker_id": "worker-1"})
     assert resp["status"] == "ok"
 
-    # Verify state file exists and is valid JSON
     assert state_file.exists()
     data = json.loads(state_file.read_text())
 
-    # Verify schema structure
     assert "tasks" in data
     assert "task-1" in data["tasks"]
     assert data["tasks"]["task-1"]["status"] == "completed"
@@ -587,13 +561,11 @@ def test_task_claim_idempotency(workflow_with_tasks):
     """Same worker claiming twice returns same task with is_retry=True."""
     send_command = workflow_with_tasks["send_command"]
 
-    # First claim
     resp1 = send_command({"command": "task_claim", "worker_id": "worker-1"})
     assert resp1["status"] == "ok"
     assert resp1["data"]["task"]["id"] == "task-1"
     assert resp1["data"]["is_retry"] is False
 
-    # Second claim by same worker - should return same task
     resp2 = send_command({"command": "task_claim", "worker_id": "worker-1"})
     assert resp2["status"] == "ok"
     assert resp2["data"]["task"]["id"] == "task-1"  # Same task
@@ -607,11 +579,9 @@ def test_lease_renewal_on_reclaim(workflow_with_tasks):
     send_command = workflow_with_tasks["send_command"]
     manager = workflow_with_tasks["manager"]
 
-    # First claim
     resp1 = send_command({"command": "task_claim", "worker_id": "worker-1"})
     assert resp1["status"] == "ok"
 
-    # Get initial started_at
     state1 = manager.load()
     started_at_1 = state1.tasks["task-1"].started_at
     assert started_at_1 is not None
@@ -619,11 +589,9 @@ def test_lease_renewal_on_reclaim(workflow_with_tasks):
     # Brief delay to ensure timestamp difference
     time.sleep(0.1)
 
-    # Re-claim (lease renewal)
     resp2 = send_command({"command": "task_claim", "worker_id": "worker-1"})
     assert resp2["status"] == "ok"
 
-    # Verify started_at was updated
     state2 = manager.load()
     started_at_2 = state2.tasks["task-1"].started_at
     assert started_at_2 > started_at_1  # Timestamp advanced
@@ -641,7 +609,6 @@ def workflow_with_short_timeout(integration_worktree):
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
 
-    # Create task with 1 second timeout
     manager = StateManager(worktree)
     state = WorkflowState(
         tasks={
@@ -705,12 +672,10 @@ def test_timeout_reclaim_by_different_worker(workflow_with_short_timeout):
 
     send_command = workflow_with_short_timeout["send_command"]
 
-    # Worker-1 claims task
     resp1 = send_command({"command": "task_claim", "worker_id": "worker-1"})
     assert resp1["status"] == "ok"
     assert resp1["data"]["task"]["id"] == "task-1"
 
-    # Wait for timeout (1 second + buffer)
     time.sleep(1.5)
 
     # Worker-2 can now reclaim the timed-out task
@@ -725,12 +690,10 @@ def test_ownership_validation_on_complete(workflow_with_tasks):
     """Worker B cannot complete Worker A's task."""
     send_command = workflow_with_tasks["send_command"]
 
-    # Worker-1 claims task-1
     resp = send_command({"command": "task_claim", "worker_id": "worker-1"})
     assert resp["status"] == "ok"
     assert resp["data"]["task"]["id"] == "task-1"
 
-    # Worker-2 tries to complete Worker-1's task - should fail
     resp = send_command({"command": "task_complete", "task_id": "task-1", "worker_id": "worker-2"})
     assert resp["status"] == "error"
     assert "not claimed by" in resp["message"].lower()
@@ -748,7 +711,6 @@ def workflow_with_parallel_tasks(integration_worktree):
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
 
-    # Create 3 independent tasks (no dependencies)
     manager = StateManager(worktree)
     state = WorkflowState(
         tasks={

@@ -1,11 +1,5 @@
 """
 ACP Emitter - Queue-based non-blocking telemetry to Claude Code.
-
-Design:
-- emit() pushes to queue and returns immediately (< 1ms)
-- Background thread drains queue and sends over socket
-- If connect fails, log once to stderr and disable
-- Daemon never stalls on socket operations
 """
 
 import contextlib
@@ -28,7 +22,7 @@ class ACPEmitter:
         self._host = host
         self._port = port
         self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
-        self._disabled = threading.Event()  # Thread-safe flag
+        self._disabled = threading.Event()
         self._warned = False
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
@@ -43,12 +37,11 @@ class ACPEmitter:
         sock: socket.socket | None = None
         while True:
             entry = self._queue.get()
-            if entry is None:  # Shutdown signal
+            if entry is None:
                 break
             if self._disabled.is_set():
                 continue
 
-            # Lazy connect
             if sock is None:
                 try:
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -63,7 +56,6 @@ class ACPEmitter:
                         self._warned = True
                     continue
 
-            # Send
             try:
                 msg = json.dumps(entry) + "\n"
                 sock.sendall(msg.encode())
@@ -73,12 +65,10 @@ class ACPEmitter:
                     sock.close()
                 sock = None
 
-        # Cleanup on shutdown
         if sock:
             with contextlib.suppress(OSError):
                 sock.close()
 
     def close(self) -> None:
-        """Clean shutdown - signal worker thread to exit."""
         self._queue.put(None)
         self._thread.join(timeout=1.0)

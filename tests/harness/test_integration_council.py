@@ -53,7 +53,7 @@ def test_amendments_work_together(socket_path, worktree):
             ),
         }
     )
-    manager.save(state)  # Should not raise (valid DAG)
+    manager.save(state)
 
     # Amendment B: Daemon starts with capability check
     daemon = HarnessDaemon(socket_path, str(worktree))
@@ -70,7 +70,6 @@ def test_amendments_work_together(socket_path, worktree):
         )
         assert response["status"] == "ok"
 
-        # Verify duration_ms in trajectory
         trajectory_file = worktree / ".claude" / "trajectory.jsonl"
         with open(trajectory_file) as f:
             lines = f.readlines()

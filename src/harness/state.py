@@ -50,7 +50,6 @@ def detect_cycle(graph: dict[str, list[str]]) -> str | None:
                 visited.add(node)
                 rec_stack.add(node)
 
-            # Process neighbors
             if idx < len(neighbors):
                 neighbor = neighbors[idx]
                 # Push current node back with incremented index
@@ -85,7 +84,7 @@ class Task(BaseModel):
     completed_at: datetime | None = Field(None, description="Task completion timestamp")
     claimed_by: str | None = Field(None, description="Worker ID that claimed this task")
     timeout_seconds: int = Field(600, description="Timeout for task execution", ge=0)
-    # Orchestrator Injection (v2.5)
+
     instructions: str | None = Field(None, description="Detailed prompt for agent")
     role: str | None = Field(None, description="Agent role: frontend, backend, etc.")
 
@@ -136,9 +135,9 @@ class WorkflowState(BaseModel):
                             raise ValueError("Task dictionary must have 'id' field")
                         case _:
                             pass
-                
+
                 if new_tasks:
-                   data["tasks"] = new_tasks
+                    data["tasks"] = new_tasks
             case _:
                 pass
         return data
@@ -168,7 +167,6 @@ class WorkflowState(BaseModel):
             if task.status == TaskStatus.PENDING or (
                 task.status == TaskStatus.RUNNING and task.is_timed_out()
             ):
-                # Combined existence check and satisfaction check with early exit
                 deps_satisfied = True
                 for dep_id in task.dependencies:
                     if dep_id not in self.tasks:

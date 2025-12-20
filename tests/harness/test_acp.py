@@ -75,7 +75,7 @@ def test_emitter_logs_once_on_failure(capsys):
 
 def test_acp_worker_send_error_disables():
     """Worker should disable emitter after send failure."""
-    # Create server that accepts then closes immediately
+
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(("127.0.0.1", 0))
@@ -84,7 +84,6 @@ def test_acp_worker_send_error_disables():
 
     emitter = ACPEmitter(host="127.0.0.1", port=port)
 
-    # Accept connection then close it to trigger send error
     def accept_and_close():
         conn, _ = server.accept()
         time.sleep(0.1)  # Let emitter connect
@@ -92,11 +91,9 @@ def test_acp_worker_send_error_disables():
 
     threading.Thread(target=accept_and_close, daemon=True).start()
 
-    # Emit while connection is being established
     emitter.emit({"event": "test1"})
     time.sleep(0.3)
 
-    # Emit after connection closed - should trigger error path
     emitter.emit({"event": "test2"})
     time.sleep(0.3)
 
@@ -107,7 +104,7 @@ def test_acp_worker_send_error_disables():
 
 def test_acp_worker_cleanup_on_shutdown_with_connection():
     """Worker should clean up socket on shutdown when connection was established."""
-    # Create server that stays open
+
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(("127.0.0.1", 0))
@@ -141,7 +138,6 @@ def test_acp_worker_cleanup_on_shutdown_with_connection():
     # Close should clean up
     emitter.close()
 
-    # Close server resources
     for conn in connections:
         with contextlib.suppress(OSError):
             conn.close()

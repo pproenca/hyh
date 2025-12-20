@@ -8,12 +8,6 @@ This module provides:
 - LocalRuntime for executing commands directly on the host
 - DockerRuntime for executing commands inside Docker containers
 - Factory function for creating runtime instances from environment variables
-
-Council Fixes Applied:
-- Root Escape: DockerRuntime passes --user $(id -u):$(id -g) to docker exec
-- Blind Execution: Add env parameter to execute() for API keys
-- Missing Signal: Add decode_signal() helper to translate negative return codes to signal names
-- Global Lock Suicide: Add exclusive: bool = False parameter - only acquire lock when True
 """
 
 from __future__ import annotations
@@ -255,18 +249,10 @@ class DockerRuntime:
     """Runtime for executing commands inside a Docker container."""
 
     def __init__(self, container_id: str, path_mapper: PathMapper) -> None:
-        """
-        Initialize DockerRuntime.
-
-        Args:
-            container_id: Docker container ID or name
-            path_mapper: PathMapper for translating host/container paths
-        """
         self.container_id = container_id
         self.path_mapper = path_mapper
 
     def check_capabilities(self) -> None:
-        """Verify Docker daemon is running and accessible."""
         result = subprocess.run(["docker", "info"], capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(f"Docker not available: {result.stderr}")
@@ -294,7 +280,6 @@ class DockerRuntime:
         """
 
         def _execute() -> ExecutionResult:
-            # Build docker exec command
             docker_cmd = ["docker", "exec"]
 
             # Add UID:GID mapping to prevent root escape
@@ -302,23 +287,17 @@ class DockerRuntime:
             gid = os.getgid()
             docker_cmd.extend(["--user", f"{uid}:{gid}"])
 
-            # Add environment variables
             if env:
                 for key, value in env.items():
                     docker_cmd.extend(["-e", f"{key}={value}"])
 
-            # Add working directory (map to container path)
             if cwd:
                 container_cwd = self.path_mapper.to_runtime(cwd)
                 docker_cmd.extend(["-w", container_cwd])
 
-            # Add container ID
             docker_cmd.append(self.container_id)
-
-            # Add the actual command
             docker_cmd.extend(command)
 
-            # Execute
             result = subprocess.run(
                 docker_cmd,
                 timeout=timeout,
@@ -354,7 +333,6 @@ def create_runtime() -> LocalRuntime | DockerRuntime:
     container_id = os.environ.get("HARNESS_CONTAINER_ID")
 
     if container_id:
-        # Create DockerRuntime with appropriate path mapper
         host_root = os.environ.get("HARNESS_HOST_ROOT")
         container_root = os.environ.get("HARNESS_CONTAINER_ROOT")
 

@@ -13,7 +13,6 @@ from harness.trajectory import TrajectoryLogger
 
 @pytest.fixture
 def temp_trajectory_dir(tmp_path):
-    """Create a temporary .claude directory."""
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
     return tmp_path
@@ -21,13 +20,13 @@ def temp_trajectory_dir(tmp_path):
 
 @pytest.fixture
 def logger(temp_trajectory_dir):
-    """Create a TrajectoryLogger instance."""
     trajectory_file = temp_trajectory_dir / ".claude" / "trajectory.jsonl"
     return TrajectoryLogger(trajectory_file)
 
 
 def test_creates_file_on_first_log(temp_trajectory_dir, logger):
     """Test that the trajectory file is created on first log."""
+
     trajectory_file = temp_trajectory_dir / ".claude" / "trajectory.jsonl"
     assert not trajectory_file.exists()
 
@@ -123,7 +122,6 @@ def test_tail_large_file_performance(temp_trajectory_dir, logger):
     file_size = trajectory_file.stat().st_size
     assert file_size > 1_000_000, "File should be > 1MB for performance test"
 
-    # Measure tail performance
     start = time.perf_counter()
     result = logger.tail(10)
     elapsed = (time.perf_counter() - start) * 1000  # Convert to ms
@@ -161,7 +159,6 @@ def test_crash_resilient_jsonl_format(temp_trajectory_dir, logger):
 
 
 def test_separate_lock_from_state(temp_trajectory_dir, logger):
-    """Test that TrajectoryLogger has its own lock, separate from StateManager."""
     # Verify logger has its own _lock attribute
     assert hasattr(logger, "_lock")
     assert isinstance(logger._lock, type(threading.Lock()))
@@ -174,7 +171,6 @@ def test_separate_lock_from_state(temp_trajectory_dir, logger):
     another_logger = TrajectoryLogger(temp_trajectory_dir / ".claude" / "trajectory2.jsonl")
     lock_id_2 = id(another_logger._lock)
 
-    # Each logger should have its own lock instance
     assert lock_id_1 != lock_id_2
 
 
@@ -193,7 +189,6 @@ def test_trajectory_tail_handles_decode_error(tmp_path):
     logger = TrajectoryLogger(trajectory_file)
     events = logger.tail(5)
 
-    # Should only return valid events
     assert len(events) == 2
     assert events[0]["event"] == "valid1"
     assert events[1]["event"] == "valid2"
@@ -205,7 +200,7 @@ def test_log_calls_fsync_for_durability(temp_trajectory_dir, logger):
     Per System Reliability Protocol: Assume the process will crash at any nanosecond.
     Without fsync, data may be lost in OS buffers on crash.
     """
-    # Store original fsync
+
     original_fsync = os.fsync
     fsync_calls = []
 
@@ -214,14 +209,11 @@ def test_log_calls_fsync_for_durability(temp_trajectory_dir, logger):
         # Call real fsync to not break functionality
         return original_fsync(fd)
 
-    # Patch os.fsync to track calls
     with patch("os.fsync", track_fsync):
         logger.log({"event": "test_durability"})
 
-    # fsync should have been called at least once
     assert len(fsync_calls) >= 1, "fsync must be called for crash durability"
 
-    # Verify the event was actually written
     trajectory_file = temp_trajectory_dir / ".claude" / "trajectory.jsonl"
     content = trajectory_file.read_text()
     assert "test_durability" in content
@@ -246,8 +238,6 @@ def test_tail_limits_memory_on_corrupt_file(tmp_path):
 
     logger = TrajectoryLogger(trajectory_file)
 
-    # Call tail with a small max_buffer to prove the limit works
-
     # Test 1: Verify tail has max_buffer_bytes parameter
     import inspect
 
@@ -261,6 +251,7 @@ def test_tail_limits_memory_on_corrupt_file(tmp_path):
     assert result == [], "Corrupt file with no valid JSON should return empty list"
 
     # Test 3: Verify we can still read normal files with default limit
+
     # (This ensures the fix doesn't break normal operation)
     trajectory_file.write_text('{"event": 1}\n{"event": 2}\n{"event": 3}\n')
     result = logger.tail(2)
@@ -306,20 +297,16 @@ def test_tail_reverse_seek_joins_outside_loop(tmp_path):
     # Dedent to remove leading whitespace for ast.parse
     source = textwrap.dedent(source)
 
-    # Parse the source to find the while loop
     tree = ast.parse(source)
 
-    # Find the while True loop
     while_loops = [node for node in ast.walk(tree) if isinstance(node, ast.While)]
     assert len(while_loops) == 1, "Expected exactly one while loop"
 
     while_loop = while_loops[0]
     while_body_lines = {node.lineno for node in ast.walk(while_loop) if hasattr(node, "lineno")}
 
-    # Find all calls to b"".join or bytes join patterns
     join_calls = []
     for node in ast.walk(tree):
-        # Check for .join() method calls
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
@@ -336,7 +323,7 @@ def test_tail_reverse_seek_joins_outside_loop(tmp_path):
 
 
 def test_log_does_not_hold_lock_during_fsync(tmp_path):
-    """Verify log() releases lock before calling fsync.
+    """
 
     Bug: fsync() under lock creates convoy effect (1-10ms blocking).
     Fix: Use O_APPEND for atomic appends, no lock needed for writes.
@@ -351,16 +338,13 @@ def test_log_does_not_hold_lock_during_fsync(tmp_path):
 
     logger = TrajectoryLogger(tmp_path / "trajectory.jsonl")
 
-    # Track when each thread completes
     completion_times: list[tuple[float, int]] = []  # (end_time, thread_id)
     original_fsync = os.fsync
 
     def slow_fsync(fd):
-        """Simulate slow disk with 10ms fsync."""
         time.sleep(0.01)  # 10ms
         original_fsync(fd)
 
-    # Patch fsync to be slow
     os.fsync = slow_fsync  # type: ignore
 
     try:

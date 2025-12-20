@@ -439,7 +439,6 @@ def test_state_manager_json_save_creates_valid_json(tmp_path):
     )
     manager.save(state)
 
-    # Verify JSON file exists and is valid
     assert manager.state_file.exists()
     content = manager.state_file.read_text()
     data = json.loads(content)  # Should not raise
@@ -462,7 +461,6 @@ def test_state_manager_json_load_reads_json(tmp_path):
     )
     manager.save(state)
 
-    # Load in new manager instance
     manager2 = StateManager(tmp_path)
     loaded = manager2.load()
     assert loaded is not None
@@ -485,7 +483,6 @@ def test_state_manager_json_update_modifies_json(tmp_path):
     )
     manager.save(state)
 
-    # Update with new tasks
     new_tasks = {
         "task-1": Task(
             id="task-1",
@@ -498,7 +495,6 @@ def test_state_manager_json_update_modifies_json(tmp_path):
     assert updated.tasks["task-1"].description == "Task 1 Updated"
     assert updated.tasks["task-1"].status == TaskStatus.COMPLETED
 
-    # Verify persisted in JSON
     loaded = StateManager(tmp_path).load()
     assert loaded is not None
     assert loaded.tasks["task-1"].description == "Task 1 Updated"
@@ -533,7 +529,6 @@ def test_claim_task_atomic(tmp_path):
     )
     manager.save(state)
 
-    # Claim task
     result = manager.claim_task("worker-1")
     assert result.task is not None
     assert result.task.id == "task-1"
@@ -541,7 +536,6 @@ def test_claim_task_atomic(tmp_path):
     assert result.task.status == TaskStatus.RUNNING
     assert result.task.started_at is not None
 
-    # Verify persisted
     loaded = StateManager(tmp_path).load()
     assert loaded is not None
     assert loaded.tasks["task-1"].claimed_by == "worker-1"
@@ -565,7 +559,6 @@ def test_claim_task_returns_existing(tmp_path):
     )
     manager.save(state)
 
-    # Claim task again with same worker
     result = manager.claim_task("worker-1")
     assert result.task is not None
     assert result.task.id == "task-1"
@@ -592,7 +585,6 @@ def test_claim_task_renews_lease_on_retry(tmp_path):
     )
     manager.save(state)
 
-    # Retry claim with same worker
     before_claim = datetime.now(UTC)
     result = manager.claim_task("worker-1")
 
@@ -626,13 +618,11 @@ def test_claim_task_lease_renewal_prevents_stealing(tmp_path):
     )
     manager.save(state)
 
-    # Worker A retries (simulating crash recovery)
     result_a = manager.claim_task("worker-A")
     assert result_a.task is not None
     assert result_a.task.started_at is not None
     assert result_a.task.started_at > nearly_expired, "Lease must be renewed"
 
-    # Worker B tries to claim - should get None (no claimable tasks)
     result_b = manager.claim_task("worker-B")
     assert result_b.task is None, "Worker B should not steal task after lease renewal"
 
@@ -665,7 +655,6 @@ def test_claim_task_race_condition_prevented(tmp_path):
         if result.task:
             results.append((worker_id, result.task.id))
 
-    # Spawn multiple threads trying to claim tasks
     threads = []
     for i in range(5):
         t = threading.Thread(target=claim_worker, args=(f"worker-{i}",))
@@ -675,7 +664,6 @@ def test_claim_task_race_condition_prevented(tmp_path):
     for t in threads:
         t.join()
 
-    # Verify no duplicate claims
     claimed_tasks = [task_id for _, task_id in results]
     assert len(claimed_tasks) == len(set(claimed_tasks))  # No duplicates
     assert len(results) <= 2  # Only 2 tasks available
@@ -698,10 +686,8 @@ def test_complete_task_atomic(tmp_path):
     )
     manager.save(state)
 
-    # Complete task
     manager.complete_task("task-1", "worker-1")
 
-    # Verify persisted
     loaded = StateManager(tmp_path).load()
     assert loaded is not None
     assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
@@ -725,7 +711,6 @@ def test_complete_task_validates_ownership(tmp_path):
     )
     manager.save(state)
 
-    # Try to complete with wrong worker
     with pytest.raises(ValueError, match="Task task-1 is not claimed by worker-2"):
         manager.complete_task("task-1", "worker-2")
 

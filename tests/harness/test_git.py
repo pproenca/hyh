@@ -17,7 +17,6 @@ def test_safe_git_exec_uses_runtime():
         )
         result = safe_git_exec(["rev-parse", "HEAD"], cwd="/tmp")
 
-        # Verify delegation to runtime
         mock_runtime.execute.assert_called_once_with(
             ["git", "rev-parse", "HEAD"],
             cwd="/tmp",
@@ -33,15 +32,13 @@ def test_safe_commit_uses_runtime():
     from harness.git import safe_commit
 
     with patch("harness.git._runtime") as mock_runtime:
-        # Mock successful add
         add_result = MagicMock(returncode=0, stdout="", stderr="")
-        # Mock successful commit
+
         commit_result = MagicMock(returncode=0, stdout="", stderr="")
         mock_runtime.execute.side_effect = [add_result, commit_result]
 
         result = safe_commit(cwd="/tmp", message="test commit")
 
-        # Verify both git add and git commit were called
         assert mock_runtime.execute.call_count == 2
         calls = mock_runtime.execute.call_args_list
 
@@ -70,7 +67,7 @@ def test_global_git_lock_removed():
 
 def test_uses_global_exec_lock():
     """Import GLOBAL_EXEC_LOCK from runtime."""
-    # Just verify it exists and is a Lock
+
     import threading
 
     from harness.runtime import GLOBAL_EXEC_LOCK
@@ -112,7 +109,7 @@ def test_git_uses_exclusive_locking(monkeypatch):
 
 def test_safe_commit_atomic_integration(tmp_path):
     """safe_commit should work end-to-end (integration test)."""
-    # Initialize git repo
+
     subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
@@ -121,7 +118,6 @@ def test_safe_commit_atomic_integration(tmp_path):
     )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True)
 
-    # Create a file
     (tmp_path / "test.txt").write_text("hello")
 
     from harness.git import get_head_sha, safe_commit
@@ -205,7 +201,7 @@ def test_safe_commit_is_atomic_single_lock():
         # Try to acquire non-blocking - if it fails, lock is held
         lock_is_held = not GLOBAL_EXEC_LOCK.acquire(blocking=False)
         if not lock_is_held:
-            GLOBAL_EXEC_LOCK.release()  # We acquired it, release it
+            GLOBAL_EXEC_LOCK.release()
         lock_held_during_calls.append(lock_is_held)
         execute_calls.append({"command": command, "exclusive": exclusive})
         return MagicMock(returncode=0, stdout="", stderr="")
@@ -215,7 +211,6 @@ def test_safe_commit_is_atomic_single_lock():
 
         safe_commit("/tmp", "test commit")
 
-    # Verify both calls had lock held externally (not via exclusive flag)
     assert len(execute_calls) == 2, f"Expected 2 execute calls, got {len(execute_calls)}"
 
     # Both calls should NOT use exclusive=True (lock is held externally)

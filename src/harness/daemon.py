@@ -123,7 +123,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                 },
             }
 
-        # Compute summary counts
         tasks = state.tasks
         summary = {
             "total": len(tasks),
@@ -133,7 +132,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             "failed": sum(1 for t in tasks.values() if t.status == TaskStatus.FAILED),
         }
 
-        # Get active workers from running tasks
         active_workers = list(
             {
                 t.claimed_by
@@ -142,7 +140,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             }
         )
 
-        # Get recent events from trajectory
         events = server.trajectory_logger.tail(n=request.get("event_count", 10))
 
         return {
@@ -205,7 +202,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
 
             task = claim_result.task
 
-            # Log to trajectory AFTER state lock is released (lock convoy fix)
+            # Log to trajectory AFTER state lock is released to avoid holding the lock during I/O
             server.trajectory_logger.log(
                 {
                     "event_type": "task_claim",
@@ -251,7 +248,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             # Atomically complete task (validates ownership, state lock released inside)
             server.state_manager.complete_task(task_id, worker_id)
 
-            # Log to trajectory AFTER state lock is released (lock convoy fix)
+            # Log to trajectory AFTER state lock is released to avoid holding the lock during I/O
             server.trajectory_logger.log(
                 {
                     "event_type": "task_complete",
@@ -283,7 +280,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             return {"status": "error", "message": "args is required"}
 
         try:
-            # Execute command
             start_time = time.monotonic()
             result = server.runtime.execute(
                 command=args,
@@ -294,10 +290,8 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             )
             duration_ms = int((time.monotonic() - start_time) * 1000)
 
-            # Decode signal if returncode is negative
             signal_name = decode_signal(result.returncode) if result.returncode < 0 else None
 
-            # Log to trajectory
             server.trajectory_logger.log(
                 {
                     "event_type": "exec",
@@ -321,7 +315,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             return {"status": "ok", "data": response_data}
         except subprocess.TimeoutExpired as e:
             # Timeout is a normal case - return success with timeout info
-            # Process was killed with SIGTERM (-15)
+
             duration_ms = int((time.monotonic() - start_time) * 1000)
             signal_name = "SIGTERM"
             server.trajectory_logger.log(
@@ -398,7 +392,7 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     ThreadingMixIn + Python 3.13t = true parallel thread execution.
     """
 
-    daemon_threads = True  # Auto-kill threads on exit
+    daemon_threads = True
     allow_reuse_address = True
 
     socket_path: str
@@ -425,8 +419,7 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         )
         self.acp_emitter = acp_emitter
 
-        # Register project in registry
-        registry = ProjectRegistry()  # Uses HARNESS_REGISTRY_FILE env var
+        registry = ProjectRegistry()
         registry.register(self.worktree_root)
         self.runtime = create_runtime()
         self.runtime.check_capabilities()  # Fail fast if dependencies unavailable
@@ -435,7 +428,6 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         # Acquire exclusive lock to prevent multiple daemons
         self._acquire_lock()
 
-        # Remove stale socket
         if Path(socket_path).exists():
             Path(socket_path).unlink()
 
@@ -446,10 +438,8 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         finally:
             os.umask(old_umask)
 
-        # Ensure socket permissions (user only)
         Path(socket_path).chmod(0o600)
 
-        # Load initial state
         self.state_manager.load()
 
     def _acquire_lock(self) -> None:
@@ -474,7 +464,7 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         if self._lock_fd:
             fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
             self._lock_fd.close()
-            # Clean up lock file
+
             lock_path = Path(self._lock_path)
             with contextlib.suppress(OSError):
                 lock_path.unlink(missing_ok=True)

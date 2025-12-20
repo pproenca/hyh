@@ -46,7 +46,6 @@ class TestEmptyInputHandling:
             )
             manager.save(state)
 
-            # Empty worker ID should be rejected
             with pytest.raises(ValueError, match="[Ww]orker"):
                 manager.claim_task("")
 
@@ -250,7 +249,7 @@ class TestBoundaryValues:
 
     def test_max_dependencies_count(self) -> None:
         """Task with many dependencies should be handled."""
-        # Create 1000 completed tasks
+
         tasks: dict[str, Task] = {}
         for i in range(1000):
             tasks[f"task-{i}"] = Task(
@@ -260,7 +259,6 @@ class TestBoundaryValues:
                 dependencies=[],
             )
 
-        # Create task depending on all 1000
         deps = list(tasks.keys())
         tasks["final"] = Task(
             id="final",
@@ -271,7 +269,6 @@ class TestBoundaryValues:
 
         state = WorkflowState(tasks=tasks)
 
-        # Should be claimable (all deps completed)
         claimable = state.get_claimable_task()
         assert claimable is not None
         assert claimable.id == "final"
@@ -319,7 +316,6 @@ class TestSpecialCharacters:
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = StateManager(Path(tmpdir))
 
-            # Characters that need JSON escaping
             tricky_desc = 'Quote: "test", backslash: \\, newline: \n, tab: \t'
             state = WorkflowState(
                 tasks={
@@ -333,7 +329,6 @@ class TestSpecialCharacters:
             )
             manager.save(state)
 
-            # Reload and verify
             loaded = manager.load()
             assert loaded is not None
             assert loaded.tasks["t1"].description == tricky_desc
@@ -345,7 +340,7 @@ class TestEmptyCommandValidation:
     def test_empty_list_args_check(self) -> None:
         """Document that if not args check catches empty list."""
         args: list[str] = []
-        assert not args  # Empty list is falsy
+        assert not args
 
     def test_empty_string_args_bypasses_check(self) -> None:
         """Document that [""] bypasses if not args check.
@@ -356,7 +351,6 @@ class TestEmptyCommandValidation:
         args: list[str] = [""]
         passes_not_check = not args  # False - [""] is truthy
 
-        # This shows the validation gap
         assert not passes_not_check, "Empty string list passes 'if not args' check"
 
         # Proper validation should also check first element
@@ -376,11 +370,9 @@ class TestResourceLimits:
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = TrajectoryLogger(Path(tmpdir) / "traj.jsonl")
 
-            # Write 1000 events
             for i in range(1000):
                 logger.log({"event": i, "data": "x" * 100})
 
-            # tail should still work efficiently
             start = time.monotonic()
             result = logger.tail(10)
             elapsed = time.monotonic() - start
@@ -399,10 +391,8 @@ class TestErrorRecovery:
             state_file = manager.state_file
             state_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write partial JSON
             state_file.write_text('{"tasks": {"t1":')
 
-            # Load should raise clear error, not crash
             with pytest.raises((json.JSONDecodeError, ValueError)):
                 manager.load()
 
@@ -413,7 +403,6 @@ class TestErrorRecovery:
             state_file = manager.state_file
             state_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write JSON with invalid status
             state_file.write_text(
                 json.dumps(
                     {
@@ -430,7 +419,6 @@ class TestErrorRecovery:
                 )
             )
 
-            # Should raise validation error
             with pytest.raises((ValueError, TypeError)):
                 manager.load()
 
@@ -441,13 +429,12 @@ class TestErrorRecovery:
             state_file = manager.state_file
             state_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write JSON missing required 'id' field
             state_file.write_text(
                 json.dumps(
                     {
                         "tasks": {
                             "t1": {
-                                # Missing 'id'
+                                # Missing 'id': implicitly described by context
                                 "description": "x",
                                 "status": "pending",
                                 "dependencies": [],
