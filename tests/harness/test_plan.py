@@ -1,4 +1,4 @@
-"""Tests for plan JSON extraction and DAG validation."""
+"""Tests for plan Markdown parsing and DAG validation."""
 
 import pytest
 
@@ -25,46 +25,10 @@ def test_plan_task_definition_with_injection():
     assert task.role == "frontend"
 
 
-def test_parse_plan_content_extracts_json():
-    """parse_plan_content should extract JSON from markdown chatter."""
-    content = """
-Here is the implementation plan for your feature.
-
-I will break this down into tasks:
-
-```json
-{
-  "goal": "Implement auth",
-  "tasks": {
-    "task-1": {"description": "Add login endpoint"},
-    "task-2": {"description": "Add logout", "dependencies": ["task-1"]}
-  }
-}
-```
-
-Let me know if you want changes.
-"""
-    plan = parse_plan_content(content)
-    assert plan.goal == "Implement auth"
-    assert len(plan.tasks) == 2
-    assert plan.tasks["task-2"].dependencies == ["task-1"]
-
-
-def test_parse_plan_content_no_json_raises():
-    """parse_plan_content should raise if no JSON block found."""
+def test_parse_plan_content_invalid_format_raises():
+    """parse_plan_content should raise if no valid Markdown plan found."""
     content = "Here is the plan: do task 1, then task 2."
-    with pytest.raises(ValueError, match="[Nn]o valid plan found"):
-        parse_plan_content(content)
-
-
-def test_parse_plan_content_invalid_json_raises():
-    """parse_plan_content should raise for malformed JSON."""
-    content = """
-```json
-{goal: "broken}
-```
-"""
-    with pytest.raises(ValueError, match="[Ii]nvalid JSON"):
+    with pytest.raises(ValueError, match="No valid plan found"):
         parse_plan_content(content)
 
 
@@ -102,25 +66,9 @@ def test_get_plan_template_returns_markdown():
     # Verify it's Markdown with expected sections
     assert "# Plan Template" in template
     assert "## Recommended: Structured Markdown" in template
-    assert "## Legacy: JSON Format" in template
-    # Verify JSON blocks are present (for backward compatibility)
-    assert "```json" in template
-    assert '"goal":' in template
-    assert '"tasks":' in template
-    assert '"description":' in template
-    assert '"dependencies":' in template
-
-
-def test_get_plan_template_includes_all_fields():
-    """Template documents all PlanTaskDefinition fields."""
-    from harness.plan import get_plan_template
-
-    template = get_plan_template()
-
-    # All task fields should be mentioned
-    assert "timeout_seconds" in template
-    assert "instructions" in template
-    assert "role" in template
+    # Legacy JSON section should NOT exist
+    assert "## Legacy:" not in template
+    assert "JSON Format" not in template
 
 
 def test_parse_markdown_plan_basic():

@@ -619,22 +619,27 @@ def test_exec_trajectory_log_truncation_limit(daemon_with_state, socket_path, wo
 
 
 def test_plan_import_handler(daemon_manager):
-    """plan_import should parse JSON and seed state."""
+    """plan_import should parse Markdown and seed state."""
     daemon, _ = daemon_manager
     from tests.harness.conftest import send_command
 
     content = """
-Here is the plan:
+**Goal:** Test
 
-```json
-{
-  "goal": "Test",
-  "tasks": {
-    "task-1": {"description": "First"},
-    "task-2": {"description": "Second", "dependencies": ["task-1"]}
-  }
-}
-```
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | 1     | First task |
+| Group 2    | 2     | Depends on Group 1 |
+
+### Task 1: First
+
+Implementation details.
+
+### Task 2: Second
+
+Implementation details.
 """
     resp = send_command(daemon.socket_path, {"command": "plan_import", "content": content})
     assert resp["status"] == "ok"
@@ -642,54 +647,32 @@ Here is the plan:
 
     # Verify state
     state = send_command(daemon.socket_path, {"command": "get_state"})
-    assert "task-1" in state["data"]["tasks"]
+    assert "1" in state["data"]["tasks"]
 
 
-def test_plan_import_preserves_injection(daemon_manager):
-    """plan_import should preserve instructions and role."""
+def test_plan_import_preserves_instructions(daemon_manager):
+    """plan_import should preserve task body as instructions."""
     daemon, _ = daemon_manager
     from tests.harness.conftest import send_command
 
     content = """
-```json
-{
-  "goal": "Test",
-  "tasks": {
-    "task-1": {
-      "description": "Do it",
-      "instructions": "Step by step guide here",
-      "role": "backend"
-    }
-  }
-}
-```
+**Goal:** Test
+
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | 1     | Solo task |
+
+### Task 1: Do it
+
+Step by step guide here.
 """
     send_command(daemon.socket_path, {"command": "plan_import", "content": content})
     state = send_command(daemon.socket_path, {"command": "get_state"})
-    task = state["data"]["tasks"]["task-1"]
-    assert task["instructions"] == "Step by step guide here"
-    assert task["role"] == "backend"
-
-
-def test_plan_import_rejects_cycle(daemon_manager):
-    """plan_import should reject cyclic dependencies."""
-    daemon, _ = daemon_manager
-    from tests.harness.conftest import send_command
-
-    content = """
-```json
-{
-  "goal": "Bad",
-  "tasks": {
-    "a": {"description": "A", "dependencies": ["b"]},
-    "b": {"description": "B", "dependencies": ["a"]}
-  }
-}
-```
-"""
-    resp = send_command(daemon.socket_path, {"command": "plan_import", "content": content})
-    assert resp["status"] == "error"
-    assert "cycle" in resp["message"].lower()
+    task = state["data"]["tasks"]["1"]
+    assert task["description"] == "Do it"
+    assert "Step by step guide here" in task["instructions"]
 
 
 def test_plan_import_missing_content(daemon_manager):
@@ -702,32 +685,15 @@ def test_plan_import_missing_content(daemon_manager):
     assert "content required" in resp["message"].lower()
 
 
-def test_plan_import_invalid_json(daemon_manager):
-    """plan_import should error for invalid JSON in content."""
+def test_plan_import_invalid_content(daemon_manager):
+    """plan_import should error for invalid plan content."""
     daemon, _ = daemon_manager
     from tests.harness.conftest import send_command
 
-    resp = send_command(daemon.socket_path, {"command": "plan_import", "content": "no json here"})
+    resp = send_command(
+        daemon.socket_path, {"command": "plan_import", "content": "no valid plan here"}
+    )
     assert resp["status"] == "error"
-
-
-def test_plan_import_cyclic_deps(daemon_manager):
-    """plan_import should reject plans with cyclic dependencies."""
-    daemon, _ = daemon_manager
-    from tests.harness.conftest import send_command
-
-    content = """```json
-{
-    "goal": "Test",
-    "tasks": {
-        "a": {"description": "A", "dependencies": ["b"]},
-        "b": {"description": "B", "dependencies": ["a"]}
-    }
-}
-```"""
-    resp = send_command(daemon.socket_path, {"command": "plan_import", "content": content})
-    assert resp["status"] == "error"
-    assert "cycle" in resp["message"].lower()
 
 
 def test_daemon_server_close_removes_lock_file(worktree):
@@ -918,19 +884,21 @@ def test_daemon_sigint_triggers_shutdown(tmp_path):
     assert not Path(socket_path).exists()
 
 
-def test_plan_import_legacy_markdown_gives_helpful_error(daemon_manager):
-    """Legacy markdown plans get actionable error message."""
+def test_plan_import_invalid_markdown_gives_helpful_error(daemon_manager):
+    """Invalid markdown plans get actionable error message."""
     daemon, _ = daemon_manager
     from tests.harness.conftest import send_command
 
-    legacy_content = """# My Plan
+    invalid_content = """# My Plan
 
 ## Task 1: Do something
 - [ ] Step one
 - [ ] Step two
 """
 
-    result = send_command(daemon.socket_path, {"command": "plan_import", "content": legacy_content})
+    result = send_command(
+        daemon.socket_path, {"command": "plan_import", "content": invalid_content}
+    )
 
     assert result["status"] == "error"
     assert "No valid plan found" in result["message"]

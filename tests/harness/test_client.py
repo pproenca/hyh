@@ -446,8 +446,8 @@ def test_plan_template_outputs_markdown():
     assert result.returncode == 0
     assert "# Plan Template" in result.stdout
     assert "## Recommended: Structured Markdown" in result.stdout
-    assert "## Legacy: JSON Format" in result.stdout
-    assert "```json" in result.stdout
+    # Legacy JSON section should NOT exist
+    assert "## Legacy:" not in result.stdout
 
 
 def test_client_plan_template_does_not_break_import_constraints():

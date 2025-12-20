@@ -1,14 +1,10 @@
 """
 Plan extraction from LLM output.
 
-Supports two formats:
-- Markdown (preferred): Task Groups table with `**Goal:**` and `### Task ID:` sections
-- JSON (legacy): ```json block with goal and tasks dict
-
+Parses Markdown format with Task Groups table and `### Task ID:` sections.
 Validates DAG and converts to WorkflowState.
 """
 
-import json
 import re
 from typing import TypedDict
 
@@ -157,13 +153,10 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
 
 
 def parse_plan_content(content: str) -> PlanDefinition:
-    """Extract plan from LLM output (Markdown preferred, JSON fallback).
+    """Extract plan from LLM output (Markdown format only).
 
     Detection:
     - Markdown: Contains `**Goal:**` AND `| Task Group |`
-    - JSON: Contains ```json block with valid JSON object
-
-    Markdown is preferred as it's more readable and less error-prone.
     """
     # Check for Markdown Plan signature
     if "**Goal:**" in content and "| Task Group |" in content:
@@ -171,27 +164,11 @@ def parse_plan_content(content: str) -> PlanDefinition:
         plan.validate_dag()
         return plan
 
-    # Fallback: JSON parsing (legacy format)
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
-    if not match:
-        raise ValueError("No valid plan found (neither Markdown nor JSON block)")
-
-    try:
-        data = json.loads(match.group(1))
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON: {e}") from e
-
-    plan = PlanDefinition(**data)
-    plan.validate_dag()
-    return plan
+    raise ValueError("No valid plan found. Use `harness plan template` for format reference.")
 
 
 def get_plan_template() -> str:
-    """Generate Markdown template for plan format.
-
-    Shows the recommended Markdown format with Task Groups,
-    plus legacy JSON format for backward compatibility.
-    """
+    """Generate Markdown template for plan format."""
     return """\
 # Plan Template
 
@@ -271,37 +248,4 @@ Test registration, login, protected routes.
 **Dependency Rules:**
 - Tasks in Group N depend on ALL tasks in Group N-1
 - Tasks within the same group are independent (can run in parallel)
-
----
-
-## Legacy: JSON Format (Backward Compatible)
-
-```json
-{
-  "goal": "Add user authentication with JWT tokens",
-  "tasks": {
-    "models": {
-      "description": "Create User model with password hashing",
-      "dependencies": [],
-      "timeout_seconds": 300,
-      "instructions": "Use bcrypt for password hashing.",
-      "role": "backend"
-    },
-    "auth-endpoints": {
-      "description": "Implement /login and /register endpoints",
-      "dependencies": ["models"],
-      "timeout_seconds": 600
-    }
-  }
-}
-```
-
-**Field Reference:**
-- `goal`: High-level objective (required)
-- `tasks`: Dictionary keyed by unique task IDs (required)
-- `description`: Brief task summary (required)
-- `dependencies`: List of task IDs that must complete first (default: [])
-- `timeout_seconds`: Max execution time in seconds (default: 600)
-- `instructions`: Detailed guidance for the agent (optional)
-- `role`: Specialist designation for task routing (optional)
 """

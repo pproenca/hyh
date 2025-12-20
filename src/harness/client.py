@@ -584,7 +584,7 @@ def main() -> None:
     plan_sub = plan_parser.add_subparsers(dest="plan_command", required=True)
     plan_import_parser = plan_sub.add_parser("import", help="Import plan from file")
     plan_import_parser.add_argument("--file", required=True, help="Plan file path")
-    plan_sub.add_parser("template", help="Print JSON schema for plan format")
+    plan_sub.add_parser("template", help="Print Markdown template for plan format")
     plan_sub.add_parser("reset", help="Clear all workflow state")
 
     # exec command

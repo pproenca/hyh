@@ -990,22 +990,22 @@ def test_plan_import_then_claim_with_injection(socket_path, worktree):
     try:
         plan_file = worktree / "plan.md"
         plan_file.write_text("""
-```json
-{
-  "goal": "E2E Test",
-  "tasks": {
-    "task-1": {
-      "description": "First task",
-      "instructions": "Do this carefully",
-      "role": "backend"
-    },
-    "task-2": {
-      "description": "Second task",
-      "dependencies": ["task-1"]
-    }
-  }
-}
-```
+**Goal:** E2E Test
+
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | 1     | First task |
+| Group 2    | 2     | Depends on Group 1 |
+
+### Task 1: First task
+
+Do this carefully.
+
+### Task 2: Second task
+
+Follow up work.
 """)
 
         env = {**os.environ, "HARNESS_SOCKET": socket_path, "HARNESS_WORKTREE": str(worktree)}
@@ -1028,8 +1028,7 @@ def test_plan_import_then_claim_with_injection(socket_path, worktree):
         )
         assert r.returncode == 0
         data = json.loads(r.stdout)
-        assert data["task"]["instructions"] == "Do this carefully"
-        assert data["task"]["role"] == "backend"
+        assert "Do this carefully" in data["task"]["instructions"]
 
     finally:
         cleanup_daemon_subprocess(socket_path)
