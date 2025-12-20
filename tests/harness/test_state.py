@@ -1105,6 +1105,26 @@ def test_detect_cycle_returns_cycle_node_for_cyclic_graph() -> None:
     assert result in {"a", "b", "c"}  # Any node in the cycle
 
 
+def test_detect_cycle_handles_deep_graph():
+    """detect_cycle should handle graphs deeper than Python's recursion limit.
+
+    Bug: Recursive DFS fails with RecursionError for graphs >1000 nodes deep.
+    Fix: Use iterative DFS with explicit stack.
+    """
+    import sys
+
+    from harness.state import detect_cycle
+
+    # Create chain: node_0 -> node_1 -> ... -> node_1500
+    depth = sys.getrecursionlimit() + 500  # Exceed default limit
+    graph = {f"node_{i}": [f"node_{i + 1}"] for i in range(depth)}
+    graph[f"node_{depth}"] = []  # Terminal node
+
+    # Should NOT raise RecursionError
+    result = detect_cycle(graph)
+    assert result is None, "Linear chain has no cycle"
+
+
 # ============================================================================
 # TestClaimResult: claim_task returns atomic metadata (is_retry, is_reclaim)
 # ============================================================================

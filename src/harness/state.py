@@ -18,7 +18,9 @@ from pydantic import BaseModel, Field
 
 
 def detect_cycle(graph: dict[str, list[str]]) -> str | None:
-    """Detect cycle in directed graph using DFS.
+    """Detect cycle in directed graph using iterative DFS.
+
+    Uses explicit stack to avoid RecursionError on deep graphs.
 
     Args:
         graph: Adjacency list mapping node ID to list of dependency IDs.
@@ -29,21 +31,39 @@ def detect_cycle(graph: dict[str, list[str]]) -> str | None:
     visited: set[str] = set()
     rec_stack: set[str] = set()
 
-    def dfs(node: str) -> str | None:
-        visited.add(node)
-        rec_stack.add(node)
-        for neighbor in graph.get(node, []):
-            if neighbor not in visited:
-                if cycle_node := dfs(neighbor):
-                    return cycle_node
-            elif neighbor in rec_stack:
-                return neighbor
-        rec_stack.discard(node)
-        return None
+    for start_node in graph:
+        if start_node in visited:
+            continue
 
-    for node in graph:
-        if node not in visited and (cycle_node := dfs(node)):
-            return cycle_node
+        # Stack entries: (node, iterator over neighbors, entering)
+        # entering=True means we're entering the node, False means we're leaving
+        stack: list[tuple[str, list[str], int]] = [(start_node, graph.get(start_node, []), 0)]
+
+        while stack:
+            node, neighbors, idx = stack.pop()
+
+            if idx == 0:
+                # First time visiting this node
+                if node in rec_stack:
+                    return node  # Cycle detected
+                if node in visited:
+                    continue
+                visited.add(node)
+                rec_stack.add(node)
+
+            # Process neighbors
+            if idx < len(neighbors):
+                neighbor = neighbors[idx]
+                # Push current node back with incremented index
+                stack.append((node, neighbors, idx + 1))
+                if neighbor in rec_stack:
+                    return neighbor  # Cycle detected
+                if neighbor not in visited:
+                    stack.append((neighbor, graph.get(neighbor, []), 0))
+            else:
+                # Done with all neighbors, leaving node
+                rec_stack.discard(node)
+
     return None
 
 
