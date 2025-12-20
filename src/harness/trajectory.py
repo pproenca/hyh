@@ -109,11 +109,11 @@ class TrajectoryLogger:
                 # Seek to position and read
                 f.seek(position)
                 chunk = f.read(read_size)
-                chunks.insert(0, chunk)  # Insert at beginning to maintain order
+                chunks.append(chunk)  # O(1) append
                 bytes_read += read_size
 
                 # Try to split into lines (check periodically to decide if we have enough)
-                buffer = b"".join(chunks)
+                buffer = b"".join(reversed(chunks))  # Reverse once at the end
                 lines = buffer.split(b"\n")
 
                 # If we have enough lines (accounting for potential empty line at end)

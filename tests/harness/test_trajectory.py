@@ -266,3 +266,23 @@ def test_tail_limits_memory_on_corrupt_file(tmp_path):
     result = logger.tail(2)
     assert len(result) == 2
     assert result[-1]["event"] == 3
+
+
+def test_tail_reverse_seek_uses_append_not_insert(tmp_path):
+    """Verify _tail_reverse_seek uses O(1) append, not O(n) insert.
+
+    Bug: chunks.insert(0, chunk) shifts all elements right on each call.
+    Fix: Use chunks.append(chunk) then reversed(chunks) for O(1) per operation.
+    """
+    import inspect
+
+    from harness.trajectory import TrajectoryLogger
+
+    logger = TrajectoryLogger(tmp_path / "trajectory.jsonl")
+    source = inspect.getsource(logger._tail_reverse_seek)
+
+    # The fix should use append + reversed, not insert(0, ...)
+    assert "insert(0" not in source, (
+        "_tail_reverse_seek uses insert(0, chunk) which is O(n). "
+        "Use chunks.append(chunk) and reversed(chunks) instead."
+    )
