@@ -304,8 +304,33 @@ def _cmd_status(
         """Render status once. Returns True if workflow is active."""
         try:
             response = send_rpc(socket_path, {"command": "status"}, worktree_root)
-        except (FileNotFoundError, ConnectionRefusedError):
-            print("Daemon not running. Start with: harness ping")
+        except FileNotFoundError:
+            if json_output:
+                print(json.dumps({"daemon": False, "active": False}))
+            else:
+                print("=" * 50)
+                print(" HARNESS STATUS")
+                print("=" * 50)
+                print()
+                print(" Daemon:   not running")
+                print(" Workflow: none")
+                print()
+                print(" Start daemon with: harness ping")
+                print()
+            return False
+        except ConnectionRefusedError:
+            if json_output:
+                print(json.dumps({"daemon": False, "active": False, "error": "connection_refused"}))
+            else:
+                print("=" * 50)
+                print(" HARNESS STATUS")
+                print("=" * 50)
+                print()
+                print(" Daemon:   not responding (stale socket?)")
+                print(" Workflow: unknown")
+                print()
+                print(" Try: harness ping")
+                print()
             return False
 
         if response["status"] != "ok":
@@ -315,11 +340,21 @@ def _cmd_status(
         data = response["data"]
 
         if json_output:
+            # Include daemon status in JSON output
+            data["daemon"] = True
             print(json.dumps(data, indent=2))
             return bool(data.get("active", False))
 
         if not data.get("active"):
-            print("No active workflow")
+            print("=" * 50)
+            print(" HARNESS STATUS")
+            print("=" * 50)
+            print()
+            print(" Daemon:   running")
+            print(" Workflow: none")
+            print()
+            print(" Import a plan with: harness plan-import <file>")
+            print()
             return False
 
         summary = data["summary"]
