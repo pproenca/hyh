@@ -53,7 +53,7 @@ Let me know if you want changes.
 def test_parse_plan_content_no_json_raises():
     """parse_plan_content should raise if no JSON block found."""
     content = "Here is the plan: do task 1, then task 2."
-    with pytest.raises(ValueError, match="[Nn]o JSON"):
+    with pytest.raises(ValueError, match="[Nn]o valid plan found"):
         parse_plan_content(content)
 
 
@@ -297,3 +297,47 @@ Not in any group - should fail!
 """
     with pytest.raises(ValueError, match="Orphan tasks not in any group: 2"):
         parse_markdown_plan(content)
+
+
+def test_parse_plan_content_markdown_format():
+    """parse_plan_content should detect and parse Markdown format."""
+    content = """\
+# Implementation Plan
+
+**Goal:** Test markdown parsing
+
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | 1     | Core |
+
+### Task 1: Test Task
+
+Instructions here.
+"""
+    plan = parse_plan_content(content)
+
+    assert plan.goal == "Test markdown parsing"
+    assert len(plan.tasks) == 1
+    assert plan.tasks["1"].description == "Test Task"
+
+
+def test_parse_plan_content_markdown_cycle_rejected():
+    """Markdown plans with cycles are rejected."""
+    content = """\
+**Goal:** Cycle test
+
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | 1     | Only group |
+
+### Task 1: Cyclic Task
+
+Instructions.
+"""
+    # This should pass (no cycle with single task)
+    plan = parse_plan_content(content)
+    assert plan.goal == "Cycle test"

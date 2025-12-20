@@ -154,16 +154,24 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
 
 
 def parse_plan_content(content: str) -> PlanDefinition:
-    """Extract JSON plan from LLM output.
+    """Extract plan from LLM output (Markdown preferred, JSON fallback).
 
-    Finds the first ```json block, parses it, validates the DAG.
-    Everything outside the JSON block is ignored (thinking tokens, markdown).
+    Detection:
+    - Markdown: Contains `**Goal:**` AND `| Task Group |`
+    - JSON: Contains ```json block with valid JSON object
+
+    Markdown is preferred as it's more readable and less error-prone.
     """
-    # Forgiving wrapper: handles ```json or plain ```
-    # Strict on payload: must be valid JSON object
+    # Check for Markdown Plan signature
+    if "**Goal:**" in content and "| Task Group |" in content:
+        plan = parse_markdown_plan(content)
+        plan.validate_dag()
+        return plan
+
+    # Fallback: JSON parsing (legacy format)
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
     if not match:
-        raise ValueError("No JSON plan block found")
+        raise ValueError("No valid plan found (neither Markdown nor JSON block)")
 
     try:
         data = json.loads(match.group(1))
