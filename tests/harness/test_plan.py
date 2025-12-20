@@ -274,8 +274,6 @@ Create endpoints.
 
 def test_parse_markdown_plan_rejects_orphan_tasks():
     """parse_markdown_plan rejects tasks not in any group."""
-    import pytest
-
     from harness.plan import parse_markdown_plan
 
     content = """\

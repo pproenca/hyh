@@ -1,8 +1,11 @@
 """
 Plan extraction from LLM output.
 
-The Orchestrator emits markdown with thinking tokens, followed by a JSON block.
-We extract the JSON, validate the DAG, and convert to WorkflowState.
+Supports two formats:
+- Markdown (preferred): Task Groups table with `**Goal:**` and `### Task ID:` sections
+- JSON (legacy): ```json block with goal and tasks dict
+
+Validates DAG and converts to WorkflowState.
 """
 
 import json
