@@ -14,7 +14,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 def detect_cycle(graph: dict[str, list[str]]) -> str | None:
@@ -86,10 +86,18 @@ class Task(BaseModel):
     started_at: datetime | None = Field(None, description="Task start timestamp")
     completed_at: datetime | None = Field(None, description="Task completion timestamp")
     claimed_by: str | None = Field(None, description="Worker ID that claimed this task")
-    timeout_seconds: int = Field(600, description="Timeout for task execution")
+    timeout_seconds: int = Field(600, description="Timeout for task execution", ge=0)
     # Orchestrator Injection (v2.5)
     instructions: str | None = Field(None, description="Detailed prompt for agent")
     role: str | None = Field(None, description="Agent role: frontend, backend, etc.")
+
+    @field_validator("id")
+    @classmethod
+    def validate_id_not_empty(cls, v: str) -> str:
+        """Reject empty or whitespace-only task IDs."""
+        if not v or not v.strip():
+            raise ValueError("Task ID cannot be empty or whitespace-only")
+        return v
 
     def is_timed_out(self) -> bool:
         """Check if task has exceeded timeout window."""
@@ -275,7 +283,14 @@ class StateManager:
 
         Returns ClaimResult with is_retry and is_reclaim flags computed atomically,
         preventing race conditions from stale state reads.
+
+        Raises:
+            ValueError: If worker_id is empty or whitespace-only
         """
+        # Validate worker_id
+        if not worker_id or not worker_id.strip():
+            raise ValueError("Worker ID cannot be empty or whitespace-only")
+
         with self._lock:
             state = self._ensure_state_loaded()
 

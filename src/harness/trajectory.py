@@ -64,13 +64,18 @@ class TrajectoryLogger:
         large files without loading the entire file into memory.
 
         Args:
-            n: Number of events to retrieve
+            n: Number of events to retrieve (must be > 0 to get results)
             max_buffer_bytes: Maximum bytes to read before giving up (default 1MB).
                 Prevents memory exhaustion on corrupt files with missing newlines.
 
         Returns:
-            List of the last N events (or fewer if file has fewer than N events)
+            List of the last N events (or fewer if file has fewer than N events).
+            Empty list if n <= 0.
         """
+        # Handle edge cases: n <= 0 returns empty list
+        if n <= 0:
+            return []
+
         if not self.trajectory_file.exists():
             return []
 

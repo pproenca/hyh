@@ -12,6 +12,27 @@ from pydantic import BaseModel, Field
 
 from .state import Task, TaskStatus, WorkflowState, detect_cycle
 
+# Regex for safe task IDs: alphanumeric, hyphens, underscores, dots
+# NO shell metacharacters: $ ` ; | & ( ) < > ' " \ ! etc.
+_SAFE_TASK_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-\.]*$")
+
+
+def _validate_task_id(task_id: str) -> None:
+    """Validate task ID is safe (no shell metacharacters).
+
+    Raises:
+        ValueError: If task ID contains dangerous characters
+    """
+    if not task_id:
+        raise ValueError("Task ID cannot be empty")
+
+    if not _SAFE_TASK_ID_PATTERN.match(task_id):
+        raise ValueError(
+            f"Invalid task ID '{task_id}': Task IDs must start with alphanumeric "
+            "and contain only letters, digits, hyphens, underscores, and dots. "
+            "Special characters like $, `, ;, |, etc. are not allowed."
+        )
+
 
 class _TaskData(TypedDict):
     """Intermediate task data during Markdown parsing."""
@@ -97,6 +118,9 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
     for match in re.finditer(group_pattern, content):
         group_id = int(match.group(1))
         task_ids = [t.strip() for t in match.group(2).split(",") if t.strip()]
+        # Validate each task ID from the group table
+        for tid in task_ids:
+            _validate_task_id(tid)
         groups[group_id] = task_ids
 
     # 3. Extract Task Content
@@ -114,6 +138,9 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
         t_id = parts[i].strip()
         t_desc = (parts[i + 1] or "").strip()  # Description may be None if no colon
         t_body = parts[i + 2].strip()
+
+        # Validate task ID from header
+        _validate_task_id(t_id)
 
         tasks_data[t_id] = _TaskData(
             description=t_desc if t_desc else f"Task {t_id}",
@@ -171,10 +198,20 @@ def parse_plan_content(content: str) -> PlanDefinition:
 
     Detection:
     - Markdown: Contains `**Goal:**` AND `| Task Group |`
+
+    Raises:
+        ValueError: If content is empty, whitespace-only, or no valid plan found
     """
+    # Check for empty/whitespace content
+    if not content or not content.strip():
+        raise ValueError("No valid plan found: content is empty or whitespace-only")
+
     # Check for Markdown Plan signature
     if "**Goal:**" in content and "| Task Group |" in content:
         plan = parse_markdown_plan(content)
+        # Also check that tasks were actually parsed
+        if not plan.tasks:
+            raise ValueError("No valid plan found: no tasks defined in plan")
         plan.validate_dag()
         return plan
 

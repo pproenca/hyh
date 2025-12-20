@@ -11,6 +11,50 @@ from .runtime import ExecutionResult, LocalRuntime
 # Singleton runtime instance
 _runtime = LocalRuntime()
 
+# Dangerous git options that could enable command injection
+# These options can execute arbitrary commands or expose sensitive data
+_DANGEROUS_OPTIONS = frozenset(
+    {
+        "-c",  # Can set core.pager, core.editor, etc. to arbitrary commands
+        "--config",  # Same as -c
+        "--upload-pack",  # Executes specified program
+        "--exec",  # Executes command
+        "-u",  # Short for --upload-pack in some contexts
+        "--receive-pack",  # Executes specified program
+    }
+)
+
+# Dangerous option prefixes (options that take values with =)
+_DANGEROUS_PREFIXES = (
+    "-c=",
+    "--config=",
+    "--upload-pack=",
+    "--exec=",
+    "--receive-pack=",
+)
+
+
+def _validate_git_args(args: list[str]) -> None:
+    """Validate git arguments to prevent command injection.
+
+    Raises:
+        ValueError: If dangerous options are detected
+    """
+    for arg in args:
+        # Check exact matches
+        if arg in _DANGEROUS_OPTIONS:
+            raise ValueError(
+                f"Dangerous git option '{arg}' is not allowed. "
+                "This option could enable command injection."
+            )
+        # Check prefixes (e.g., -c=value, --upload-pack=cmd)
+        for prefix in _DANGEROUS_PREFIXES:
+            if arg.startswith(prefix):
+                raise ValueError(
+                    f"Dangerous git option '{prefix.rstrip('=')}' is not allowed. "
+                    "This option could enable command injection."
+                )
+
 
 def safe_git_exec(
     args: list[str],
@@ -32,7 +76,12 @@ def safe_git_exec(
 
     Returns:
         ExecutionResult with returncode, stdout, stderr
+
+    Raises:
+        ValueError: If dangerous git options are detected
     """
+    _validate_git_args(args)
+
     return _runtime.execute(
         ["git", *args],
         cwd=cwd,
