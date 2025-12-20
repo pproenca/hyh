@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 import uuid
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -263,6 +264,188 @@ def _get_git_root() -> str:
 # (e.g., branch name "true" should not become bool(True))
 
 
+def _format_duration(seconds: float) -> str:
+    """Format seconds as human-readable duration."""
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    if seconds < 3600:
+        mins = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{mins}m {secs}s" if secs else f"{mins}m"
+    hours = int(seconds // 3600)
+    mins = int((seconds % 3600) // 60)
+    return f"{hours}h {mins}m" if mins else f"{hours}h"
+
+
+def _format_relative_time(iso_timestamp: str) -> str:
+    """Format ISO timestamp as relative time (e.g., '2m ago')."""
+    from datetime import datetime
+
+    dt = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+    now = datetime.now(UTC)
+    delta = (now - dt).total_seconds()
+
+    if delta < 60:
+        return f"{int(delta)}s ago"
+    if delta < 3600:
+        return f"{int(delta // 60)}m ago"
+    return f"{int(delta // 3600)}h ago"
+
+
+def _cmd_status(
+    socket_path: str,
+    worktree_root: str,
+    json_output: bool = False,
+    watch_interval: int | None = None,
+) -> None:
+    """Display workflow status with progress, tasks, and recent events."""
+
+    def render_once() -> bool:
+        """Render status once. Returns True if workflow is active."""
+        try:
+            response = send_rpc(socket_path, {"command": "status"}, worktree_root)
+        except (FileNotFoundError, ConnectionRefusedError):
+            print("Daemon not running. Start with: harness ping")
+            return False
+
+        if response["status"] != "ok":
+            print(f"Error: {response.get('message', 'Unknown error')}", file=sys.stderr)
+            return False
+
+        data = response["data"]
+
+        if json_output:
+            print(json.dumps(data, indent=2))
+            return bool(data.get("active", False))
+
+        if not data.get("active"):
+            print("No active workflow")
+            return False
+
+        summary = data["summary"]
+        tasks = data["tasks"]
+        events = data["events"]
+        workers = data.get("active_workers", [])
+
+        # Header
+        print("=" * 65)
+        print(" HARNESS STATUS")
+        print("=" * 65)
+        print()
+
+        # Progress bar (16 chars)
+        total = summary["total"]
+        completed = summary["completed"]
+        if total > 0:
+            filled = int((completed / total) * 16)
+            bar = "█" * filled + "░" * (16 - filled)
+            pct = int((completed / total) * 100)
+            print(f" Progress: {bar} {completed}/{total} tasks ({pct}%)")
+        else:
+            print(" Progress: No tasks")
+
+        # Workers
+        running = summary["running"]
+        idle = len(workers) - running if workers else 0
+        print(f" Workers:  {len(workers)} active" + (f", {idle} idle" if idle > 0 else ""))
+        print()
+
+        # Tasks table
+        print("-" * 65)
+        print(" TASKS")
+        print("-" * 65)
+
+        # Sort tasks by ID (numeric if possible)
+        def task_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, str]:
+            tid = item[0]
+            try:
+                return (0, str(int(tid)).zfill(10))
+            except ValueError:
+                return (1, tid)
+
+        for tid, task in sorted(tasks.items(), key=task_sort_key):
+            status = task["status"]
+            desc = task.get("description", "")[:40]
+            worker = task.get("claimed_by", "")
+
+            # Status icon
+            icons = {"completed": "✓", "running": "⟳", "pending": "○", "failed": "✗"}
+            icon = icons.get(status, "?")
+
+            # Time info
+            time_info = ""
+            if status == "completed" and task.get("completed_at"):
+                time_info = _format_relative_time(task["completed_at"])
+            elif status == "running" and task.get("started_at"):
+                from datetime import datetime
+
+                started = datetime.fromisoformat(task["started_at"].replace("Z", "+00:00"))
+                elapsed = (datetime.now(UTC) - started).total_seconds()
+                time_info = _format_duration(elapsed)
+
+            # Blocking deps for pending tasks
+            if status == "pending" and task.get("dependencies"):
+                incomplete = [
+                    d for d in task["dependencies"] if tasks.get(d, {}).get("status") != "completed"
+                ]
+                if incomplete:
+                    time_info = f"blocked by {','.join(incomplete[:3])}"
+
+            worker_col = worker[:10] if worker else ""
+            print(f" {icon}  {tid:3}  {desc:40}  {worker_col:10}  {status:9}  {time_info}")
+
+        print()
+
+        # Recent events
+        if events:
+            print("-" * 65)
+            print(" RECENT EVENTS")
+            print("-" * 65)
+            for evt in events[-5:]:
+                ts = evt.get("timestamp", "")
+                if ts:
+                    from datetime import datetime
+
+                    try:
+                        dt = datetime.fromtimestamp(ts, tz=UTC)
+                        ts_str = dt.strftime("%H:%M:%S")
+                    except (ValueError, TypeError):
+                        ts_str = str(ts)[:8]
+                else:
+                    ts_str = "        "
+
+                evt_type = evt.get("event_type", evt.get("event", ""))[:15]
+                task_id = evt.get("task_id", "")
+                worker_id = evt.get("worker_id", "")[:10]
+                extra = evt.get("success", "")
+                if extra is True:
+                    extra = "success"
+                elif extra is False:
+                    extra = "failed"
+                else:
+                    extra = ""
+
+                print(f" {ts_str}  {evt_type:15}  #{task_id:3}  {worker_id:10}  {extra}")
+
+        print()
+        return True
+
+    # Watch mode: loop with refresh
+    if watch_interval is not None:
+        try:
+            while True:
+                # Clear screen
+                print("\033[2J\033[H", end="")
+                active = render_once()
+                if not active:
+                    break
+                time.sleep(watch_interval)
+        except KeyboardInterrupt:
+            print("\nStopped watching.")
+    else:
+        render_once()
+
+
 def main() -> None:
     """CLI entry point using argparse."""
     parser = argparse.ArgumentParser(
@@ -355,6 +538,18 @@ def main() -> None:
     # worker-id
     subparsers.add_parser("worker-id", help="Print stable worker ID")
 
+    # status
+    status_parser = subparsers.add_parser("status", help="Show workflow status and recent events")
+    status_parser.add_argument("--json", action="store_true", help="Output raw JSON")
+    status_parser.add_argument(
+        "--watch",
+        nargs="?",
+        const=2,
+        type=int,
+        metavar="SECONDS",
+        help="Auto-refresh (default: 2s)",
+    )
+
     args = parser.parse_args()
 
     socket_path = os.getenv("HARNESS_SOCKET", get_socket_path())
@@ -408,6 +603,8 @@ def main() -> None:
         _cmd_shutdown(socket_path, worktree_root)
     elif args.command == "worker-id":
         _cmd_worker_id()
+    elif args.command == "status":
+        _cmd_status(socket_path, worktree_root, json_output=args.json, watch_interval=args.watch)
 
 
 def _cmd_ping(socket_path: str, worktree_root: str) -> None:
