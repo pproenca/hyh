@@ -75,6 +75,8 @@ class TrajectoryLogger:
         Reads the file from the end in 4KB blocks until we have enough lines
         or reach the maximum buffer size.
 
+        Complexity: O(k) where k = number of blocks read (NOT O(k²)).
+
         Args:
             n: Number of lines to retrieve
             max_buffer_bytes: Maximum bytes to read before stopping
@@ -96,6 +98,7 @@ class TrajectoryLogger:
             chunks: list[bytes] = []
             position = file_size
             bytes_read = 0
+            newline_count = 0
 
             while True:
                 # Check buffer limit to prevent memory exhaustion on corrupt files
@@ -112,14 +115,17 @@ class TrajectoryLogger:
                 chunks.append(chunk)  # O(1) append
                 bytes_read += read_size
 
-                # Try to split into lines (check periodically to decide if we have enough)
-                buffer = b"".join(reversed(chunks))  # Reverse once at the end
-                lines = buffer.split(b"\n")
+                # Count newlines in this chunk only (O(chunk_size), not O(total_bytes))
+                newline_count += chunk.count(b"\n")
 
-                # If we have enough lines (accounting for potential empty line at end)
-                # We need n+1 because split on "line1\nline2\n" gives ["line1", "line2", ""]
-                if len(lines) > n or position == 0:
+                # We need n+1 newlines because split on "line1\nline2\n"
+                # gives ["line1", "line2", ""]
+                if newline_count > n or position == 0:
                     break
+
+            # Join ONCE after loop exits - O(total_bytes) but only once
+            buffer = b"".join(reversed(chunks))
+            lines = buffer.split(b"\n")
 
             # Parse JSON lines, skipping corrupt ones
             events: list[dict[str, Any]] = []

@@ -299,3 +299,83 @@ def test_get_plan_template_includes_markdown_format():
     assert "| Task Group |" in template
     assert "### Task" in template
     assert "(Recommended)" in template or "Markdown" in template
+
+
+def test_parse_markdown_plan_rejects_phantom_tasks():
+    """parse_markdown_plan rejects tasks in table but not in body (phantom tasks).
+
+    Bug: If "### Task 2: ..." is typo'd as "### Task2: ...", the parser silently
+    drops Task 2 because it's in the table but the regex doesn't match the header.
+    """
+    from harness.plan import parse_markdown_plan
+
+    content = """\
+**Goal:** Phantom task test
+
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | 1, 2  | Task 2 is in table but not in body |
+
+### Task 1: Real Task
+
+This task has a proper header.
+
+### Task2: Typo Task
+
+Missing space after Task - regex won't match!
+"""
+    with pytest.raises(ValueError, match="Phantom tasks in table but not in body: 2"):
+        parse_markdown_plan(content)
+
+
+def test_parse_markdown_plan_flexible_header_formats():
+    """parse_markdown_plan accepts reasonable header variations.
+
+    The regex should accept:
+    - "### Task 1: Description" (standard)
+    - "### Task 2 : Description" (space before colon)
+    - "### Task 3" (no colon, no description)
+    - "### Task auth-service: Description" (semantic ID)
+    - "### Task 1.1: Description" (dotted ID)
+    """
+    from harness.plan import parse_markdown_plan
+
+    content = """\
+**Goal:** Flexible format test
+
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | 1, 2, 3, auth-service, 1.1 | Various formats |
+
+### Task 1: Standard format
+
+Body 1.
+
+### Task 2 : Space before colon
+
+Body 2.
+
+### Task 3
+
+No colon, no description.
+
+### Task auth-service: Semantic ID
+
+Body auth.
+
+### Task 1.1: Dotted ID
+
+Body dotted.
+"""
+    plan = parse_markdown_plan(content)
+
+    assert "1" in plan.tasks
+    assert "2" in plan.tasks
+    assert "3" in plan.tasks
+    assert "auth-service" in plan.tasks
+    assert "1.1" in plan.tasks
+    assert len(plan.tasks) == 5

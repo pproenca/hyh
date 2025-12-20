@@ -76,9 +76,13 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
     Extracts:
     1. Goal from `**Goal:** <text>`
     2. Task groups from `| Group N | task_ids |` table rows
-    3. Task definitions from `### Task <ID>: <Description>` headers
+    3. Task definitions from `### Task <ID>` headers (colon optional)
 
     Dependencies: Tasks in Group N depend on ALL tasks in Group N-1.
+
+    Validation:
+    - Rejects orphan tasks (in body but not in table)
+    - Rejects phantom tasks (in table but not in body)
     """
     # 1. Extract Goal
     goal_match = re.search(r"\*\*Goal:\*\*\s*(.+)", content)
@@ -86,8 +90,8 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
 
     # 2. Extract Task Groups (for dependency calculation)
     # Pattern: | Group 1 | task-1, auth-service | ... (captures group number and task list)
-    # Supports semantic IDs: alphanumeric, dashes, underscores
-    group_pattern = r"\|\s*Group\s*(\d+)\s*\|\s*([\w\-,\s]+)\s*\|"
+    # Supports semantic IDs: alphanumeric, dashes, underscores, dots
+    group_pattern = r"\|\s*Group\s*(\d+)\s*\|\s*([\w\-\.,\s]+)\s*\|"
     groups: dict[int, list[str]] = {}
 
     for match in re.finditer(group_pattern, content):
@@ -96,9 +100,9 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
         groups[group_id] = task_ids
 
     # 3. Extract Task Content
-    # Split by "### Task <ID>: <Description>" headers
-    # Supports semantic IDs: "Task 1", "Task auth-service", "Task db_migration"
-    task_pattern = r"^### Task ([\w\-]+):\s*(.+)$"
+    # Relaxed pattern: "### Task <ID>" with optional colon and description
+    # Supports: "### Task 1: Desc", "### Task 1 : Desc", "### Task 1", "### Task 1.1: Desc"
+    task_pattern = r"^### Task\s+([\w\-\.]+)\s*(?::\s*(.*))?$"
     parts = re.split(task_pattern, content, flags=re.MULTILINE)
 
     # parts[0] is preamble. Then groups of 3: [id, desc, body, id, desc, body, ...]
@@ -108,11 +112,11 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
         if i + 2 > len(parts):
             break
         t_id = parts[i].strip()
-        t_desc = parts[i + 1].strip()
+        t_desc = (parts[i + 1] or "").strip()  # Description may be None if no colon
         t_body = parts[i + 2].strip()
 
         tasks_data[t_id] = _TaskData(
-            description=t_desc,
+            description=t_desc if t_desc else f"Task {t_id}",
             instructions=t_body,
             dependencies=[],
         )
@@ -129,13 +133,23 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
                 if t_id in tasks_data:
                     tasks_data[t_id]["dependencies"] = prev_tasks
 
-    # 5. Validate: All tasks must be in a group (no orphans)
+    # 5. Bidirectional Validation
     all_grouped_tasks = {t for tasks in groups.values() for t in tasks}
+
+    # 5a. Orphan tasks: in body but not in table
     orphan_tasks = set(tasks_data.keys()) - all_grouped_tasks
     if orphan_tasks:
         raise ValueError(
             f"Orphan tasks not in any group: {', '.join(sorted(orphan_tasks))}. "
             "Add them to the Task Groups table."
+        )
+
+    # 5b. Phantom tasks: in table but not in body (CRITICAL - silent failures)
+    phantom_tasks = all_grouped_tasks - set(tasks_data.keys())
+    if phantom_tasks:
+        raise ValueError(
+            f"Phantom tasks in table but not in body: {', '.join(sorted(phantom_tasks))}. "
+            "Check for typos in ### Task headers (missing space, wrong ID)."
         )
 
     # 6. Construct PlanDefinition

@@ -286,3 +286,50 @@ def test_tail_reverse_seek_uses_append_not_insert(tmp_path):
         "_tail_reverse_seek uses insert(0, chunk) which is O(n). "
         "Use chunks.append(chunk) and reversed(chunks) instead."
     )
+
+
+def test_tail_reverse_seek_joins_outside_loop(tmp_path):
+    """Verify buffer join happens AFTER the while loop, not inside it.
+
+    Bug: join(reversed(chunks)) inside loop = O(k²) where k = chunks read.
+    Fix: Count newlines in each chunk, join only when done seeking.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from harness.trajectory import TrajectoryLogger
+
+    logger = TrajectoryLogger(tmp_path / "trajectory.jsonl")
+    source = inspect.getsource(logger._tail_reverse_seek)
+
+    # Dedent to remove leading whitespace for ast.parse
+    source = textwrap.dedent(source)
+
+    # Parse the source to find the while loop
+    tree = ast.parse(source)
+
+    # Find the while True loop
+    while_loops = [node for node in ast.walk(tree) if isinstance(node, ast.While)]
+    assert len(while_loops) == 1, "Expected exactly one while loop"
+
+    while_loop = while_loops[0]
+    while_body_lines = {node.lineno for node in ast.walk(while_loop) if hasattr(node, "lineno")}
+
+    # Find all calls to b"".join or bytes join patterns
+    join_calls = []
+    for node in ast.walk(tree):
+        # Check for .join() method calls
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "join"
+        ):
+            join_calls.append(node.lineno)
+
+    # Verify no join calls are inside the while loop
+    joins_inside_loop = [line for line in join_calls if line in while_body_lines]
+    assert not joins_inside_loop, (
+        f"Found join() calls inside while loop at relative lines {joins_inside_loop}. "
+        "Move buffer reconstruction outside the loop to achieve O(k) complexity."
+    )
