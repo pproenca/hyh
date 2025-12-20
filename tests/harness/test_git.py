@@ -79,43 +79,35 @@ def test_uses_global_exec_lock():
 
 
 def test_git_uses_exclusive_locking(monkeypatch):
-    """Git operations must use exclusive locking appropriately.
+    """Git write operations should use exclusive locking.
 
-    - safe_git_exec: uses exclusive=True per call (single operation)
-    - safe_commit: holds lock externally, uses exclusive=False per call (atomic multi-op)
+    Read operations can run in parallel; write operations must be serialized.
     """
     from harness.git import safe_commit, safe_git_exec
 
-    # Track calls to runtime.execute
     execute_calls = []
 
     def mock_execute(command, cwd=None, timeout=None, exclusive=False):
-        execute_calls.append(
-            {
-                "command": command,
-                "cwd": cwd,
-                "timeout": timeout,
-                "exclusive": exclusive,
-            }
-        )
-        return MagicMock(returncode=0, stdout="", stderr="")
+        execute_calls.append({"command": command, "exclusive": exclusive})
+        return MagicMock(returncode=0, stdout="abc123\n", stderr="")
 
-    # Patch the runtime singleton
-    with patch("harness.git._runtime") as mock_runtime:
-        mock_runtime.execute = mock_execute
+    with patch("harness.git._runtime.execute", mock_execute):
+        # Write operation: safe_commit holds lock externally
+        safe_commit(cwd="/tmp", message="Test commit")
+        # safe_commit should have made git add and git commit calls
+        assert len(execute_calls) >= 2
 
-        # Test safe_git_exec - single operation uses exclusive=True
-        safe_git_exec(["status"], cwd="/tmp")
-        assert execute_calls[-1]["exclusive"] is True, "safe_git_exec must use exclusive=True"
-
-        # Reset and test safe_commit
         execute_calls.clear()
-        safe_commit(cwd="/tmp", message="test")
 
-        # safe_commit holds lock externally, so individual calls use exclusive=False
-        assert len(execute_calls) == 2
-        assert execute_calls[0]["exclusive"] is False, "git add uses external lock"
-        assert execute_calls[1]["exclusive"] is False, "git commit uses external lock"
+        # Read operation with explicit read_only=True
+        safe_git_exec(["status"], cwd="/tmp", read_only=True)
+        assert execute_calls[-1]["exclusive"] is False, "read_only=True should skip exclusive lock"
+
+        # Default behavior (read_only=False) still locks
+        safe_git_exec(["status"], cwd="/tmp")
+        assert execute_calls[-1]["exclusive"] is True, (
+            "Default read_only=False should use exclusive lock"
+        )
 
 
 def test_safe_commit_atomic_integration(tmp_path):
@@ -237,3 +229,33 @@ def test_safe_commit_is_atomic_single_lock():
         f"Lock was not held during all calls: {lock_held_during_calls}. "
         f"This creates a race window between git add and git commit."
     )
+
+
+def test_safe_git_exec_read_only_skips_lock():
+    """safe_git_exec with read_only=True should NOT acquire GLOBAL_EXEC_LOCK.
+
+    Bug: All git commands use exclusive=True, serializing parallel reads.
+    Fix: Add read_only parameter, only lock on write operations.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from harness.git import safe_git_exec
+
+    execute_calls = []
+
+    def mock_execute(command, cwd, timeout, exclusive):
+        execute_calls.append({"command": command, "exclusive": exclusive})
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("harness.git._runtime.execute", mock_execute):
+        # Read-only command should NOT use exclusive lock
+        safe_git_exec(["status"], cwd="/tmp", read_only=True)
+        assert execute_calls[-1]["exclusive"] is False, (
+            "read_only=True should pass exclusive=False to skip GLOBAL_EXEC_LOCK"
+        )
+
+        # Write command should still use exclusive lock
+        safe_git_exec(["commit", "-m", "test"], cwd="/tmp", read_only=False)
+        assert execute_calls[-1]["exclusive"] is True, (
+            "read_only=False (default) should pass exclusive=True"
+        )

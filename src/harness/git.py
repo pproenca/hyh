@@ -16,9 +16,10 @@ def safe_git_exec(
     args: list[str],
     cwd: str,
     timeout: int = 60,
+    read_only: bool = False,
 ) -> ExecutionResult:
     """
-    Execute git command with exclusive locking via runtime.
+    Execute git command with optional exclusive locking via runtime.
 
     Blocking call is fine because we're in a ThreadingMixIn server.
     Other clients are handled by other threads while we wait.
@@ -27,6 +28,7 @@ def safe_git_exec(
         args: Git command arguments (without 'git' prefix)
         cwd: Working directory for git command
         timeout: Command timeout in seconds
+        read_only: If True, skip GLOBAL_EXEC_LOCK (for parallel reads)
 
     Returns:
         ExecutionResult with returncode, stdout, stderr
@@ -35,7 +37,7 @@ def safe_git_exec(
         ["git", *args],
         cwd=cwd,
         timeout=timeout,
-        exclusive=True,
+        exclusive=not read_only,
     )
 
 
@@ -67,7 +69,7 @@ def safe_commit(cwd: str, message: str) -> ExecutionResult:
 
 def get_head_sha(cwd: str) -> str | None:
     """Get current HEAD commit SHA."""
-    result = safe_git_exec(["rev-parse", "HEAD"], cwd=cwd)
+    result = safe_git_exec(["rev-parse", "HEAD"], cwd=cwd, read_only=True)
     if result.returncode == 0:
         return result.stdout.strip()
     return None
