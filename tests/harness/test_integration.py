@@ -10,6 +10,7 @@ import subprocess
 import threading
 import time
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -1182,3 +1183,72 @@ def test_concurrent_state_and_trajectory_operations(workflow_with_parallel_tasks
     # Verify all tasks were unique
     task_ids = [task_id for _, task_id in results]
     assert len(set(task_ids)) == 3, "Workers should have claimed different tasks"
+
+
+def test_multi_project_isolation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two projects run concurrently with isolated daemons."""
+    import subprocess
+
+    from harness.daemon import HarnessDaemon
+    from harness.registry import ProjectRegistry
+
+    # Create two projects
+    project_a = tmp_path / "project_a"
+    project_b = tmp_path / "project_b"
+    for p in [project_a, project_b]:
+        p.mkdir()
+        (p / ".claude").mkdir()
+        subprocess.run(["git", "init"], cwd=p, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=p,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=p,
+            capture_output=True,
+            check=True,
+        )
+        (p / "file.txt").write_text("initial")
+        subprocess.run(["git", "add", "-A"], cwd=p, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "initial"], cwd=p, capture_output=True, check=True)
+
+    # Configure shared registry via env var
+    registry_file = tmp_path / "registry.json"
+    monkeypatch.setenv("HARNESS_REGISTRY_FILE", str(registry_file))
+
+    # Clear HARNESS_SOCKET to use hash-based paths
+    monkeypatch.delenv("HARNESS_SOCKET", raising=False)
+
+    # Use unique socket paths based on worktree hash
+    from harness.client import get_socket_path
+
+    socket_a = get_socket_path(project_a)
+    socket_b = get_socket_path(project_b)
+
+    # Sockets should be different
+    assert socket_a != socket_b
+
+    # Spawn daemon for project A
+    daemon_a = HarnessDaemon(socket_a, str(project_a))
+
+    try:
+        # Spawn daemon for project B
+        daemon_b = HarnessDaemon(socket_b, str(project_b))
+
+        try:
+            # Both daemons running concurrently
+            assert Path(socket_a).exists()
+            assert Path(socket_b).exists()
+
+            # Registry has both projects (tests race-condition safety)
+            registry = ProjectRegistry(registry_file)
+            projects = registry.list_projects()
+            assert len(projects) == 2
+
+        finally:
+            daemon_b.server_close()
+    finally:
+        daemon_a.server_close()
