@@ -93,7 +93,7 @@ class TrajectoryLogger:
                 return []
 
             # Read from end in blocks until we have enough lines
-            buffer = b""
+            chunks: list[bytes] = []
             position = file_size
             bytes_read = 0
 
@@ -109,10 +109,11 @@ class TrajectoryLogger:
                 # Seek to position and read
                 f.seek(position)
                 chunk = f.read(read_size)
-                buffer = chunk + buffer
+                chunks.insert(0, chunk)  # Insert at beginning to maintain order
                 bytes_read += read_size
 
-                # Try to split into lines
+                # Try to split into lines (check periodically to decide if we have enough)
+                buffer = b"".join(chunks)
                 lines = buffer.split(b"\n")
 
                 # If we have enough lines (accounting for potential empty line at end)
