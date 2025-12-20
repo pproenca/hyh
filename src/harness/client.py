@@ -313,13 +313,42 @@ def _format_relative_time(iso_timestamp: str) -> str:
     return f"{int(delta // 3600)}h ago"
 
 
-def _cmd_status(
-    socket_path: str,
-    worktree_root: str,
-    json_output: bool = False,
-    watch_interval: int | None = None,
-) -> None:
+def _cmd_status_all() -> int:
+    """List all registered projects with status."""
+    from harness.registry import ProjectRegistry
+
+    registry = ProjectRegistry()
+    projects = registry.list_projects()
+
+    if not projects:
+        print("No projects registered.")
+        return 0
+
+    print("Projects:")
+    for hash_id, info in projects.items():
+        path = info["path"]
+        # Check if daemon is running by testing socket
+        sock_path = str(Path.home() / ".harness" / "sockets" / f"{hash_id}.sock")
+        status = "[running]" if Path(sock_path).exists() else "[stopped]"
+
+        # Check if path exists
+        if not Path(path).exists():
+            status = "[stale - path not found]"
+
+        print(f"  {path}  {status}")
+
+    return 0
+
+
+def _cmd_status(args: argparse.Namespace, socket_path: str, worktree_root: str) -> None:
     """Display workflow status with progress, tasks, and recent events."""
+    # Handle --all flag
+    if getattr(args, "all", False):
+        _cmd_status_all()
+        return
+
+    json_output = args.json
+    watch_interval = args.watch
 
     def render_once() -> bool:
         """Render status once. Returns True if workflow is active."""
@@ -496,12 +525,19 @@ def _cmd_status(
             print("\nStopped watching.")
     else:
         render_once()
+    return
 
 
 def main() -> None:
     """CLI entry point using argparse."""
     parser = argparse.ArgumentParser(
         prog="harness", description="Thread-safe state management for dev-workflow"
+    )
+    parser.add_argument(
+        "--project",
+        type=str,
+        default=None,
+        help="Path to project worktree (default: auto-detect from cwd)",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -601,10 +637,19 @@ def main() -> None:
         metavar="SECONDS",
         help="Auto-refresh (default: 2s)",
     )
+    status_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="List all registered projects",
+    )
 
     args = parser.parse_args()
 
-    worktree_root = os.getenv("HARNESS_WORKTREE") or _get_git_root()
+    # Update worktree resolution to respect --project flag
+    if args.project:
+        worktree_root = str(Path(args.project).resolve())
+    else:
+        worktree_root = os.getenv("HARNESS_WORKTREE") or _get_git_root()
     socket_path = get_socket_path(Path(worktree_root))
 
     # Route commands
@@ -656,7 +701,7 @@ def main() -> None:
     elif args.command == "worker-id":
         _cmd_worker_id()
     elif args.command == "status":
-        _cmd_status(socket_path, worktree_root, json_output=args.json, watch_interval=args.watch)
+        _cmd_status(args, socket_path, worktree_root)
 
 
 def _cmd_ping(socket_path: str, worktree_root: str) -> None:

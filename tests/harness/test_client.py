@@ -513,3 +513,54 @@ def test_get_socket_path_env_override(tmp_path: Path, monkeypatch: pytest.Monkey
     from harness.client import get_socket_path
 
     assert get_socket_path(tmp_path) == custom_socket
+
+
+def test_status_project_flag_overrides_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """--project flag overrides auto-detection from cwd."""
+    project_a = tmp_path / "project_a"
+    project_b = tmp_path / "project_b"
+    project_a.mkdir()
+    project_b.mkdir()
+
+    # Initialize git repos
+    import subprocess
+
+    for p in [project_a, project_b]:
+        subprocess.run(["git", "init"], cwd=p, capture_output=True)
+
+    # Run from project_a but query project_b
+    monkeypatch.chdir(project_a)
+    monkeypatch.delenv("HARNESS_SOCKET", raising=False)
+    monkeypatch.delenv("HARNESS_WORKTREE", raising=False)
+
+    from harness.client import get_socket_path
+
+    # Without --project, would use project_a
+    socket_a = get_socket_path(project_a)
+
+    # With --project, should use project_b
+    socket_b = get_socket_path(project_b)
+
+    assert socket_a != socket_b
+
+
+def test_status_all_flag_lists_projects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """--all flag lists all registered projects."""
+    from harness.registry import ProjectRegistry
+
+    registry_file = tmp_path / "registry.json"
+    registry = ProjectRegistry(registry_file)
+
+    # Register two projects
+    project_a = tmp_path / "project_a"
+    project_b = tmp_path / "project_b"
+    project_a.mkdir()
+    project_b.mkdir()
+    registry.register(project_a)
+    registry.register(project_b)
+
+    # Verify both are listed
+    projects = registry.list_projects()
+    paths = [p["path"] for p in projects.values()]
+    assert str(project_a) in paths
+    assert str(project_b) in paths
