@@ -279,43 +279,37 @@ wait_for_user
 
 print_header "Step 3: Importing Plans from LLM Output"
 
-print_step "LLM orchestrators emit plans in markdown with JSON blocks"
-print_info "The 'plan import' command extracts and validates the DAG"
+print_step "LLM orchestrators emit plans in structured Markdown format"
+print_info "The 'plan import' command parses and validates the DAG"
 echo ""
 
 # Create a sample LLM-style plan file
 cat > "$DEMO_DIR/llm-output.md" << 'PLANEOF'
 I'll create a plan for building the API:
 
-```json
-{
-  "goal": "Build REST API with authentication",
-  "tasks": {
-    "setup-db": {
-      "description": "Initialize database schema",
-      "dependencies": [],
-      "timeout_seconds": 300,
-      "instructions": "Create tables for users and sessions",
-      "role": "backend"
-    },
-    "auth-endpoints": {
-      "description": "Implement login/logout endpoints",
-      "dependencies": ["setup-db"],
-      "timeout_seconds": 600,
-      "instructions": "Use JWT tokens with 24h expiry",
-      "role": "backend"
-    },
-    "api-tests": {
-      "description": "Write integration tests",
-      "dependencies": ["auth-endpoints"],
-      "timeout_seconds": 300,
-      "role": "backend"
-    }
-  }
-}
-```
+**Goal:** Build REST API with authentication
 
-This plan ensures proper sequencing.
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | setup-db | Core infrastructure |
+| Group 2    | auth-endpoints | Depends on DB |
+| Group 3    | api-tests | Integration tests |
+
+---
+
+### Task setup-db: Initialize database schema
+
+Create tables for users and sessions using SQLAlchemy.
+
+### Task auth-endpoints: Implement login/logout endpoints
+
+Use JWT tokens with 24h expiry. Create /login and /logout routes.
+
+### Task api-tests: Write integration tests
+
+Test full authentication flow with pytest.
 PLANEOF
 
 echo -e "  ${BOLD}Sample LLM output file:${NC}"
@@ -330,88 +324,20 @@ run_command "harness plan import --file '$DEMO_DIR/llm-output.md'"
 print_step "View the imported state"
 echo ""
 
-run_command "harness get-state | jq '.tasks | to_entries[] | {id: .key, status: .value.status, deps: .value.dependencies, role: .value.role}'"
+run_command "harness get-state | jq '.tasks | to_entries[] | {id: .key, status: .value.status, deps: .value.dependencies}'"
 
-print_explanation "Notice the 'instructions' and 'role' fields - metadata for LLM agents"
-print_explanation "The parser extracts JSON from markdown, ignoring thinking tokens"
+print_explanation "Dependencies are inferred from Task Groups (Group N depends on Group N-1)"
+print_explanation "Task instructions come from the Markdown body under each ### Task header"
 echo ""
 
 print_step "Get the plan template (shows format documentation)"
 echo ""
 
-run_command "harness plan template | head -30"
+run_command "harness plan template | head -50"
 
-print_explanation "Use 'plan template' to get the full JSON schema for LLM prompting"
+print_explanation "Use 'plan template' to see the full Markdown format for LLM prompting"
 
 wait_for_user
-
-# Restore original workflow for the rest of the demo
-cat > "$DEMO_STATE_DIR/dev-workflow-state.json" << 'EOF'
-{
-  "tasks": {
-    "setup": {
-      "id": "setup",
-      "description": "Set up project scaffolding",
-      "status": "pending",
-      "dependencies": [],
-      "started_at": null,
-      "completed_at": null,
-      "claimed_by": null,
-      "timeout_seconds": 600,
-      "instructions": "Initialize project structure with src/ and tests/ directories",
-      "role": null
-    },
-    "backend": {
-      "id": "backend",
-      "description": "Implement backend API",
-      "status": "pending",
-      "dependencies": ["setup"],
-      "started_at": null,
-      "completed_at": null,
-      "claimed_by": null,
-      "timeout_seconds": 600,
-      "instructions": "Create REST endpoints with JSON responses",
-      "role": "backend"
-    },
-    "frontend": {
-      "id": "frontend",
-      "description": "Implement frontend UI",
-      "status": "pending",
-      "dependencies": ["setup"],
-      "started_at": null,
-      "completed_at": null,
-      "claimed_by": null,
-      "timeout_seconds": 600,
-      "instructions": "Build React components with TypeScript",
-      "role": "frontend"
-    },
-    "integration": {
-      "id": "integration",
-      "description": "Integration testing",
-      "status": "pending",
-      "dependencies": ["backend", "frontend"],
-      "started_at": null,
-      "completed_at": null,
-      "claimed_by": null,
-      "timeout_seconds": 600,
-      "instructions": null,
-      "role": null
-    },
-    "deploy": {
-      "id": "deploy",
-      "description": "Deploy to production",
-      "status": "pending",
-      "dependencies": ["integration"],
-      "started_at": null,
-      "completed_at": null,
-      "claimed_by": null,
-      "timeout_seconds": 600,
-      "instructions": null,
-      "role": null
-    }
-  }
-}
-EOF
 
 # ============================================================================
 # BASIC COMMANDS
@@ -435,8 +361,36 @@ echo ""
 
 run_command "harness get-state | jq . | head -40"
 
-print_explanation "All 5 tasks are 'pending' - none have been claimed yet"
-print_explanation "Only 'setup' is claimable (it has no dependencies)"
+print_explanation "All 3 tasks are 'pending' - none have been claimed yet"
+print_explanation "Only 'setup-db' is claimable (it has no dependencies)"
+
+wait_for_user
+
+# ============================================================================
+# STATUS DASHBOARD
+# ============================================================================
+
+print_header "Step 5: Status Dashboard"
+
+print_step "View workflow status at a glance"
+print_info "The 'status' command provides a real-time dashboard"
+echo ""
+
+run_command "harness status"
+
+print_explanation "Progress bar shows completion percentage"
+print_explanation "Task table shows status, worker, and blocking dependencies"
+print_explanation "Recent events show what happened and when"
+
+wait_for_user
+
+print_step "Machine-readable output for scripting"
+echo ""
+
+run_command "harness status --json | jq '.summary'"
+
+print_explanation "Use --json for CI/CD integration"
+print_explanation "Use --watch for live updates (e.g., harness status --watch 2)"
 
 wait_for_user
 
@@ -444,7 +398,7 @@ wait_for_user
 # TASK WORKFLOW
 # ============================================================================
 
-print_header "Step 5: Task Claiming and Completion"
+print_header "Step 6: Task Claiming and Completion"
 
 print_step "Claim the first available task"
 print_info "Each worker gets a unique ID and claims tasks atomically"
@@ -452,7 +406,7 @@ echo ""
 
 run_command "harness task claim"
 
-print_explanation "We got 'setup' - the only task with no dependencies"
+print_explanation "We got 'setup-db' - the only task with no dependencies"
 print_explanation "The task is now 'running' and locked to our worker ID"
 
 wait_for_user
@@ -468,10 +422,10 @@ print_explanation "It renews the lease timestamp, preventing task theft on retri
 
 wait_for_user
 
-print_step "Complete the setup task"
+print_step "Complete the setup-db task"
 echo ""
 
-run_command "harness task complete --id setup"
+run_command "harness task complete --id setup-db"
 
 print_success "Task completed!"
 echo ""
@@ -489,14 +443,15 @@ run_command "harness get-state | jq -r '
   \"\(\$tid): \(\$status)\(\$marker)\"
 '"
 
-print_explanation "Both 'backend' and 'frontend' are now claimable!"
-print_explanation "They can run in parallel (different workers could claim each)"
+print_explanation "'auth-endpoints' is now claimable (depends on completed 'setup-db')"
+print_explanation "'api-tests' is still blocked (depends on 'auth-endpoints')"
 
 wait_for_user
 
-print_step "Claim and complete the parallel tasks"
+print_step "Complete the remaining tasks"
 echo ""
 
+# Claim and complete auth-endpoints
 echo -e "${YELLOW}  \$ harness task claim${NC}"
 CLAIM_RESULT=$(harness task claim)
 TASK_ID=$(echo "$CLAIM_RESULT" | jq -r '.task.id')
@@ -507,6 +462,7 @@ echo -e "${YELLOW}  \$ harness task complete --id $TASK_ID${NC}"
 harness task complete --id "$TASK_ID"
 echo ""
 
+# Claim and complete api-tests
 echo -e "${YELLOW}  \$ harness task claim${NC}"
 CLAIM_RESULT=$(harness task claim)
 TASK_ID=$(echo "$CLAIM_RESULT" | jq -r '.task.id')
@@ -517,24 +473,6 @@ echo -e "${YELLOW}  \$ harness task complete --id $TASK_ID${NC}"
 harness task complete --id "$TASK_ID"
 echo ""
 
-print_success "Both parallel tasks completed!"
-
-wait_for_user
-
-print_step "Continue through the rest of the workflow"
-echo ""
-
-# Complete remaining tasks
-for _ in 1 2; do
-    CLAIM_RESULT=$(harness task claim 2>/dev/null || echo '{"task": null}')
-    TASK_ID=$(echo "$CLAIM_RESULT" | jq -r '.task.id // empty' 2>/dev/null || echo "")
-    if [ -n "$TASK_ID" ]; then
-        echo -e "    Claiming and completing: ${BOLD}$TASK_ID${NC}"
-        harness task complete --id "$TASK_ID" >/dev/null
-    fi
-done
-
-echo ""
 print_success "All tasks completed!"
 
 wait_for_user
@@ -552,7 +490,7 @@ wait_for_user
 # GIT MUTEX
 # ============================================================================
 
-print_header "Step 6: Git Operations with Mutex"
+print_header "Step 7: Git Operations with Mutex"
 
 print_step "The problem: parallel git operations corrupt .git/index"
 print_info "Two workers running 'git add' simultaneously = data loss"
@@ -578,7 +516,7 @@ wait_for_user
 # HOOK INTEGRATION
 # ============================================================================
 
-print_header "Step 7: Claude Code Hook Integration"
+print_header "Step 8: Claude Code Hook Integration"
 
 print_step "Harness provides hooks for Claude Code plugins"
 print_info "Three hooks: session-start, check-state, check-commit"
@@ -643,10 +581,36 @@ print_explanation "Useful to ensure code changes are persisted"
 wait_for_user
 
 # ============================================================================
+# MULTI-PROJECT ISOLATION
+# ============================================================================
+
+print_header "Step 9: Multi-Project Isolation"
+
+print_step "Each project gets an isolated daemon"
+print_info "Socket paths are hashed from the git worktree root"
+echo ""
+
+print_explanation "This demo project has its own daemon socket at:"
+echo ""
+SOCKET_HASH=$(echo -n "$DEMO_DIR" | shasum -a 256 | head -c 12)
+echo -e "  ${DIM}~/.harness/sockets/${SOCKET_HASH}.sock${NC}"
+echo ""
+
+print_step "View all registered projects"
+echo ""
+
+run_command "harness status --all"
+
+print_explanation "Multiple harness daemons can run simultaneously"
+print_explanation "Use --project <path> to target a specific project"
+
+wait_for_user
+
+# ============================================================================
 # EXEC & TRAJECTORY
 # ============================================================================
 
-print_header "Step 8: Command Execution and Observability"
+print_header "Step 10: Command Execution and Observability"
 
 print_step "Execute arbitrary commands"
 print_info "The 'exec' command runs any shell command through the daemon"
@@ -676,7 +640,7 @@ wait_for_user
 # STATE UPDATE
 # ============================================================================
 
-print_header "Step 9: Direct State Updates"
+print_header "Step 11: Direct State Updates"
 
 print_step "Update state fields directly"
 print_info "Useful for orchestration metadata"
@@ -694,7 +658,7 @@ wait_for_user
 # ARCHITECTURE
 # ============================================================================
 
-print_header "Step 10: Architecture Overview"
+print_header "Step 12: Architecture Overview"
 
 echo -e "  ${BOLD}Client-Daemon Split${NC}"
 echo ""
@@ -703,7 +667,7 @@ echo "    │                        CLIENT (client.py)                        �
 echo "    │  • Imports ONLY stdlib (sys, json, socket, argparse)             │"
 echo "    │  • <50ms startup time                                            │"
 echo "    │  • Zero validation logic                                         │"
-echo "    │  • Just packages argv → JSON → socket                            │"
+echo "    │  • Hash-based socket path for multi-project isolation            │"
 echo "    └──────────────────────────────────────────────────────────────────┘"
 echo "                                   │"
 echo "                           Unix Domain Socket"
@@ -768,7 +732,14 @@ echo -e "    ${YELLOW}harness worker-id${NC}         Print stable worker ID"
 echo ""
 echo -e "  ${BOLD}Plan Management${NC}"
 echo -e "    ${YELLOW}harness plan import --file${NC}  Import LLM-generated plan"
-echo -e "    ${YELLOW}harness plan template${NC}       Show plan JSON format"
+echo -e "    ${YELLOW}harness plan template${NC}       Show Markdown plan format"
+echo -e "    ${YELLOW}harness plan reset${NC}          Clear workflow state"
+echo ""
+echo -e "  ${BOLD}Status Dashboard${NC}"
+echo -e "    ${YELLOW}harness status${NC}            Show workflow dashboard"
+echo -e "    ${YELLOW}harness status --json${NC}     Machine-readable output"
+echo -e "    ${YELLOW}harness status --watch${NC}    Auto-refresh mode"
+echo -e "    ${YELLOW}harness status --all${NC}      List all projects"
 echo ""
 echo -e "  ${BOLD}State Management${NC}"
 echo -e "    ${YELLOW}harness get-state${NC}         Get current workflow state"
@@ -805,6 +776,7 @@ echo "     src/harness/runtime.py   - Local/Docker execution"
 echo "     src/harness/plan.py      - Markdown plan parser → WorkflowState"
 echo "     src/harness/git.py       - Git operations via runtime"
 echo "     src/harness/acp.py       - Background event emitter"
+echo "     src/harness/registry.py  - Multi-project registry"
 echo ""
 echo -e "  ${BOLD}2. Run the tests${NC}"
 echo "     make test                           # All tests (30s timeout)"
