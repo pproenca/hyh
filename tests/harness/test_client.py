@@ -475,3 +475,41 @@ def test_client_plan_template_does_not_break_import_constraints():
     # pydantic direct import is NOT allowed
     assert "pydantic" not in imports
     assert "harness.plan" in imports
+
+
+def test_get_socket_path_uses_worktree_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Socket path includes hash of worktree for project isolation."""
+    # Clear env override
+    monkeypatch.delenv("HARNESS_SOCKET", raising=False)
+
+    worktree1 = tmp_path / "project1"
+    worktree2 = tmp_path / "project2"
+    worktree1.mkdir()
+    worktree2.mkdir()
+
+    from harness.client import get_socket_path
+
+    path1 = get_socket_path(worktree1)
+    path2 = get_socket_path(worktree2)
+
+    # Different worktrees get different sockets
+    assert path1 != path2
+
+    # Same worktree always gets same socket
+    assert get_socket_path(worktree1) == path1
+
+    # Socket is in ~/.harness/sockets/
+    assert ".harness/sockets/" in path1
+    assert path1.endswith(".sock")
+
+
+def test_get_socket_path_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """HARNESS_SOCKET env var overrides computed path."""
+    custom_socket = str(tmp_path / "custom.sock")
+    monkeypatch.setenv("HARNESS_SOCKET", custom_socket)
+
+    from harness.client import get_socket_path
+
+    assert get_socket_path(tmp_path) == custom_socket

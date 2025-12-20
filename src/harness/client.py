@@ -5,10 +5,11 @@ Harness CLI Client - "Dumb" client with auto-spawn.
 CRITICAL: This module MUST NOT import pydantic or harness.state.
 Every import adds ~200ms latency to git hooks.
 
-Only stdlib allowed: sys, json, socket, os, subprocess, time, argparse, pathlib
+Only stdlib allowed: sys, json, socket, os, subprocess, time, argparse, pathlib, hashlib
 """
 
 import argparse
+import hashlib
 import json
 import os
 import socket
@@ -72,10 +73,32 @@ def get_worker_id() -> str:
 WORKER_ID = get_worker_id()
 
 
-# Default socket path - /tmp is the standard Unix socket location
-def get_socket_path() -> str:
-    runtime_dir = os.getenv("XDG_RUNTIME_DIR", "/tmp")
-    return f"{runtime_dir}/harness-{os.getenv('USER', 'default')}.sock"
+def get_socket_path(worktree: "Path | None" = None) -> str:
+    """Get socket path for a worktree.
+
+    Args:
+        worktree: Git worktree root. If None, uses current directory.
+
+    Returns:
+        Socket path. Uses HARNESS_SOCKET env var if set, otherwise
+        computes hash-based path in ~/.harness/sockets/.
+    """
+    # Environment override takes precedence
+    env_socket = os.getenv("HARNESS_SOCKET")
+    if env_socket:
+        return env_socket
+
+    # Resolve worktree path
+    if worktree is None:
+        worktree = Path.cwd()
+    worktree = Path(worktree).resolve()
+
+    # Hash-based socket in ~/.harness/sockets/
+    harness_dir = Path.home() / ".harness" / "sockets"
+    harness_dir.mkdir(parents=True, exist_ok=True)
+
+    path_hash = hashlib.sha256(str(worktree).encode()).hexdigest()[:16]
+    return str(harness_dir / f"{path_hash}.sock")
 
 
 def spawn_daemon(worktree_root: str, socket_path: str) -> None:
@@ -581,8 +604,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    socket_path = os.getenv("HARNESS_SOCKET", get_socket_path())
     worktree_root = os.getenv("HARNESS_WORKTREE") or _get_git_root()
+    socket_path = get_socket_path(Path(worktree_root))
 
     # Route commands
     if args.command == "ping":
