@@ -154,23 +154,33 @@ Expected: FAIL with `ValueError: No state loaded`
 
 **Step 3: Write minimal implementation** (5 min)
 
-In `src/harness/state.py`, modify `_ensure_state_loaded`:
+In `src/harness/state.py`, modify `_ensure_state_loaded` to use lazy-loading with caching:
 
 ```python
 def _ensure_state_loaded(self) -> WorkflowState:
-    """Return cached state. Must be called with lock held.
+    """Return cached state, lazy-loading from disk if necessary.
 
-    The daemon is the source of truth. State is loaded once via load()
-    or set via save(), then cached in memory for all subsequent operations.
+    Uses memory-first strategy: returns cached state if available,
+    otherwise loads from disk on first access and caches for subsequent calls.
 
     Returns:
-        The cached WorkflowState.
+        The WorkflowState (from cache or freshly loaded).
 
     Raises:
-        ValueError: If no state has been loaded or saved yet.
+        ValueError: If no state file exists and no state cached.
     """
-    if self._state is None:
+    # 1. Fast path: Memory hit
+    if self._state is not None:
+        return self._state
+
+    # 2. Slow path: First load (Cold start)
+    if not self.state_file.exists():
         raise ValueError("No state loaded and no state file exists")
+
+    # Load, Cache, Return
+    content = self.state_file.read_text()
+    data = json.loads(content)
+    self._state = WorkflowState(**data)
     return self._state
 ```
 
@@ -183,20 +193,6 @@ def save(self, state: WorkflowState) -> None:
         state.validate_dag()
         self._state = state  # Cache the state
         self._write_atomic(state)
-```
-
-And update `load()` to populate the cache:
-
-```python
-def load(self) -> WorkflowState | None:
-    """Load state from disk into memory cache."""
-    with self._lock:
-        if not self.state_file.exists():
-            return None
-        content = self.state_file.read_text()
-        data = json.loads(content)
-        self._state = WorkflowState(**data)
-        return self._state
 ```
 
 **Step 4: Run test to verify it passes** (30 sec)
