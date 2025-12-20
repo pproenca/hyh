@@ -164,7 +164,7 @@ def test_separate_lock_from_state(temp_trajectory_dir, logger):
     """Test that TrajectoryLogger has its own lock, separate from StateManager."""
     # Verify logger has its own _lock attribute
     assert hasattr(logger, "_lock")
-    assert isinstance(logger._lock, threading.Lock)
+    assert isinstance(logger._lock, type(threading.Lock()))
 
     # Verify it's a different instance than what StateManager would use
     # (This test just verifies the lock exists; integration will test separation)
@@ -361,7 +361,7 @@ def test_log_does_not_hold_lock_during_fsync(tmp_path):
         original_fsync(fd)
 
     # Patch fsync to be slow
-    os.fsync = slow_fsync
+    os.fsync = slow_fsync  # type: ignore
 
     try:
         threads = []

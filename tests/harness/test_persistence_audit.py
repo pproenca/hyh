@@ -179,6 +179,7 @@ class TestCacheInvalidation:
 
             # Load to cache
             loaded = manager.load()
+            assert loaded is not None
             assert loaded.tasks["t1"].description == "original"
 
             # External modification (simulating another process)
@@ -200,6 +201,7 @@ class TestCacheInvalidation:
 
             # Load again - should see external changes
             loaded2 = manager.load()
+            assert loaded2 is not None
             # This documents current behavior - load() re-reads the file
             assert loaded2.tasks["t1"].description == "externally modified"
 
@@ -391,6 +393,7 @@ class TestStateFilePermissionDenied:
             # (state_file should exist and be valid JSON after save)
             assert manager.state_file.exists()
             loaded = manager.load()
+            assert loaded is not None
             assert "t1" in loaded.tasks
 
     def test_nonexistent_directory_creates_parents(self) -> None:

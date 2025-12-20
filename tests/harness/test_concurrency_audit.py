@@ -250,6 +250,7 @@ class TestDatetimeTimezoneConfusion:
 
             # Reload and verify datetime handling
             loaded = manager.load()
+            assert loaded is not None
             assert loaded.tasks["task-1"].started_at is not None
 
             # is_timed_out should work without TypeError
@@ -276,18 +277,19 @@ class TestWorkerIdRaceCondition:
 
             def get_id() -> None:
                 try:
-                    with patch.dict(os.environ, {"HARNESS_WORKER_ID_FILE": str(worker_id_file)}):
-                        wid = get_worker_id()
-                        worker_ids.append(wid)
+                    wid = get_worker_id()
+                    worker_ids.append(wid)
                 except Exception as e:
                     errors.append(e)
 
             # Spawn many threads to trigger race
-            threads = [threading.Thread(target=get_id) for _ in range(20)]
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join()
+            # Use patch.dict globally for all threads as it modifies global os.environ
+            with patch.dict(os.environ, {"HARNESS_WORKER_ID_FILE": str(worker_id_file)}):
+                threads = [threading.Thread(target=get_id) for _ in range(20)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
 
             # All threads should complete without errors
             assert len(errors) == 0, f"Errors during concurrent get_worker_id: {errors}"
@@ -410,6 +412,7 @@ class TestStateManagerLocking:
 
             # Verify state consistency - completed count should match what we tracked
             final_state = manager.load()
+            assert final_state is not None
             completed_count = sum(
                 1 for t in final_state.tasks.values() if t.status == TaskStatus.COMPLETED
             )

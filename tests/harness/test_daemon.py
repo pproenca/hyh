@@ -146,6 +146,7 @@ def test_daemon_update_state(socket_path, worktree):
 
         # Verify persisted
         loaded = StateManager(worktree).load()
+        assert loaded is not None
         assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
         assert "task-2" in loaded.tasks
     finally:
@@ -363,6 +364,7 @@ def test_handle_task_claim_marks_running(daemon_with_state, socket_path):
 
     manager = StateManager(worktree)
     state = manager.load()
+    assert state is not None
     assert state.tasks["task1"].status.value == "running"
     assert state.tasks["task1"].claimed_by == "worker1"
     assert state.tasks["task1"].started_at is not None
@@ -434,6 +436,7 @@ def test_handle_task_complete_marks_completed(daemon_with_state, socket_path):
 
     manager = StateManager(worktree)
     state = manager.load()
+    assert state is not None
     assert state.tasks[task_id].status.value == "completed"
     assert state.tasks[task_id].completed_at is not None
 

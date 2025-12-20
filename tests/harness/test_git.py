@@ -75,7 +75,7 @@ def test_uses_global_exec_lock():
 
     from harness.runtime import GLOBAL_EXEC_LOCK
 
-    assert isinstance(GLOBAL_EXEC_LOCK, threading.Lock)
+    assert isinstance(GLOBAL_EXEC_LOCK, type(threading.Lock()))
 
 
 def test_git_uses_exclusive_locking(monkeypatch):

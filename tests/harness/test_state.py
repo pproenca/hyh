@@ -500,6 +500,7 @@ def test_state_manager_json_update_modifies_json(tmp_path):
 
     # Verify persisted in JSON
     loaded = StateManager(tmp_path).load()
+    assert loaded is not None
     assert loaded.tasks["task-1"].description == "Task 1 Updated"
 
 
@@ -542,6 +543,7 @@ def test_claim_task_atomic(tmp_path):
 
     # Verify persisted
     loaded = StateManager(tmp_path).load()
+    assert loaded is not None
     assert loaded.tasks["task-1"].claimed_by == "worker-1"
     assert loaded.tasks["task-1"].status == TaskStatus.RUNNING
 
@@ -598,6 +600,7 @@ def test_claim_task_renews_lease_on_retry(tmp_path):
     assert result.task.id == "task-1"
     assert result.task.claimed_by == "worker-1"
     # Critical: started_at must be renewed
+    assert result.task.started_at is not None
     assert result.task.started_at >= before_claim, "Lease was not renewed on retry"
 
 
@@ -626,6 +629,7 @@ def test_claim_task_lease_renewal_prevents_stealing(tmp_path):
     # Worker A retries (simulating crash recovery)
     result_a = manager.claim_task("worker-A")
     assert result_a.task is not None
+    assert result_a.task.started_at is not None
     assert result_a.task.started_at > nearly_expired, "Lease must be renewed"
 
     # Worker B tries to claim - should get None (no claimable tasks)
@@ -699,6 +703,7 @@ def test_complete_task_atomic(tmp_path):
 
     # Verify persisted
     loaded = StateManager(tmp_path).load()
+    assert loaded is not None
     assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
     assert loaded.tasks["task-1"].completed_at is not None
 
@@ -931,6 +936,7 @@ def test_update_without_prior_load(tmp_path):
             )
         }
     )
+    assert updated is not None
     assert updated.tasks["task-1"].status == TaskStatus.COMPLETED
 
 
@@ -995,6 +1001,7 @@ def test_complete_task_auto_loads_state(tmp_path):
     # Complete without calling load() - should auto-load
     manager.complete_task("task-1", "worker-1")
     loaded = StateManager(tmp_path).load()
+    assert loaded is not None
     assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
 
 

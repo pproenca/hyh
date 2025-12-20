@@ -294,6 +294,7 @@ def test_cli_update_state(integration_worktree):
 
     # Verify state was updated
     loaded = StateManager(worktree).load()
+    assert loaded is not None
     assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
 
 

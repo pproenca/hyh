@@ -60,6 +60,7 @@ class TestSignalDecoding:
 
         # -99 is unlikely to be a real signal
         result = decode_signal(-99)
+        assert result is not None
         assert result == "SIG99" or "99" in result
 
 

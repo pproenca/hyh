@@ -133,7 +133,7 @@ class TestNullAndNoneHandling:
         try:
             task = Task(
                 id="t1",
-                description=None,
+                description=None,  # type: ignore
                 status=TaskStatus.PENDING,
                 dependencies=[],  # type: ignore
             )
@@ -335,6 +335,7 @@ class TestSpecialCharacters:
 
             # Reload and verify
             loaded = manager.load()
+            assert loaded is not None
             assert loaded.tasks["t1"].description == tricky_desc
 
 

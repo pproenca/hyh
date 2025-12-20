@@ -14,7 +14,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def detect_cycle(graph: dict[str, list[str]]) -> str | None:
@@ -43,9 +43,8 @@ def detect_cycle(graph: dict[str, list[str]]) -> str | None:
             node, neighbors, idx = stack.pop()
 
             if idx == 0:
-                # First time visiting this node
                 if node in rec_stack:
-                    return node  # Cycle detected
+                    return node
                 if node in visited:
                     continue
                 visited.add(node)
@@ -57,11 +56,10 @@ def detect_cycle(graph: dict[str, list[str]]) -> str | None:
                 # Push current node back with incremented index
                 stack.append((node, neighbors, idx + 1))
                 if neighbor in rec_stack:
-                    return neighbor  # Cycle detected
+                    return neighbor
                 if neighbor not in visited:
                     stack.append((neighbor, graph.get(neighbor, []), 0))
             else:
-                # Done with all neighbors, leaving node
                 rec_stack.discard(node)
 
     return None
@@ -121,19 +119,41 @@ class WorkflowState(BaseModel):
 
     tasks: dict[str, Task] = Field(default_factory=dict, description="Task DAG")
 
+    @model_validator(mode="before")
+    @classmethod
+    def validate_tasks_list(cls, data: Any) -> Any:
+        """Allow initializing tasks with a list, converting to dict keyed by ID."""
+        match data:
+            case {"tasks": list(tasks)}:
+                new_tasks = {}
+                for task in tasks:
+                    match task:
+                        case Task(id=t_id):
+                            new_tasks[t_id] = task
+                        case {"id": str(t_id)}:
+                            new_tasks[t_id] = task
+                        case dict():
+                            raise ValueError("Task dictionary must have 'id' field")
+                        case _:
+                            pass
+                
+                if new_tasks:
+                   data["tasks"] = new_tasks
+            case _:
+                pass
+        return data
+
     def validate_dag(self) -> None:
         """Ensure no circular dependencies and all dependencies exist.
 
         Raises:
             ValueError: If a dependency cycle is detected or dependency is missing.
         """
-        # Check all dependencies exist
         for task_id, task in self.tasks.items():
             for dep in task.dependencies:
                 if dep not in self.tasks:
                     raise ValueError(f"Missing dependency: {dep} (in {task_id})")
 
-        # Check for cycles
         graph = {task_id: task.dependencies for task_id, task in self.tasks.items()}
         if cycle_node := detect_cycle(graph):
             raise ValueError(f"Cycle detected at {cycle_node}")
@@ -155,7 +175,9 @@ class WorkflowState(BaseModel):
                         raise ValueError(f"Missing dependency: {dep_id} (in {task.id})")
                     if self.tasks[dep_id].status != TaskStatus.COMPLETED:
                         deps_satisfied = False
-                        break  # Early exit on first unsatisfied dependency
+                    if self.tasks[dep_id].status != TaskStatus.COMPLETED:
+                        deps_satisfied = False
+                        break
 
                 if deps_satisfied:
                     return task
@@ -212,15 +234,12 @@ class StateManager:
         Raises:
             ValueError: If no state file exists and no state cached.
         """
-        # 1. Fast path: Memory hit
         if self._state is not None:
             return self._state
 
-        # 2. Slow path: First load (Cold start)
         if not self.state_file.exists():
             raise ValueError("No state loaded and no state file exists")
 
-        # Load, Cache, Return
         content = self.state_file.read_text()
         data = json.loads(content)
         self._state = WorkflowState(**data)
@@ -251,8 +270,8 @@ class StateManager:
     def save(self, state: WorkflowState) -> None:
         """Save state to disk and cache in memory."""
         with self._lock:
-            state.validate_dag()  # Reject cycles before persisting
-            self._state = state  # Cache the state
+            state.validate_dag()
+            self._state = state
             self._write_atomic(state)
 
     def update(self, **kwargs: Any) -> WorkflowState:
@@ -264,7 +283,6 @@ class StateManager:
         with self._lock:
             self._ensure_state_loaded()
 
-            # Convert raw dicts to Task objects (Pydantic validation at boundary)
             if "tasks" in kwargs and isinstance(kwargs["tasks"], dict):
                 validated_tasks: dict[str, Task] = {}
                 for task_id, task_data in kwargs["tasks"].items():
@@ -279,27 +297,16 @@ class StateManager:
             return self._state
 
     def claim_task(self, worker_id: str) -> ClaimResult:
-        """Atomically claim a task for worker with retry/reclaim metadata.
-
-        Returns ClaimResult with is_retry and is_reclaim flags computed atomically,
-        preventing race conditions from stale state reads.
-
-        Raises:
-            ValueError: If worker_id is empty or whitespace-only
-        """
-        # Validate worker_id
         if not worker_id or not worker_id.strip():
             raise ValueError("Worker ID cannot be empty or whitespace-only")
 
         with self._lock:
             state = self._ensure_state_loaded()
 
-            # Check if worker already has a task (idempotency)
             task = state.get_task_for_worker(worker_id)
             if not task:
                 return ClaimResult(task=None, is_retry=False, is_reclaim=False)
 
-            # Determine flags BEFORE modifying task
             was_already_claimed_by_worker = task.claimed_by == worker_id
             is_retry = was_already_claimed_by_worker and task.status == TaskStatus.RUNNING
             is_reclaim = (
@@ -308,7 +315,6 @@ class StateManager:
                 and task.is_timed_out()
             )
 
-            # ALWAYS renew the lease (prevents task stealing on retry)
             now = datetime.now(UTC)
             task.started_at = now
 
