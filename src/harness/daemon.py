@@ -30,6 +30,7 @@ from typing import Any
 from .acp import ACPEmitter
 from .git import safe_git_exec
 from .plan import parse_plan_content
+from .registry import ProjectRegistry
 from .runtime import Runtime, create_runtime, decode_signal
 from .state import StateManager
 from .trajectory import TrajectoryLogger
@@ -423,6 +424,10 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
             self.worktree_root / ".claude" / "trajectory.jsonl"
         )
         self.acp_emitter = acp_emitter
+
+        # Register project in registry
+        registry = ProjectRegistry()  # Uses HARNESS_REGISTRY_FILE env var
+        registry.register(self.worktree_root)
         self.runtime = create_runtime()
         self.runtime.check_capabilities()  # Fail fast if dependencies unavailable
         self._lock_fd = None

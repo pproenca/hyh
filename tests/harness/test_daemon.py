@@ -12,6 +12,7 @@ import json
 import socket
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -990,3 +991,53 @@ def test_handle_status_with_running_task(daemon_with_state, socket_path):
     assert response["status"] == "ok"
     assert response["data"]["summary"]["running"] >= 1
     assert "test-worker" in response["data"]["active_workers"]
+
+
+def test_daemon_registers_with_registry(
+    tmp_path: Path, socket_path: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Daemon registers project in registry on spawn."""
+    import subprocess
+
+    from harness.daemon import HarnessDaemon
+    from harness.registry import ProjectRegistry
+
+    registry_file = tmp_path / "registry.json"
+    worktree = tmp_path / "project"
+    worktree.mkdir()
+    (worktree / ".claude").mkdir()
+
+    # Initialize git repo
+    subprocess.run(["git", "init"], cwd=worktree, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=worktree,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=worktree,
+        capture_output=True,
+        check=True,
+    )
+    (worktree / "file.txt").write_text("content")
+    subprocess.run(["git", "add", "-A"], cwd=worktree, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"], cwd=worktree, capture_output=True, check=True
+    )
+
+    # Use env var to configure registry path (keeps HarnessDaemon signature clean)
+    monkeypatch.setenv("HARNESS_REGISTRY_FILE", str(registry_file))
+
+    # Spawn daemon
+    daemon = HarnessDaemon(socket_path, str(worktree))
+
+    try:
+        # Verify project was registered
+        registry = ProjectRegistry(registry_file)
+        projects = registry.list_projects()
+        paths = [p["path"] for p in projects.values()]
+        assert str(worktree) in paths
+    finally:
+        daemon.server_close()
