@@ -378,3 +378,41 @@ def fast_worktree(tmp_path: Path, git_template_dir: Path) -> Path:
         check=True,
     )
     return worktree
+
+
+# =============================================================================
+# Benchmark Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def benchmark_state_manager(tmp_path):
+    """Pre-configured StateManager for benchmark tests."""
+    from harness.state import StateManager
+
+    return StateManager(tmp_path)
+
+
+@pytest.fixture
+def large_dag_state(tmp_path):
+    """Create a 1000-task DAG for benchmark tests.
+
+    Returns (manager, state) tuple where state has linear chain dependencies.
+    """
+    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+
+    manager = StateManager(tmp_path)
+    tasks = {}
+    for i in range(1000):
+        task_id = f"task-{i}"
+        dependencies = [f"task-{i - 1}"] if i > 0 else []
+        tasks[task_id] = Task(
+            id=task_id,
+            description=f"Task {i}",
+            status=TaskStatus.PENDING,
+            dependencies=dependencies,
+            timeout_seconds=600,
+        )
+    state = WorkflowState(tasks=tasks)
+    manager.save(state)
+    return manager, state
