@@ -813,7 +813,12 @@ def test_daemon_sigterm_triggers_shutdown(tmp_path):
     proc.send_signal(signal.SIGTERM)
 
     # Wait for graceful exit
-    proc.wait(timeout=5)
+    try:
+        proc.wait(timeout=5)
+    finally:
+        # Close pipe handles to prevent ResourceWarning
+        proc.stdout.close()
+        proc.stderr.close()
 
     # Should exit cleanly (code 0)
     assert proc.returncode == 0
@@ -860,7 +865,12 @@ def test_daemon_sigint_triggers_shutdown(tmp_path):
         time.sleep(0.1)
 
     proc.send_signal(signal.SIGINT)
-    proc.wait(timeout=5)
+    try:
+        proc.wait(timeout=5)
+    finally:
+        # Close pipe handles to prevent ResourceWarning
+        proc.stdout.close()
+        proc.stderr.close()
 
     assert proc.returncode == 0
     assert not Path(socket_path).exists()

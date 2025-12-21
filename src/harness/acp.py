@@ -49,6 +49,11 @@ class ACPEmitter:
                     sock.connect((self._host, self._port))
                 except OSError:
                     self._disabled.set()
+                    # Close socket before discarding to prevent resource leak
+                    # (sock may be None if socket() itself failed)
+                    if sock is not None:
+                        with contextlib.suppress(OSError):
+                            sock.close()
                     sock = None
                     if not self._warned:
                         msg = f"ACP: Claude Code not available on port {self._port}"

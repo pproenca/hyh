@@ -18,6 +18,17 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def isolate_git_config(monkeypatch):
+    """Isolate tests from user's global git config.
+
+    Prevents GPG signing, custom hooks, and other user config
+    from affecting test execution.
+    """
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+
+
 @pytest.fixture
 def socket_path(tmp_path):
     """Generate a short socket path in /tmp to avoid macOS AF_UNIX path length limit."""
