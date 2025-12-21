@@ -195,17 +195,16 @@ class TestTimeoutEdgeCases:
     """Timeout-related edge cases."""
 
     def test_zero_timeout_immediate_timeout(self) -> None:
-        """Task with timeout_seconds=0 should immediately timeout."""
-        task = Task(
-            id="t1",
-            description="x",
-            status=TaskStatus.RUNNING,
-            dependencies=[],
-            started_at=datetime.now() - timedelta(seconds=1),
-            timeout_seconds=0,
-        )
-
-        assert task.is_timed_out() is True
+        """Task with timeout_seconds=0 should be rejected (minimum is 1)."""
+        with pytest.raises(ValueError):
+            Task(
+                id="t1",
+                description="x",
+                status=TaskStatus.RUNNING,
+                dependencies=[],
+                started_at=datetime.now() - timedelta(seconds=1),
+                timeout_seconds=0,
+            )
 
     def test_negative_timeout_rejected(self) -> None:
         """Negative timeout should be rejected."""
@@ -219,17 +218,16 @@ class TestTimeoutEdgeCases:
             )
 
     def test_huge_timeout_handled(self) -> None:
-        """Very large timeout should be handled."""
-        task = Task(
-            id="t1",
-            description="x",
-            status=TaskStatus.RUNNING,
-            dependencies=[],
-            started_at=datetime.now(),
-            timeout_seconds=10**15,  # ~31 million years
-        )
-
-        assert task.is_timed_out() is False
+        """Very large timeout exceeding max (86400) should be rejected."""
+        with pytest.raises(ValueError):
+            Task(
+                id="t1",
+                description="x",
+                status=TaskStatus.RUNNING,
+                dependencies=[],
+                started_at=datetime.now(),
+                timeout_seconds=10**15,  # Exceeds max of 86400
+            )
 
 
 class TestBoundaryValues:

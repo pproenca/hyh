@@ -15,11 +15,11 @@ dev = [
     "pytest>=8.0",
     "pytest-timeout>=2.0",
     "ruff>=0.8",
-    "ruff>=0.8",
-    "pre-commit>=4.0",
     "pre-commit>=4.0",
     "pyupgrade>=3.19",
     "pytest-cov>=7.0.0",
+    "mypy>=1.0",
+    "big-o>=0.11.0",
 ]
 
 [project.scripts]
@@ -43,6 +43,9 @@ default-groups = ["dev"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "--timeout=30"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 
 [tool.ruff]
 line-length = 100

@@ -32,7 +32,7 @@ def test_task_model_basic_validation():
     assert task.id == "task-1"
     assert task.description == "Implement feature X"
     assert task.status == TaskStatus.PENDING
-    assert task.dependencies == []
+    assert task.dependencies == ()
     assert task.started_at is None
     assert task.completed_at is None
     assert task.claimed_by is None
@@ -711,7 +711,7 @@ def test_complete_task_validates_ownership(tmp_path):
     )
     manager.save(state)
 
-    with pytest.raises(ValueError, match="Task task-1 is not claimed by worker-2"):
+    with pytest.raises(ValueError, match="Task task-1 not owned by worker-2"):
         manager.complete_task("task-1", "worker-2")
 
 
@@ -928,7 +928,7 @@ def test_update_without_prior_load(tmp_path):
 def test_update_raises_when_no_state(tmp_path):
     """update() should raise ValueError when no state file exists."""
     manager = StateManager(tmp_path)
-    with pytest.raises(ValueError, match="No state loaded"):
+    with pytest.raises(ValueError, match="No workflow state"):
         manager.update(tasks={})
 
 
@@ -997,7 +997,7 @@ def test_complete_task_raises_for_missing_task(tmp_path):
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(json.dumps({"tasks": {}}))
 
-    with pytest.raises(ValueError, match="Task nonexistent not found"):
+    with pytest.raises(ValueError, match="Task not found: nonexistent"):
         manager.complete_task("nonexistent", "worker-1")
 
 

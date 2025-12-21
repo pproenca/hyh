@@ -696,7 +696,7 @@ def test_ownership_validation_on_complete(workflow_with_tasks):
 
     resp = send_command({"command": "task_complete", "task_id": "task-1", "worker_id": "worker-2"})
     assert resp["status"] == "error"
-    assert "not claimed by" in resp["message"].lower()
+    assert "not owned by" in resp["message"].lower()
 
 
 @pytest.fixture

@@ -453,7 +453,7 @@ def test_handle_task_complete_validates_ownership(daemon_with_state, socket_path
     )
 
     assert response["status"] == "error"
-    assert "not claimed by" in response["message"]
+    assert "not owned by" in response["message"]
 
 
 def test_task_claim_logs_trajectory_after_state_update(daemon_with_state, socket_path, worktree):
