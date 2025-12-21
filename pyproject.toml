@@ -53,11 +53,6 @@ markers = [
     "memcheck: marks memory profiling tests (run with 'make memcheck')",
 ]
 
-[tool.pytest-benchmark]
-disable_gc = true
-warmup = true
-min_rounds = 5
-
 [tool.ruff]
 line-length = 100
 target-version = "py313"

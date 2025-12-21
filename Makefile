@@ -79,7 +79,7 @@ test-file:  ## Run specific test file: make test-file FILE=tests/harness/test_st
 
 .PHONY: benchmark
 benchmark:  ## Run benchmark tests
-	$(PYTEST) -v -m benchmark --benchmark-enable --benchmark-autosave
+	$(PYTEST) -v -m benchmark --benchmark-enable --benchmark-autosave --benchmark-disable-gc --benchmark-warmup=on --benchmark-min-rounds=5
 
 .PHONY: memcheck
 memcheck:  ## Run memory profiling tests
