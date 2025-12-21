@@ -77,6 +77,17 @@ test-fast:  ## Run tests without timeout (faster iteration)
 test-file:  ## Run specific test file: make test-file FILE=tests/harness/test_state.py
 	$(PYTEST) $(FILE) -v
 
+.PHONY: benchmark
+benchmark:  ## Run benchmark tests
+	$(PYTEST) -v -m benchmark --benchmark-enable --benchmark-autosave
+
+.PHONY: memcheck
+memcheck:  ## Run memory profiling tests
+	$(PYTEST) -v -m memcheck --memray
+
+.PHONY: perf
+perf: benchmark memcheck  ## Run all performance tests (benchmark + memory)
+
 .PHONY: check
 check: lint typecheck test  ## Run all checks (lint + typecheck + test)
 
