@@ -4,11 +4,11 @@ import contextlib
 import json
 import socket
 import threading
-import time
 
 import pytest
 
 from harness.acp import ACPEmitter
+from tests.harness.conftest import wait_until
 
 
 @pytest.fixture
@@ -44,7 +44,12 @@ def test_emitter_sends_json(mock_server):
     """ACPEmitter should send JSON lines."""
     emitter = ACPEmitter(port=mock_server["port"])
     emitter.emit({"event": "test", "data": 123})
-    time.sleep(0.1)
+    # Condition-based wait for message receipt (replaces time.sleep(0.1))
+    wait_until(
+        lambda: len(mock_server["received"]) >= 1,
+        timeout=2.0,
+        message="Message not received by mock server",
+    )
     emitter.close()
 
     assert len(mock_server["received"]) == 1
@@ -83,19 +88,26 @@ def test_acp_worker_send_error_disables():
     server.listen(1)
 
     emitter = ACPEmitter(host="127.0.0.1", port=port)
+    connection_established = threading.Event()
 
     def accept_and_close():
         conn, _ = server.accept()
-        time.sleep(0.1)  # Let emitter connect
+        connection_established.set()
         conn.close()
 
     threading.Thread(target=accept_and_close, daemon=True).start()
 
     emitter.emit({"event": "test1"})
-    time.sleep(0.3)
+    # Wait for connection to be established and closed (replaces time.sleep(0.3))
+    connection_established.wait(timeout=2.0)
 
     emitter.emit({"event": "test2"})
-    time.sleep(0.3)
+    # Wait for emitter to detect send failure and disable (replaces time.sleep(0.3))
+    wait_until(
+        lambda: emitter._disabled.is_set(),
+        timeout=2.0,
+        message="Emitter should be disabled after send failure",
+    )
 
     assert emitter._disabled.is_set() is True
     emitter.close()
@@ -112,11 +124,13 @@ def test_acp_worker_cleanup_on_shutdown_with_connection():
     server.listen(1)
 
     connections = []
+    connection_accepted = threading.Event()
 
     def accept_connections():
         try:
             conn, _ = server.accept()
             connections.append(conn)
+            connection_accepted.set()
             # Keep connection open but drain data
             while True:
                 try:
@@ -133,7 +147,8 @@ def test_acp_worker_cleanup_on_shutdown_with_connection():
 
     emitter = ACPEmitter(host="127.0.0.1", port=port)
     emitter.emit({"event": "test"})
-    time.sleep(0.2)  # Let connection establish
+    # Wait for connection to be established (replaces time.sleep(0.2))
+    connection_accepted.wait(timeout=2.0)
 
     # Close should clean up
     emitter.close()
@@ -161,7 +176,12 @@ def test_acp_disabled_flag_is_thread_safe():
     assert not emitter._disabled.is_set()  # Initially not disabled
 
     emitter.emit({"event": "test"})
-    time.sleep(0.2)  # Let worker attempt connection and disable
+    # Wait for worker to attempt connection and disable (replaces time.sleep(0.2))
+    wait_until(
+        lambda: emitter._disabled.is_set(),
+        timeout=2.0,
+        message="Emitter should be disabled after connection failure",
+    )
 
     assert emitter._disabled.is_set()  # Should be disabled after connection failure
     emitter.close()

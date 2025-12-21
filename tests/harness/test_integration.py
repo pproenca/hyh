@@ -10,9 +10,12 @@ import subprocess
 import threading
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+
+from tests.harness.conftest import wait_for_socket, wait_until
 
 
 @pytest.fixture
@@ -65,7 +68,7 @@ def test_parallel_git_operations_no_race(integration_worktree):
     server_thread = threading.Thread(target=daemon.serve_forever)
     server_thread.daemon = True
     server_thread.start()
-    time.sleep(0.2)  # Let daemon fully start
+    wait_for_socket(socket_path)
 
     def send_command(cmd, max_retries=3):
         """Send command to daemon and return response with retry on connection refused."""
@@ -171,7 +174,12 @@ def test_state_persistence_across_daemon_restart(integration_worktree):
 
     send_rpc(socket_path, {"command": "shutdown"}, None)
 
-    time.sleep(0.5)
+    # Wait for daemon to shut down (socket should disappear)
+    wait_until(
+        lambda: not os.path.exists(socket_path),
+        timeout=2.0,
+        message="Daemon socket didn't disappear after shutdown",
+    )
 
     # Reconnect (should auto-spawn new daemon)
     resp = send_rpc(
@@ -363,7 +371,12 @@ def test_cli_shutdown(integration_worktree):
     assert result.returncode == 0
     assert "Shutdown" in result.stdout
 
-    time.sleep(0.5)
+    # Wait for daemon to shut down
+    wait_until(
+        lambda: not os.path.exists(socket_path),
+        timeout=2.0,
+        message="Daemon socket didn't disappear after shutdown",
+    )
 
     import socket
 
@@ -418,7 +431,7 @@ def workflow_with_tasks(integration_worktree):
     server_thread = threading.Thread(target=daemon.serve_forever)
     server_thread.daemon = True
     server_thread.start()
-    time.sleep(0.2)  # Let daemon fully start
+    wait_for_socket(socket_path)
 
     def send_command(cmd, max_retries=3):
         """Send command to daemon and return response with retry on connection refused."""
@@ -574,27 +587,29 @@ def test_task_claim_idempotency(workflow_with_tasks):
 
 def test_lease_renewal_on_reclaim(workflow_with_tasks):
     """Re-claiming updates started_at timestamp (lease renewal)."""
-    import time
+    import time_machine
 
     send_command = workflow_with_tasks["send_command"]
     manager = workflow_with_tasks["manager"]
 
-    resp1 = send_command({"command": "task_claim", "worker_id": "worker-1"})
-    assert resp1["status"] == "ok"
+    initial_time = datetime.now(UTC)
+    with time_machine.travel(initial_time, tick=False) as traveller:
+        resp1 = send_command({"command": "task_claim", "worker_id": "worker-1"})
+        assert resp1["status"] == "ok"
 
-    state1 = manager.load()
-    started_at_1 = state1.tasks["task-1"].started_at
-    assert started_at_1 is not None
+        state1 = manager.load()
+        started_at_1 = state1.tasks["task-1"].started_at
+        assert started_at_1 is not None
 
-    # Brief delay to ensure timestamp difference
-    time.sleep(0.1)
+        # Advance time to ensure timestamp difference (no actual sleep!)
+        traveller.shift(timedelta(milliseconds=100))
 
-    resp2 = send_command({"command": "task_claim", "worker_id": "worker-1"})
-    assert resp2["status"] == "ok"
+        resp2 = send_command({"command": "task_claim", "worker_id": "worker-1"})
+        assert resp2["status"] == "ok"
 
-    state2 = manager.load()
-    started_at_2 = state2.tasks["task-1"].started_at
-    assert started_at_2 > started_at_1  # Timestamp advanced
+        state2 = manager.load()
+        started_at_2 = state2.tasks["task-1"].started_at
+        assert started_at_2 > started_at_1  # Timestamp advanced
 
 
 @pytest.fixture
@@ -627,7 +642,7 @@ def workflow_with_short_timeout(integration_worktree):
     server_thread = threading.Thread(target=daemon.serve_forever)
     server_thread.daemon = True
     server_thread.start()
-    time.sleep(0.2)
+    wait_for_socket(socket_path)
 
     def send_command(cmd, max_retries=3):
         for attempt in range(max_retries):
@@ -668,21 +683,24 @@ def workflow_with_short_timeout(integration_worktree):
 
 def test_timeout_reclaim_by_different_worker(workflow_with_short_timeout):
     """Timed-out task can be reclaimed by different worker with is_reclaim=True."""
-    import time
+    import time_machine
 
     send_command = workflow_with_short_timeout["send_command"]
 
-    resp1 = send_command({"command": "task_claim", "worker_id": "worker-1"})
-    assert resp1["status"] == "ok"
-    assert resp1["data"]["task"]["id"] == "task-1"
+    initial_time = datetime.now(UTC)
+    with time_machine.travel(initial_time, tick=False) as traveller:
+        resp1 = send_command({"command": "task_claim", "worker_id": "worker-1"})
+        assert resp1["status"] == "ok"
+        assert resp1["data"]["task"]["id"] == "task-1"
 
-    time.sleep(1.5)
+        # Advance time past timeout (no actual sleep!)
+        traveller.shift(timedelta(seconds=1.5))
 
-    # Worker-2 can now reclaim the timed-out task
-    resp2 = send_command({"command": "task_claim", "worker_id": "worker-2"})
-    assert resp2["status"] == "ok"
-    assert resp2["data"]["task"]["id"] == "task-1"
-    assert resp2["data"]["is_reclaim"] is True  # Flagged as reclaim
+        # Worker-2 can now reclaim the timed-out task
+        resp2 = send_command({"command": "task_claim", "worker_id": "worker-2"})
+        assert resp2["status"] == "ok"
+        assert resp2["data"]["task"]["id"] == "task-1"
+        assert resp2["data"]["is_reclaim"] is True  # Flagged as reclaim
     assert resp2["data"]["task"]["claimed_by"] == "worker-2"
 
 
@@ -740,7 +758,7 @@ def workflow_with_parallel_tasks(integration_worktree):
     server_thread = threading.Thread(target=daemon.serve_forever)
     server_thread.daemon = True
     server_thread.start()
-    time.sleep(0.2)
+    wait_for_socket(socket_path)
 
     def send_command(cmd, max_retries=3):
         for attempt in range(max_retries):

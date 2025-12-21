@@ -13,9 +13,61 @@ import subprocess
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+
+# =============================================================================
+# Test Utilities - Condition-based waiting (replaces raw time.sleep polling)
+# =============================================================================
+
+
+def wait_until(
+    condition: Callable[[], bool],
+    timeout: float = 5.0,
+    poll_interval: float = 0.01,
+    message: str = "Condition not met",
+) -> None:
+    """Wait until condition is true. Replaces raw time.sleep polling.
+
+    Args:
+        condition: Callable that returns True when wait should end.
+        timeout: Maximum time to wait in seconds.
+        poll_interval: Time between condition checks.
+        message: Error message if timeout is reached.
+
+    Raises:
+        TimeoutError: If condition not met within timeout.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if condition():
+            return
+        time.sleep(poll_interval)
+    raise TimeoutError(message)
+
+
+def wait_for_socket(socket_path: str | Path, timeout: float = 2.0) -> None:
+    """Wait for socket file to exist.
+
+    Args:
+        socket_path: Path to Unix socket file.
+        timeout: Maximum time to wait.
+
+    Raises:
+        TimeoutError: If socket not created within timeout.
+    """
+    wait_until(
+        lambda: Path(socket_path).exists(),
+        timeout=timeout,
+        message=f"Socket {socket_path} not created within {timeout}s",
+    )
+
+
+# =============================================================================
+# Pytest Fixtures
+# =============================================================================
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +101,7 @@ def thread_isolation():
     yield
 
     # Wait for new threads to finish
-    timeout = 5.0
+    timeout = 2.0  # Reduced from 5.0
     deadline = time.monotonic() + timeout
 
     while time.monotonic() < deadline:
@@ -59,7 +111,7 @@ def thread_isolation():
         new_threads = {t for t in new_threads if t.name != "MainThread"}
         if not new_threads:
             break
-        time.sleep(0.05)
+        time.sleep(0.01)  # More frequent polling (was 0.05)
     else:
         # Timeout - warn about stray threads
         current = {t for t in threading.enumerate() if not t.daemon and t.is_alive()}
@@ -175,7 +227,7 @@ class DaemonManager:
         self.server_thread = threading.Thread(target=self.daemon.serve_forever)
         self.server_thread.daemon = True
         self.server_thread.start()
-        time.sleep(0.1)  # Let daemon fully start
+        wait_for_socket(self.socket_path, timeout=2.0)  # Condition-based (was time.sleep(0.1))
         return self.daemon
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -205,6 +257,8 @@ def cleanup_daemon_subprocess(socket_path: str, wait_time: float = 1.0) -> None:
     3. Falls back to pkill + SIGKILL if needed
     4. Cleans up socket files
     """
+    import contextlib
+
     # Try graceful shutdown first
     sock = None
     try:
@@ -218,11 +272,13 @@ def cleanup_daemon_subprocess(socket_path: str, wait_time: float = 1.0) -> None:
         if sock is not None:
             sock.close()
 
-    # Wait for graceful shutdown - check socket disappears
-    for _ in range(int(wait_time * 10)):  # 10 iterations per second
-        if not os.path.exists(socket_path):
-            break
-        time.sleep(0.1)
+    # Wait for graceful shutdown - use condition-based wait
+    def socket_gone() -> bool:
+        return not os.path.exists(socket_path)
+
+    # Wait with suppressed timeout - falls through to SIGTERM if not done
+    with contextlib.suppress(TimeoutError):
+        wait_until(socket_gone, timeout=wait_time, poll_interval=0.05)
 
     # If socket still exists, use pkill with SIGTERM
     if os.path.exists(socket_path):
@@ -231,10 +287,8 @@ def cleanup_daemon_subprocess(socket_path: str, wait_time: float = 1.0) -> None:
             capture_output=True,
         )
         # Wait for SIGTERM to take effect
-        for _ in range(10):  # 1 second max
-            if not os.path.exists(socket_path):
-                break
-            time.sleep(0.1)
+        with contextlib.suppress(TimeoutError):
+            wait_until(socket_gone, timeout=1.0, poll_interval=0.05)
 
     # Last resort - SIGKILL
     if os.path.exists(socket_path):
@@ -242,11 +296,10 @@ def cleanup_daemon_subprocess(socket_path: str, wait_time: float = 1.0) -> None:
             ["pkill", "-KILL", "-f", f"harness.daemon.*{socket_path}"],
             capture_output=True,
         )
-        time.sleep(0.3)
+        with contextlib.suppress(TimeoutError):
+            wait_until(socket_gone, timeout=0.5, poll_interval=0.05)
 
     # Clean up socket files
-    import contextlib
-
     if os.path.exists(socket_path):
         with contextlib.suppress(OSError):
             os.unlink(socket_path)
@@ -254,3 +307,74 @@ def cleanup_daemon_subprocess(socket_path: str, wait_time: float = 1.0) -> None:
     if os.path.exists(lock_path):
         with contextlib.suppress(OSError):
             os.unlink(lock_path)
+
+
+# =============================================================================
+# Task Clock Reset Fixture (for time-machine compatibility)
+# =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def reset_task_clock():
+    """Reset Task clock after each test to ensure isolation.
+
+    When tests use Task.set_clock() for time mocking, this ensures
+    the clock is reset to the default datetime.now(UTC) after each test.
+    """
+    yield
+    # Import here to avoid circular imports at module load time
+    from harness.state import Task
+
+    Task.reset_clock()
+
+
+# =============================================================================
+# Session-scoped Git Template (reduces subprocess overhead)
+# =============================================================================
+
+
+@pytest.fixture(scope="session")
+def git_template_dir(tmp_path_factory) -> Path:
+    """Create a template git repo once per session.
+
+    This saves ~3 subprocess calls per test by reusing the initialized
+    git config across all tests.
+    """
+    template = tmp_path_factory.mktemp("git_template")
+    subprocess.run(["git", "init"], cwd=template, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=template,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=template,
+        capture_output=True,
+        check=True,
+    )
+    return template
+
+
+@pytest.fixture
+def fast_worktree(tmp_path: Path, git_template_dir: Path) -> Path:
+    """Fast worktree by copying pre-initialized git template.
+
+    Only requires 2 subprocess calls (add + commit) instead of 5.
+    Use this fixture for tests that need a git repo but don't need
+    specific git history.
+    """
+    import shutil
+
+    worktree = tmp_path / "worktree"
+    shutil.copytree(git_template_dir, worktree)
+    (worktree / "file.txt").write_text("content")
+    subprocess.run(["git", "add", "-A"], cwd=worktree, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=worktree,
+        capture_output=True,
+        check=True,
+    )
+    return worktree

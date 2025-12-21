@@ -21,12 +21,12 @@ from collections import deque
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 
 def detect_cycle(graph: dict[str, list[str]]) -> str | None:  # Time: O(V+E), Space: O(V)
@@ -106,6 +106,20 @@ class Task(BaseModel):
 
     model_config = ConfigDict(frozen=False, extra="forbid", validate_assignment=True)
 
+    # Class-level clock for testable timeout checking.
+    # Tests can inject a mock clock via set_clock() to avoid real time.sleep().
+    _clock: ClassVar[Callable[[], datetime]] = lambda: datetime.now(UTC)
+
+    @classmethod
+    def set_clock(cls, clock: Callable[[], datetime]) -> None:
+        """Set custom clock for testing timeout behavior."""
+        cls._clock = clock
+
+    @classmethod
+    def reset_clock(cls) -> None:
+        """Reset to default system clock."""
+        cls._clock = lambda: datetime.now(UTC)
+
     id: str = Field(..., min_length=1, description="Unique task identifier")
     description: str = Field(..., description="Task description")
     status: TaskStatus = Field(default=TaskStatus.PENDING, description="Current task status")
@@ -155,7 +169,7 @@ class Task(BaseModel):
             if self.started_at.tzinfo is not None
             else self.started_at.replace(tzinfo=UTC)
         )
-        elapsed = datetime.now(UTC) - started
+        elapsed = Task._clock() - started  # Use injectable clock for testability
         return elapsed.total_seconds() > self.timeout_seconds
 
 

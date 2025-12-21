@@ -12,10 +12,11 @@ import json
 import socket
 import sys
 import threading
-import time
 from pathlib import Path
 
 import pytest
+
+from tests.harness.conftest import wait_for_socket
 
 # socket_path and worktree fixtures are imported from conftest.py
 
@@ -71,7 +72,7 @@ def test_daemon_get_state(socket_path, worktree):
     server_thread = threading.Thread(target=daemon.serve_forever)
     server_thread.daemon = True
     server_thread.start()
-    time.sleep(0.1)  # Let it start
+    wait_for_socket(socket_path)  # Condition-based wait (was time.sleep(0.1))
 
     try:
         response = send_command(socket_path, {"command": "get_state"})
@@ -108,7 +109,7 @@ def test_daemon_update_state(socket_path, worktree):
     server_thread = threading.Thread(target=daemon.serve_forever)
     server_thread.daemon = True
     server_thread.start()
-    time.sleep(0.1)
+    wait_for_socket(socket_path)
 
     try:
         new_tasks = {
@@ -160,7 +161,7 @@ def test_daemon_git_operations(socket_path, worktree):
     server_thread = threading.Thread(target=daemon.serve_forever)
     server_thread.daemon = True
     server_thread.start()
-    time.sleep(0.1)
+    wait_for_socket(socket_path)
 
     try:
         response = send_command(
@@ -203,7 +204,7 @@ def test_daemon_parallel_clients(socket_path, worktree):
     server_thread = threading.Thread(target=daemon.serve_forever)
     server_thread.daemon = True
     server_thread.start()
-    time.sleep(0.1)
+    wait_for_socket(socket_path)
 
     results = []
     errors = []
@@ -239,7 +240,7 @@ def test_daemon_single_instance_lock(socket_path, worktree):
     server_thread = threading.Thread(target=daemon1.serve_forever)
     server_thread.daemon = True
     server_thread.start()
-    time.sleep(0.1)
+    wait_for_socket(socket_path)
 
     try:
         # Second daemon should fail to acquire lock
@@ -280,7 +281,7 @@ def daemon_with_state(socket_path, worktree):
     server_thread = threading.Thread(target=daemon.serve_forever)
     server_thread.daemon = True
     server_thread.start()
-    time.sleep(0.1)
+    wait_for_socket(socket_path)
 
     yield daemon, worktree
 
@@ -775,7 +776,6 @@ def test_daemon_sigterm_triggers_shutdown(tmp_path):
     import signal
     import subprocess
     import sys
-    import time
     import uuid
     from pathlib import Path
 
@@ -803,11 +803,8 @@ def test_daemon_sigterm_triggers_shutdown(tmp_path):
         stderr=subprocess.PIPE,
     )
 
-    # Wait for socket
-    for _ in range(50):
-        if Path(socket_path).exists():
-            break
-        time.sleep(0.1)
+    # Wait for socket (condition-based, replaces polling loop)
+    wait_for_socket(socket_path, timeout=5.0)
 
     # Send SIGTERM
     proc.send_signal(signal.SIGTERM)
@@ -832,7 +829,6 @@ def test_daemon_sigint_triggers_shutdown(tmp_path):
     import signal
     import subprocess
     import sys
-    import time
     import uuid
     from pathlib import Path
 
@@ -859,10 +855,8 @@ def test_daemon_sigint_triggers_shutdown(tmp_path):
         stderr=subprocess.PIPE,
     )
 
-    for _ in range(50):
-        if Path(socket_path).exists():
-            break
-        time.sleep(0.1)
+    # Wait for socket (condition-based, replaces polling loop)
+    wait_for_socket(socket_path, timeout=5.0)
 
     proc.send_signal(signal.SIGINT)
     try:
@@ -922,7 +916,7 @@ def test_handle_status_no_workflow(socket_path, worktree):
     server_thread = threading.Thread(target=daemon.serve_forever)
     server_thread.daemon = True
     server_thread.start()
-    time.sleep(0.1)
+    wait_for_socket(socket_path)
 
     try:
         response = send_command(socket_path, {"command": "status"})
