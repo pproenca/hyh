@@ -49,7 +49,7 @@ class TestDetectCycleEdgeCases:
 
     def test_edge_to_nonexistent_node(self) -> None:
         """Should handle edges to nodes not in graph keys.
-        
+
         Edges to external nodes (not in graph.keys()) are treated as leaves.
         """
         graph: dict[str, list[str]] = {

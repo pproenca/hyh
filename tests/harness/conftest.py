@@ -29,6 +29,51 @@ def isolate_git_config(monkeypatch):
     monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 
 
+@pytest.fixture(autouse=True)
+def thread_isolation():
+    """Ensure no threads leak between tests.
+
+    With Python 3.14t (free-threaded), thread timing is different and
+    tests can pollute each other if threads aren't properly cleaned up.
+
+    This fixture:
+    1. Records active threads before the test
+    2. After the test, waits for any new non-daemon threads to finish
+    3. Warns if threads are still running after timeout
+    """
+    import warnings
+
+    # Record threads before test (excluding daemon threads)
+    before = {t for t in threading.enumerate() if not t.daemon and t.is_alive()}
+
+    yield
+
+    # Wait for new threads to finish
+    timeout = 5.0
+    deadline = time.monotonic() + timeout
+
+    while time.monotonic() < deadline:
+        current = {t for t in threading.enumerate() if not t.daemon and t.is_alive()}
+        new_threads = current - before
+        # Filter out the main thread
+        new_threads = {t for t in new_threads if t.name != "MainThread"}
+        if not new_threads:
+            break
+        time.sleep(0.05)
+    else:
+        # Timeout - warn about stray threads
+        current = {t for t in threading.enumerate() if not t.daemon and t.is_alive()}
+        new_threads = current - before
+        new_threads = {t for t in new_threads if t.name != "MainThread"}
+        if new_threads:
+            thread_names = [t.name for t in new_threads]
+            warnings.warn(
+                f"Test left {len(new_threads)} threads running: {thread_names}",
+                category=pytest.PytestWarning,
+                stacklevel=2,
+            )
+
+
 @pytest.fixture
 def socket_path(tmp_path):
     """Generate a short socket path in /tmp to avoid macOS AF_UNIX path length limit."""

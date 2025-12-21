@@ -63,7 +63,7 @@ class PlanDefinition(BaseModel):
                 id=tid,
                 description=t.description,
                 status=TaskStatus.PENDING,
-                dependencies=t.dependencies,
+                dependencies=tuple(t.dependencies),
                 started_at=None,
                 completed_at=None,
                 claimed_by=None,

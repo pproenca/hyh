@@ -43,9 +43,9 @@ class TestDetectCycleComplexity:
         )
 
         # Should be linear or better, not quadratic
-        assert isinstance(
-            best, (big_o.complexities.Constant, big_o.complexities.Linear)
-        ), f"Expected O(1) or O(n), got {best}"
+        assert isinstance(best, (big_o.complexities.Constant, big_o.complexities.Linear)), (
+            f"Expected O(1) or O(n), got {best}"
+        )
 
     @pytest.mark.slow
     def test_detect_cycle_linear_chain(self) -> None:
@@ -58,7 +58,7 @@ class TestDetectCycleComplexity:
                 if i == 0:
                     graph[f"node-{i}"] = []
                 else:
-                    graph[f"node-{i}"] = [f"node-{i-1}"]
+                    graph[f"node-{i}"] = [f"node-{i - 1}"]
             return graph
 
         def measure_func(n: int) -> None:
@@ -75,9 +75,9 @@ class TestDetectCycleComplexity:
         )
 
         # Linear chain should be O(V) = O(n)
-        assert isinstance(
-            best, (big_o.complexities.Constant, big_o.complexities.Linear)
-        ), f"Expected O(n) or better, got {best}"
+        assert isinstance(best, (big_o.complexities.Constant, big_o.complexities.Linear)), (
+            f"Expected O(n) or better, got {best}"
+        )
 
 
 class TestWorkflowStateComplexity:
@@ -225,7 +225,7 @@ class TestValidateDagComplexity:
             tasks = {}
             for i in range(n):
                 # Each task depends only on previous (sparse: E = V - 1)
-                deps = [f"task-{i-1}"] if i > 0 else []
+                deps = [f"task-{i - 1}"] if i > 0 else []
                 tasks[f"task-{i}"] = Task(
                     id=f"task-{i}",
                     description=f"Task {i}",
