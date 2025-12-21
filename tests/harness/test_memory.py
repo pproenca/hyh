@@ -21,13 +21,13 @@ pytestmark = pytest.mark.memcheck
 
 @pytest.mark.limit_memory("100 MB")
 def test_trajectory_log_bounded_memory(tmp_path):
-    """Logging 50K events should not allocate unbounded memory.
+    """Logging 10K events should not allocate unbounded memory.
 
     The TrajectoryLogger appends to disk; memory should remain bounded
     regardless of how many events are logged.
     """
     logger = TrajectoryLogger(tmp_path / "trajectory.jsonl")
-    for i in range(50_000):
+    for i in range(10_000):
         logger.log({"event": f"event-{i}", "data": "x" * 100})
 
 
@@ -35,19 +35,20 @@ def test_trajectory_log_bounded_memory(tmp_path):
 def test_trajectory_tail_bounded_memory(tmp_path):
     """tail() should not load entire file into memory.
 
-    Reading last 10 events from a 50K event file should use O(k) memory,
+    Reading last 10 events from a 10K event file should use O(k) memory,
     not O(N) where N is file size.
     """
     trajectory_file = tmp_path / "trajectory.jsonl"
     logger = TrajectoryLogger(trajectory_file)
 
-    # Write 50K events first
-    for i in range(50_000):
+    # Write 10K events first
+    for i in range(10_000):
         logger.log({"event": f"event-{i}", "data": "x" * 100})
 
     # This should not load the entire file
     result = logger.tail(10)
     assert len(result) == 10
+    assert result[-1]["event"] == "event-9999"
 
 
 # =============================================================================

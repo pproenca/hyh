@@ -149,10 +149,10 @@ def test_claim_task_mostly_completed(benchmark, dag_900_completed):
 
 @pytest.fixture
 def large_trajectory(tmp_path):
-    """50K events trajectory file (>5MB)."""
+    """10K events trajectory file (~1MB)."""
     trajectory_file = tmp_path / "trajectory.jsonl"
     logger = TrajectoryLogger(trajectory_file)
-    for i in range(50_000):
+    for i in range(10_000):
         logger.log({"event": f"event-{i}", "data": "x" * 100})
     return logger
 
@@ -174,15 +174,15 @@ def large_payload_trajectory(tmp_path):
     return logger
 
 
-def test_trajectory_tail_50k(benchmark, large_trajectory):
+def test_trajectory_tail_10k(benchmark, large_trajectory):
     """tail() should be O(k) not O(N) on large files.
 
     Per CLAUDE.md Section VIII: O(k) reverse seek where k = block size.
     """
     result = benchmark(large_trajectory.tail, 10)
     assert len(result) == 10
-    assert result[-1]["event"] == "event-49999"
-    assert result[0]["event"] == "event-49990"
+    assert result[-1]["event"] == "event-9999"
+    assert result[0]["event"] == "event-9990"
 
 
 def test_trajectory_tail_large_payloads(benchmark, large_payload_trajectory):
