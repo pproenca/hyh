@@ -46,7 +46,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
     CPU-heavy msgspec validation happens here, not in the client.
     """
 
-    server: "HarnessDaemon"
+    server: HarnessDaemon
 
     def handle(self) -> None:
         try:
@@ -94,15 +94,13 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             case _:
                 return {"status": "error", "message": f"Unknown command: {command}"}
 
-    def _handle_get_state(
-        self, _request: dict[str, Any], server: "HarnessDaemon"
-    ) -> dict[str, Any]:
+    def _handle_get_state(self, _request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
         state = server.state_manager.load()
         if state is None:
             return {"status": "ok", "data": None}
         return {"status": "ok", "data": msgspec.to_builtins(state)}
 
-    def _handle_status(self, request: dict[str, Any], server: "HarnessDaemon") -> dict[str, Any]:
+    def _handle_status(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
         """Return workflow status summary with task counts and recent events.
 
         Time: O(n) single-pass counting instead of O(4n) separate iterations.
@@ -170,7 +168,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         }
 
     def _handle_update_state(
-        self, request: dict[str, Any], server: "HarnessDaemon"
+        self, request: dict[str, Any], server: HarnessDaemon
     ) -> dict[str, Any]:
         updates = request.get("updates", {})
         if not updates:
@@ -182,7 +180,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    def _handle_git(self, request: dict[str, Any], server: "HarnessDaemon") -> dict[str, Any]:
+    def _handle_git(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
         args = request.get("args", [])
         cwd = request.get("cwd", str(server.worktree_root))
         result = safe_git_exec(args, cwd)
@@ -195,17 +193,15 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             },
         }
 
-    def _handle_ping(self, _request: dict[str, Any], _server: "HarnessDaemon") -> dict[str, Any]:
+    def _handle_ping(self, _request: dict[str, Any], _server: HarnessDaemon) -> dict[str, Any]:
         return {"status": "ok", "data": {"running": True, "pid": os.getpid()}}
 
-    def _handle_shutdown(self, _request: dict[str, Any], server: "HarnessDaemon") -> dict[str, Any]:
+    def _handle_shutdown(self, _request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
         # Schedule shutdown in separate thread to allow response
         threading.Thread(target=server.shutdown, daemon=True).start()
         return {"status": "ok", "data": {"shutdown": True}}
 
-    def _handle_task_claim(
-        self, request: dict[str, Any], server: "HarnessDaemon"
-    ) -> dict[str, Any]:
+    def _handle_task_claim(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
         """Claim a task for a worker (atomic operation with idempotency)."""
         worker_id = request.get("worker_id")
         if not worker_id:
@@ -251,7 +247,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             return {"status": "error", "message": str(e)}
 
     def _handle_task_complete(
-        self, request: dict[str, Any], server: "HarnessDaemon"
+        self, request: dict[str, Any], server: HarnessDaemon
     ) -> dict[str, Any]:
         """Complete a task with ownership validation."""
         task_id = request.get("task_id")
@@ -286,7 +282,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    def _handle_exec(self, request: dict[str, Any], server: "HarnessDaemon") -> dict[str, Any]:
+    def _handle_exec(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
         """Execute a command using the runtime."""
         args = request.get("args", [])
         cwd = request.get("cwd")
@@ -358,9 +354,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    def _handle_plan_import(
-        self, request: dict[str, Any], server: "HarnessDaemon"
-    ) -> dict[str, Any]:
+    def _handle_plan_import(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
         """Import plan from LLM output."""
         content = request.get("content")
         if not content:
@@ -394,9 +388,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                 msg += ". Run 'harness plan template' to see the required format."
             return {"status": "error", "message": msg}
 
-    def _handle_plan_reset(
-        self, _request: dict[str, Any], server: "HarnessDaemon"
-    ) -> dict[str, Any]:
+    def _handle_plan_reset(self, _request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
         """Reset workflow state (clear all tasks)."""
         server.state_manager.reset()
 

@@ -68,7 +68,7 @@ def get_worker_id() -> str:
 WORKER_ID: Final[str] = get_worker_id()
 
 
-def get_socket_path(worktree: "Path | None" = None) -> str:
+def get_socket_path(worktree: Path | None = None) -> str:
     """Get socket path for a worktree.
 
     Args:
