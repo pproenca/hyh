@@ -50,7 +50,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Type check
-        run: uv run mypy src/
+        run: uv run ty check src/
 
   test:
     runs-on: ${{ matrix.os }}
