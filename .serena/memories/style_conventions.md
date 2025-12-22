@@ -1,65 +1,49 @@
 # Code Style and Conventions
 
-## Python Version
-Python 3.13t (free-threaded build, no GIL)
-Target: py314
+## General Style
+- **Line length**: 100 characters
+- **Python version**: 3.13+ (uses modern syntax via pyupgrade --py313-plus)
+- **Type hints**: Required everywhere (enforced by ruff ANN rules)
+- **Imports**: Sorted by isort (via ruff I rules)
 
-## Type Hints
-- **Strict typing required** - No `Any` type (except Pydantic's model_copy kwargs in state.py)
-- Use `Literal` for finite states: `Literal["pending", "running", "completed"]`
-- mypy strict mode enforced
-
-## Imports
-- isort enforced via ruff (I rules)
-- Client imports ONLY stdlib: `sys`, `json`, `socket`, `argparse`, `os`, `hashlib`
-
-## Formatting
-- Line length: 100 characters
-- ruff format used (Black-compatible)
-
-## Naming (PEP8)
-- Classes: PascalCase
-- Functions/methods: snake_case
-- Constants: UPPER_SNAKE_CASE
-- Private: `_single_underscore`
+## Naming Conventions
+- **Classes**: PascalCase (e.g., `StateManager`, `WorkflowState`)
+- **Functions/Methods**: snake_case (e.g., `get_claimable_task`)
+- **Constants**: UPPER_SNAKE_CASE
+- **Private**: Leading underscore (e.g., `_state`, `_lock`)
+- **Type aliases**: PascalCase (e.g., `TimeoutSeconds`)
 
 ## Docstrings
-- Not strictly required but encouraged for public APIs
-- Focus on WHY not WHAT
+- Use triple-quoted docstrings for all public functions/classes
+- Include `Args:` and `Returns:` sections for non-trivial functions
+- Document thread-safety and complexity when relevant
+- Example:
+  ```python
+  def is_timed_out(self) -> bool:  # Time: O(1), Space: O(1)
+      """Check if task has exceeded timeout window.
 
-## Concurrency Patterns
-- No asyncio - use `socketserver.ThreadingMixIn`
-- Blocking I/O acceptable in threads
-- Lock hierarchy: State → Trajectory → Execution (never reversed)
-- Use `GLOBAL_EXEC_LOCK` only for git operations (exclusive=True)
+      Returns:
+          True if task is RUNNING and elapsed time exceeds timeout_seconds.
+      """
+  ```
 
-## Persistence Patterns
-- Atomic writes: tmp-fsync-rename pattern via `StateManager._write_atomic()`
-- JSONL for append-only logs (not JSON arrays)
-- Pydantic at boundaries only
+## Data Models
+- Use `msgspec.Struct` instead of dataclasses/Pydantic for performance
+- Use `forbid_unknown_fields=True` for strict validation
+- Prefer immutable structures (tuples over lists for collections)
+- Use `Final` annotation for immutable instance variables
 
-## Time
-- Always use `time.monotonic()` for durations
-- All datetime should be UTC-aware
+## Thread Safety
+- Use `threading.Lock()` for shared state
+- Document thread-safety guarantees in class docstrings
+- Use `Final` for lock instances
 
-## Security Rules (via ruff)
-- S101 allowed globally (assert for invariants)
-- S603/S607 allowed in client/daemon/runtime (subprocess execution layer)
-- S108 allowed in client (/tmp for Unix sockets)
-- ANN401 allowed in state.py (Pydantic model_copy kwargs)
+## Error Handling
+- Raise `ValueError` for business logic violations
+- Use type narrowing over broad exception catching
 
-## Test Ignores
-- S101: assert allowed
-- ANN: skip annotations
-- ARG: unused args
-- S603/S607: subprocess
-- S108: /tmp paths
-- DTZ: datetime without tz
-- PTH: pathlib not required
-- RUF043: unused loop vars
-- B007: unused loop control vars
-- RUF059: unpacked vars
-- RET503: implicit return
-
-## Ruff Rules Enabled
-E, F, UP, B, SIM, I, N, ANN, S, DTZ, PTH, RET, ARG, RUF
+## Testing Patterns
+- Use condition-based waiting (`wait_until`) instead of `time.sleep`
+- Inject clocks for timeout testing (see `Task.set_clock`)
+- Use hypothesis for property-based tests
+- Mark slow tests with `@pytest.mark.slow`

@@ -2,66 +2,49 @@
 
 ## Setup
 ```bash
-make install          # Install all dependencies (uv sync --dev)
-```
-
-## Testing
-```bash
-make test             # Run all tests with timeout (30s default)
-make test-fast        # Run tests without timeout
-make test-file FILE=tests/harness/test_state.py  # Run specific file
-pytest tests/harness/test_state.py::test_claim_task_atomic -v  # Specific test
-```
-
-## Code Quality
-```bash
-make check            # Run all checks (lint + typecheck + test)
-make lint             # Check style (ruff check + format check)
-make typecheck        # Run mypy strict
-make format           # Auto-format code (ruff format + check --fix)
+make install              # Install all dependencies (uv sync --dev)
+make install-global       # Install harness globally (editable)
+make uninstall-global     # Remove global installation
 ```
 
 ## Development
 ```bash
-make dev              # Start the daemon
-make shell            # Interactive Python with project loaded
-harness               # CLI entry point (after install)
+make dev                  # Start daemon in development mode
+make shell                # Open interactive Python shell with project loaded
 ```
 
-## Build & Clean
+## Testing
 ```bash
-make build            # Build wheel
-make clean            # Remove caches and artifacts
-make clean-all        # Remove everything including .venv
+make test                 # Run all tests (pytest -v)
+make test-fast            # Run tests without timeout
+make test-file FILE=path  # Run specific test file
+make benchmark            # Run benchmark tests (pytest -m benchmark)
+make memcheck             # Run memory profiling tests (pytest -m memcheck --memray)
+make perf                 # Run all performance tests
 ```
 
-## Direct UV Commands
+## Code Quality
 ```bash
-uv run pytest -v                    # Run tests
-uv run ruff check src tests         # Lint
-uv run ruff format src tests        # Format
+make lint                 # Check code style (pyupgrade + ruff check + ruff format --check)
+make typecheck            # Run mypy type checking
+make format               # Auto-format code (ruff format + ruff check --fix)
+make check                # Run all checks (lint + typecheck + test)
+```
+
+## Build & Cleanup
+```bash
+make build                # Build wheel for distribution
+make clean                # Remove build artifacts and caches
+make clean-all            # Remove everything including .venv
+```
+
+## Direct Tool Usage
+```bash
+uv run pytest -v                    # Run tests directly
+uv run ruff check src tests         # Check linting
+uv run ruff format src tests        # Format code
 uv run mypy src                     # Type check
-uv run python -m harness.daemon     # Start daemon
 ```
 
-## Harness CLI Commands
-```bash
-harness ping                        # Health check
-harness get-state                   # Get workflow state
-harness update-state KEY=VALUE      # Update state fields
-harness task claim                  # Claim next available task
-harness task complete ID            # Complete a task
-harness exec -- COMMAND             # Execute command via runtime
-harness git -- ARGS                 # Execute git command
-harness session-start               # Start new session
-harness check-state                 # Check state integrity
-harness check-commit                # Verify commit state
-harness worker-id                   # Get/show worker ID
-harness plan import FILE            # Import plan file
-harness plan template               # Generate plan template
-harness shutdown                    # Stop daemon
-```
-
-## Git (macOS/Darwin)
-Standard Unix commands: `git`, `ls`, `cd`, `grep`, `find`
-Note: `find` on macOS is BSD find (differs from GNU find)
+## Git Workflow
+Standard git commands work as expected. The project uses pre-commit hooks for pyupgrade.

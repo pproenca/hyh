@@ -1,68 +1,38 @@
 # Task Completion Checklist
 
-Before considering any task complete, run:
+Before marking any task as complete, verify:
 
-## 1. Format Code
+## 1. Code Quality
 ```bash
-make format
+make format       # Auto-fix formatting issues
+make lint         # Verify no lint errors
+make typecheck    # Verify type checking passes
 ```
 
-## 2. Lint Check
+## 2. Testing
 ```bash
-make lint
+make test         # All tests must pass
 ```
 
-## 3. Type Check
+Or combined:
 ```bash
-make typecheck
+make check        # Runs lint + typecheck + test
 ```
 
-## 4. Run Tests
-```bash
-make test
-```
+## 3. Pre-commit Validation
+The pre-commit hooks will run pyupgrade automatically on commit. Ensure code uses Python 3.13+ syntax.
 
-## Combined (Recommended)
-```bash
-make check   # Runs lint + typecheck + test
-```
+## 4. Code Review Checklist
+- [ ] Type hints on all function signatures
+- [ ] Docstrings on public functions/classes
+- [ ] Thread-safety documented if applicable
+- [ ] No hardcoded timeouts (use condition-based waiting)
+- [ ] msgspec.Struct used for data models (not Pydantic)
+- [ ] Final annotation on immutable class attributes
+- [ ] Tests added/updated for new functionality
 
-## Verification Checklist
-Before every PR, verify:
-
-- [ ] No asyncio used - blocking I/O in threads only
-- [ ] Lock order: State → Trajectory → Execution (never reversed)
-- [ ] Atomic writes use tmp-fsync-rename pattern
-- [ ] Trajectory uses JSONL (append-only, newline-delimited)
-- [ ] `claim_task(worker_id)` is idempotent
-- [ ] No direct `subprocess.run` in business logic - use runtime abstraction
-- [ ] DockerRuntime uses `--user $(id -u):$(id -g)`
-- [ ] Negative return codes translated to signal names
-- [ ] All durations use `time.monotonic()`
-- [ ] Graph validates for cycles on plan load
-- [ ] No `Any` types - use `Literal` for states (except Pydantic model_copy kwargs)
-- [ ] Client uses only stdlib imports, <50ms startup
-
-## Common Issues
-- Mixing naive and aware datetime → TypeError
-- Host paths in Docker container → path mapping needed
-- O(N) file reads on hot paths → use efficient algorithms
-- Reading from Pydantic-parsed datetime as string → it's already datetime
-- Forgetting `exclusive=True` for git operations → race conditions
-
-## Test Files
-```
-tests/harness/
-├── conftest.py              # Shared fixtures
-├── test_state.py            # StateManager, DAG, claim/complete
-├── test_daemon.py           # HarnessDaemon, HarnessHandler
-├── test_runtime.py          # LocalRuntime, DockerRuntime, PathMapper
-├── test_trajectory.py       # TrajectoryLogger, tail
-├── test_git.py              # Git operations
-├── test_client.py           # Client RPC
-├── test_plan.py             # Plan parsing
-├── test_acp.py              # ACP emitter
-├── test_performance.py      # Performance benchmarks
-├── test_integration.py      # End-to-end tests
-└── test_integration_council.py  # Council integration tests
-```
+## Recommended Workflow
+1. Make changes
+2. Run `make format` to auto-fix style
+3. Run `make check` to verify everything passes
+4. Commit changes (pre-commit hooks will run pyupgrade)
