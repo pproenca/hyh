@@ -735,7 +735,7 @@ def test_plan_import_missing_content(daemon_manager):
 
     resp = send_command(daemon.socket_path, {"command": "plan_import"})
     assert resp["status"] == "error"
-    assert "content required" in resp["message"].lower()
+    assert "content" in resp["message"].lower()
 
 
 def test_plan_import_invalid_content(daemon_manager):
@@ -823,7 +823,7 @@ def test_handle_missing_command(daemon_manager):
 
     resp = send_command(daemon.socket_path, {"not_command": "value"})
     assert resp["status"] == "error"
-    assert "Missing command" in resp["message"]
+    assert "command" in resp["message"].lower()
 
 
 def test_handle_unknown_command(daemon_manager):
@@ -833,7 +833,7 @@ def test_handle_unknown_command(daemon_manager):
 
     resp = send_command(daemon.socket_path, {"command": "unknown_cmd"})
     assert resp["status"] == "error"
-    assert "Unknown command" in resp["message"]
+    assert "invalid" in resp["message"].lower()
 
 
 def test_daemon_sigterm_triggers_shutdown(tmp_path):
@@ -1060,3 +1060,21 @@ def test_daemon_registers_with_registry(
         assert str(worktree) in paths
     finally:
         daemon.server_close()
+
+
+# -- Task 3: Typed dispatch tests --
+
+
+def test_dispatch_returns_typed_error_for_invalid_json():
+    """dispatch should return Err for invalid JSON."""
+    from harness.daemon import HarnessHandler
+
+    # Create a mock handler to test dispatch directly
+    handler = HarnessHandler.__new__(HarnessHandler)
+    handler.server = None  # Will set up properly in integration
+
+    # Invalid JSON should return Err
+    result = handler.dispatch(b"not valid json")
+    decoded = msgspec.json.decode(result)
+    assert decoded["status"] == "error"
+    assert "message" in decoded
