@@ -134,12 +134,12 @@ def test_parallel_git_operations_no_race(integration_worktree):
 def test_state_persistence_across_daemon_restart(integration_worktree):
     """State should persist across daemon restarts."""
     from harness.client import send_rpc
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
     socket_path = integration_worktree["socket"]
     worktree = integration_worktree["worktree"]
 
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     manager.save(
         WorkflowState(
             tasks={
@@ -252,12 +252,12 @@ def test_cli_get_state_without_workflow(integration_worktree):
 
 def test_cli_update_state(integration_worktree):
     """Test update-state command works correctly."""
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
 
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     manager.save(
         WorkflowState(
             tasks={
@@ -293,7 +293,7 @@ def test_cli_update_state(integration_worktree):
     )
     assert resp["status"] == "ok"
 
-    loaded = StateManager(worktree).load()
+    loaded = WorkflowStateStore(worktree).load()
     assert loaded is not None
     assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
 
@@ -302,13 +302,13 @@ def test_cli_session_start_with_active_workflow(integration_worktree):
     """Test session-start hook outputs correct JSON."""
     import sys
 
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
 
     # 2 completed, 6 pending = 2/8 progress
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     tasks = {}
     for i in range(1, 9):
         tasks[f"task-{i}"] = Task(
@@ -397,12 +397,12 @@ def workflow_with_tasks(integration_worktree):
     import threading
 
     from harness.daemon import HarnessDaemon
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
 
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -619,12 +619,12 @@ def workflow_with_short_timeout(integration_worktree):
     import threading
 
     from harness.daemon import HarnessDaemon
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
 
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -724,12 +724,12 @@ def workflow_with_parallel_tasks(integration_worktree):
     import threading
 
     from harness.daemon import HarnessDaemon
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
     worktree = integration_worktree["worktree"]
     socket_path = integration_worktree["socket"]
 
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -890,10 +890,10 @@ def test_exec_timeout_and_signal_decoding(workflow_with_tasks):
 
 def test_dag_cycle_rejection(integration_worktree):
     """Saving workflow with cyclic dependencies raises error."""
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
     worktree = integration_worktree["worktree"]
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
 
     # Create cyclic dependency: task-1 -> task-2 -> task-1
     state = WorkflowState(

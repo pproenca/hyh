@@ -44,10 +44,10 @@ def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
 def test_daemon_get_state(socket_path, worktree):
     """Daemon should return state via get_state command."""
     from harness.daemon import HarnessDaemon
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
     # Create state file with v2 JSON schema
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     manager.save(
         WorkflowState(
             tasks={
@@ -89,9 +89,9 @@ def test_daemon_get_state(socket_path, worktree):
 def test_daemon_update_state(socket_path, worktree):
     """Daemon should update state via update_state command."""
     from harness.daemon import HarnessDaemon
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     manager.save(
         WorkflowState(
             tasks={
@@ -143,7 +143,7 @@ def test_daemon_update_state(socket_path, worktree):
         )
         assert response["status"] == "ok"
 
-        loaded = StateManager(worktree).load()
+        loaded = WorkflowStateStore(worktree).load()
         assert loaded is not None
         assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
         assert "task-2" in loaded.tasks
@@ -184,9 +184,9 @@ def test_daemon_git_operations(socket_path, worktree):
 def test_daemon_parallel_clients(socket_path, worktree):
     """Verify daemon handles parallel clients (Python 3.13t threading)."""
     from harness.daemon import HarnessDaemon
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     manager.save(
         WorkflowState(
             tasks={
@@ -256,9 +256,9 @@ def test_daemon_single_instance_lock(socket_path, worktree):
 def daemon_with_state(socket_path, worktree):
     """Create a daemon with tasks in state."""
     from harness.daemon import HarnessDaemon
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     state = WorkflowState(
         tasks={
             "task1": Task(
@@ -355,9 +355,9 @@ def test_handle_task_claim_marks_running(daemon_with_state, socket_path):
     assert response["status"] == "ok"
 
     # Verify state was updated
-    from harness.state import StateManager
+    from harness.state import WorkflowStateStore
 
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     state = manager.load()
     assert state is not None
     assert state.tasks["task1"].status.value == "running"
@@ -424,9 +424,9 @@ def test_handle_task_complete_marks_completed(daemon_with_state, socket_path):
     assert response["status"] == "ok"
 
     # Verify state was updated
-    from harness.state import StateManager
+    from harness.state import WorkflowStateStore
 
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     state = manager.load()
     assert state is not None
     assert state.tasks[task_id].status.value == "completed"

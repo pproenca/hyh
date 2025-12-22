@@ -12,7 +12,7 @@ import contextlib
 import pytest
 from msgspec.structs import replace as struct_replace
 
-from harness.state import StateManager, Task, TaskStatus, WorkflowState
+from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 from harness.trajectory import TrajectoryLogger
 
 pytestmark = pytest.mark.benchmark
@@ -26,7 +26,7 @@ pytestmark = pytest.mark.benchmark
 @pytest.fixture
 def dag_1000_linear(tmp_path):
     """1000-task DAG with linear chain dependencies (O(V+E) where V=1000, E=999)."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     tasks = {}
     for i in range(1000):
         task_id = f"task-{i}"
@@ -46,7 +46,7 @@ def dag_1000_linear(tmp_path):
 @pytest.fixture
 def dag_1000_groups(tmp_path):
     """1000-task DAG with 100 independent groups (10 tasks each)."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     tasks = {}
     for group in range(100):
         for i in range(10):
@@ -66,7 +66,7 @@ def dag_1000_groups(tmp_path):
 @pytest.fixture
 def dag_900_completed(tmp_path):
     """1000 tasks where 900 are completed, 100 pending."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     tasks = {}
     for i in range(1000):
         task_id = f"task-{i}"

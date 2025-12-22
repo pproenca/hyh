@@ -8,7 +8,7 @@ Run with: make memcheck
 
 import pytest
 
-from harness.state import StateManager, Task, TaskStatus, WorkflowState
+from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 from harness.trajectory import TrajectoryLogger
 
 pytestmark = pytest.mark.memcheck
@@ -59,7 +59,7 @@ def test_trajectory_tail_bounded_memory(tmp_path):
 @pytest.mark.limit_memory("100 MB")
 def test_state_save_load_bounded_memory(tmp_path):
     """Save/load cycle for 1000 tasks should have bounded memory."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
 
     tasks = {}
     for i in range(1000):
@@ -84,7 +84,7 @@ def test_state_save_load_bounded_memory(tmp_path):
 @pytest.mark.limit_memory("100 MB")
 def test_claim_task_repeated_bounded_memory(tmp_path):
     """Repeated claim_task operations should not leak memory."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
 
     tasks = {}
     for i in range(100):

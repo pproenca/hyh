@@ -30,7 +30,7 @@ import pytest
 from hypothesis import settings
 from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, rule
 
-from harness.state import StateManager, Task, TaskStatus, WorkflowState
+from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
 
 class TestClaimCompleteReclaimInterleave:
@@ -47,7 +47,7 @@ class TestClaimCompleteReclaimInterleave:
         import time_machine
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -102,7 +102,7 @@ class TestClaimCompleteReclaimInterleave:
         import time_machine
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -147,7 +147,7 @@ class TestClaimCompleteReclaimInterleave:
     def test_complete_then_reclaim_attempt(self) -> None:
         """Cannot reclaim a completed task."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -177,7 +177,7 @@ class TestDependencyResolutionDuringConcurrentCompletion:
     def test_concurrent_completion_unblocks_dependents(self) -> None:
         """Completing dependencies should unblock dependents for claiming."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             # Diamond dependency: task-3 depends on task-1 and task-2
             tasks = {
@@ -236,7 +236,7 @@ class TestDependencyResolutionDuringConcurrentCompletion:
     def test_chain_dependency_sequential_completion(self) -> None:
         """Linear chain: task-n depends on task-(n-1)."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             chain_length = 5
             tasks = {}
@@ -270,7 +270,7 @@ class TestDagTraversalUnderMutation:
     def test_get_task_during_concurrent_claims(self) -> None:
         """get_task_for_worker should be consistent during concurrent claims."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             # Many independent tasks
             tasks = {}
@@ -321,7 +321,7 @@ class TestAllTasksCompletedInvariant:
     def test_get_task_returns_none_when_all_completed(self) -> None:
         """get_task_for_worker returns None when no pending/reclaimable tasks."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -346,7 +346,7 @@ class TestAllTasksCompletedInvariant:
     def test_multiple_workers_contend_for_last_task(self) -> None:
         """Many workers racing for the last available task."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -385,7 +385,7 @@ class TestOwnershipEnforcement:
     def test_wrong_worker_cannot_complete(self) -> None:
         """Worker B cannot complete task claimed by Worker A."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -413,7 +413,7 @@ class TestOwnershipEnforcement:
     def test_empty_worker_id_rejected(self) -> None:
         """Empty worker ID should be rejected."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -439,7 +439,7 @@ class TestRetrySemantics:
     def test_retry_returns_same_task(self) -> None:
         """Retry claim returns same task with renewed timestamp."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -487,7 +487,7 @@ class TaskStateMachine(RuleBasedStateMachine):
     def __init__(self) -> None:
         super().__init__()
         self.tmpdir = tempfile.mkdtemp()
-        self.manager = StateManager(Path(self.tmpdir))
+        self.manager = WorkflowStateStore(Path(self.tmpdir))
 
         # Create tasks with varying dependencies
         tasks = {}

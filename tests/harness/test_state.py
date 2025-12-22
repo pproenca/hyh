@@ -9,10 +9,10 @@ import pytest
 
 from harness.state import (
     PendingHandoff,
-    StateManager,
     Task,
     TaskStatus,
     WorkflowState,
+    WorkflowStateStore,
 )
 
 # ============================================================================
@@ -419,14 +419,14 @@ def test_get_task_for_worker_assigns_new():
 
 def test_state_manager_json_state_file_is_json(tmp_path):
     """StateManager should use .json file, not .md."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     assert manager.state_file.suffix == ".json"
     assert str(manager.state_file).endswith("dev-workflow-state.json")
 
 
 def test_state_manager_json_save_creates_valid_json(tmp_path):
     """StateManager.save should create valid JSON file."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -448,7 +448,7 @@ def test_state_manager_json_save_creates_valid_json(tmp_path):
 
 def test_state_manager_json_load_reads_json(tmp_path):
     """StateManager.load should read JSON file."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -461,7 +461,7 @@ def test_state_manager_json_load_reads_json(tmp_path):
     )
     manager.save(state)
 
-    manager2 = StateManager(tmp_path)
+    manager2 = WorkflowStateStore(tmp_path)
     loaded = manager2.load()
     assert loaded is not None
     assert "task-1" in loaded.tasks
@@ -470,7 +470,7 @@ def test_state_manager_json_load_reads_json(tmp_path):
 
 def test_state_manager_json_update_modifies_json(tmp_path):
     """StateManager.update should modify JSON file."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -495,14 +495,14 @@ def test_state_manager_json_update_modifies_json(tmp_path):
     assert updated.tasks["task-1"].description == "Task 1 Updated"
     assert updated.tasks["task-1"].status == TaskStatus.COMPLETED
 
-    loaded = StateManager(tmp_path).load()
+    loaded = WorkflowStateStore(tmp_path).load()
     assert loaded is not None
     assert loaded.tasks["task-1"].description == "Task 1 Updated"
 
 
 def test_state_manager_no_frontmatter_methods(tmp_path):
     """StateManager should NOT have _parse_frontmatter or _to_frontmatter methods."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     assert not hasattr(manager, "_parse_frontmatter")
     assert not hasattr(manager, "_to_frontmatter")
 
@@ -516,7 +516,7 @@ def test_state_manager_no_frontmatter_methods(tmp_path):
 
 def test_claim_task_atomic(tmp_path):
     """claim_task should atomically find, update, and save task."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -536,7 +536,7 @@ def test_claim_task_atomic(tmp_path):
     assert result.task.status == TaskStatus.RUNNING
     assert result.task.started_at is not None
 
-    loaded = StateManager(tmp_path).load()
+    loaded = WorkflowStateStore(tmp_path).load()
     assert loaded is not None
     assert loaded.tasks["task-1"].claimed_by == "worker-1"
     assert loaded.tasks["task-1"].status == TaskStatus.RUNNING
@@ -544,7 +544,7 @@ def test_claim_task_atomic(tmp_path):
 
 def test_claim_task_returns_existing(tmp_path):
     """claim_task should return existing task for same worker_id (idempotency)."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -569,7 +569,7 @@ def test_claim_task_renews_lease_on_retry(tmp_path):
     """claim_task should renew started_at on idempotent retry to prevent task stealing."""
     from datetime import timedelta
 
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     old_time = datetime.now(UTC) - timedelta(minutes=5)
     state = WorkflowState(
         tasks={
@@ -600,7 +600,7 @@ def test_claim_task_lease_renewal_prevents_stealing(tmp_path):
     """Verify that lease renewal prevents another worker from stealing a task."""
     from datetime import timedelta
 
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     # Task with nearly-expired lease (9 minutes old, 10 min timeout)
     nearly_expired = datetime.now(UTC) - timedelta(minutes=9)
     state = WorkflowState(
@@ -629,7 +629,7 @@ def test_claim_task_lease_renewal_prevents_stealing(tmp_path):
 
 def test_claim_task_race_condition_prevented(tmp_path):
     """claim_task should prevent race conditions with threading."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -671,7 +671,7 @@ def test_claim_task_race_condition_prevented(tmp_path):
 
 def test_complete_task_atomic(tmp_path):
     """complete_task should atomically update and save task."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -688,7 +688,7 @@ def test_complete_task_atomic(tmp_path):
 
     manager.complete_task("task-1", "worker-1")
 
-    loaded = StateManager(tmp_path).load()
+    loaded = WorkflowStateStore(tmp_path).load()
     assert loaded is not None
     assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
     assert loaded.tasks["task-1"].completed_at is not None
@@ -696,7 +696,7 @@ def test_complete_task_atomic(tmp_path):
 
 def test_complete_task_validates_ownership(tmp_path):
     """complete_task should validate worker owns the task."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -856,7 +856,7 @@ def test_validate_dag_detects_missing_dependency():
 
 def test_state_manager_save_validates_dag(tmp_path):
     """StateManager.save should validate DAG before saving."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
 
     # Create state with cycle
     state = WorkflowState(
@@ -890,7 +890,7 @@ def test_state_manager_save_validates_dag(tmp_path):
 
 def test_update_without_prior_load(tmp_path):
     """update() should auto-load state from disk if not in memory."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     # Create state file directly (bypassing manager.save)
     state_file = tmp_path / ".claude" / "dev-workflow-state.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -927,7 +927,7 @@ def test_update_without_prior_load(tmp_path):
 
 def test_update_raises_when_no_state(tmp_path):
     """update() should raise ValueError when no state file exists."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     with pytest.raises(ValueError, match="No workflow state"):
         manager.update(tasks={})
 
@@ -935,7 +935,7 @@ def test_update_raises_when_no_state(tmp_path):
 def test_claim_task_auto_loads_state(tmp_path):
     """claim_task() should auto-load state from disk."""
     # Create state file directly
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state_file = tmp_path / ".claude" / "dev-workflow-state.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(
@@ -962,7 +962,7 @@ def test_claim_task_auto_loads_state(tmp_path):
 
 def test_complete_task_auto_loads_state(tmp_path):
     """complete_task() should auto-load state from disk."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state_file = tmp_path / ".claude" / "dev-workflow-state.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(
@@ -985,14 +985,14 @@ def test_complete_task_auto_loads_state(tmp_path):
 
     # Complete without calling load() - should auto-load
     manager.complete_task("task-1", "worker-1")
-    loaded = StateManager(tmp_path).load()
+    loaded = WorkflowStateStore(tmp_path).load()
     assert loaded is not None
     assert loaded.tasks["task-1"].status == TaskStatus.COMPLETED
 
 
 def test_complete_task_raises_for_missing_task(tmp_path):
     """complete_task() should raise ValueError for unknown task_id."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state_file = tmp_path / ".claude" / "dev-workflow-state.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(json.dumps({"tasks": {}}))
@@ -1003,7 +1003,7 @@ def test_complete_task_raises_for_missing_task(tmp_path):
 
 def test_reset_clears_state_file(tmp_path):
     """reset() should delete the state file and clear cached state."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state_file = tmp_path / ".claude" / "dev-workflow-state.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1031,7 +1031,7 @@ def test_reset_clears_state_file(tmp_path):
 
 def test_reset_is_idempotent(tmp_path):
     """reset() should not raise if state file doesn't exist."""
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state_file = tmp_path / ".claude" / "dev-workflow-state.json"
 
     # No state file exists
@@ -1048,7 +1048,7 @@ def test_ensure_state_loaded_raises_when_file_deleted(tmp_path):
     The daemon owns the state. Once loaded, external file deletion
     should not affect operations until explicit reload.
     """
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
 
     # Create and load state
     state = WorkflowState(
@@ -1078,7 +1078,7 @@ def test_state_manager_caches_state_in_memory(tmp_path):
     Bug: _ensure_state_loaded() always reads from disk, even when state is already loaded.
     Fix: Load once at save/load, return cached _state thereafter.
     """
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -1153,7 +1153,7 @@ def test_claim_task_returns_claim_result_with_is_retry(tmp_path) -> None:
     """
     from harness.state import ClaimResult
 
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state = WorkflowState(
         tasks={
             "task1": Task(
@@ -1187,7 +1187,7 @@ def test_claim_task_returns_claim_result_with_is_reclaim(tmp_path) -> None:
     """claim_task should return ClaimResult with is_reclaim flag for timed out tasks."""
     from harness.state import ClaimResult
 
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     # Create a timed out task
     state = WorkflowState(
         tasks={
@@ -1218,7 +1218,7 @@ def test_claim_task_returns_none_result_when_no_tasks(tmp_path) -> None:
     """claim_task should return ClaimResult with task=None when no tasks available."""
     from harness.state import ClaimResult
 
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     state = WorkflowState(tasks={})
     manager.save(state)
 

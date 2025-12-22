@@ -159,17 +159,17 @@ def test_crash_resilient_jsonl_format(temp_trajectory_dir, logger):
 
 
 def test_separate_lock_from_state(temp_trajectory_dir, logger):
-    # Verify logger has its own _lock attribute
-    assert hasattr(logger, "_lock")
-    assert isinstance(logger._lock, type(threading.Lock()))
+    # Verify logger has its own _write_lock attribute
+    assert hasattr(logger, "_write_lock")
+    assert isinstance(logger._write_lock, type(threading.Lock()))
 
-    # Verify it's a different instance than what StateManager would use
+    # Verify it's a different instance than what WorkflowStateStore would use
     # (This test just verifies the lock exists; integration will test separation)
-    lock_id_1 = id(logger._lock)
+    lock_id_1 = id(logger._write_lock)
 
     # Create another logger
     another_logger = TrajectoryLogger(temp_trajectory_dir / ".claude" / "trajectory2.jsonl")
-    lock_id_2 = id(another_logger._lock)
+    lock_id_2 = id(another_logger._write_lock)
 
     assert lock_id_1 != lock_id_2
 

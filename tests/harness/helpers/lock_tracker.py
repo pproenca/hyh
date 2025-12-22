@@ -3,8 +3,8 @@ Lock Hierarchy Tracking for Deadlock Prevention.
 
 <approach>
 The documented lock hierarchy from CLAUDE.md:
-1. StateManager._lock (highest priority)
-2. TrajectoryLogger._lock
+1. WorkflowStateStore._state_lock (highest priority)
+2. TrajectoryLogger._write_lock
 3. GLOBAL_EXEC_LOCK (lowest, only for git operations)
 
 Locks must ALWAYS be acquired in this order. Never acquire a higher-priority
@@ -47,24 +47,24 @@ class LockTracker:
 
     Usage:
         tracker = LockTracker()
-        tracker.register("StateManager._lock", 1, state_manager._lock)
+        tracker.register("WorkflowStateStore._state_lock", 1, state_store._state_lock)
         tracker.register("GLOBAL_EXEC_LOCK", 3, GLOBAL_EXEC_LOCK)
 
         # In code:
-        with tracker.track("StateManager._lock"):
+        with tracker.track("WorkflowStateStore._state_lock"):
             # ... critical section
             with tracker.track("GLOBAL_EXEC_LOCK"):  # OK: 1 < 3
                 pass
 
         with tracker.track("GLOBAL_EXEC_LOCK"):
-            with tracker.track("StateManager._lock"):  # VIOLATION: 3 > 1
+            with tracker.track("WorkflowStateStore._state_lock"):  # VIOLATION: 3 > 1
                 pass  # Raises LockHierarchyError
     """
 
     # Standard hierarchy from CLAUDE.md
     STANDARD_HIERARCHY: ClassVar[dict[str, int]] = {
-        "StateManager._lock": 1,
-        "TrajectoryLogger._lock": 2,
+        "WorkflowStateStore._state_lock": 1,
+        "TrajectoryLogger._write_lock": 2,
         "GLOBAL_EXEC_LOCK": 3,
     }
 
@@ -85,8 +85,8 @@ class LockTracker:
         exec_lock: threading.Lock,
     ) -> None:
         """Register all locks with the standard hierarchy."""
-        self.register("StateManager._lock", 1, state_lock)
-        self.register("TrajectoryLogger._lock", 2, trajectory_lock)
+        self.register("WorkflowStateStore._state_lock", 1, state_lock)
+        self.register("TrajectoryLogger._write_lock", 2, trajectory_lock)
         self.register("GLOBAL_EXEC_LOCK", 3, exec_lock)
 
     def _get_held_stack(self) -> list[str]:

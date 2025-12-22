@@ -256,9 +256,9 @@ class TestStateManagerUpdateEdgeCases:
 
     def test_update_with_task_objects(self, tmp_path) -> None:
         """update() should accept Task objects in tasks dict."""
-        from harness.state import StateManager
+        from harness.state import WorkflowStateStore
 
-        manager = StateManager(tmp_path)
+        manager = WorkflowStateStore(tmp_path)
         manager.save(
             WorkflowState(
                 tasks={

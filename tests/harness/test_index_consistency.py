@@ -32,7 +32,7 @@ import time_machine
 from hypothesis import settings
 from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, rule
 
-from harness.state import StateManager, Task, TaskStatus, WorkflowState
+from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
 
 def verify_index_invariants(state: WorkflowState) -> list[str]:
@@ -112,7 +112,7 @@ class TestIndexConsistencyUnderLoad:
     ) -> None:
         """Multiple threads doing claim/complete cycles must preserve indexes."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             # Create enough tasks for all workers
             num_tasks = num_threads * 2
@@ -177,7 +177,7 @@ class TestStaleIndexCleanup:
         subsequent operations should clean it up.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {}
             for i in range(5):
@@ -207,7 +207,7 @@ class TestStaleIndexCleanup:
     def test_stale_pending_index_cleanup(self) -> None:
         """Pending index entries for claimed tasks should be removed."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -242,7 +242,7 @@ class TestStaleIndexCleanup:
         KNOWN ISSUE: This test may fail if lazy cleanup is insufficient.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             # Create enough tasks
             num_tasks = num_workers * 3
@@ -289,7 +289,7 @@ class TestDequeRotationConcurrency:
         Concurrent claims should not corrupt the deque.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             # Create tasks with dependencies to trigger rotation
             # task-0 is independent, task-1..9 depend on task-0
@@ -339,7 +339,7 @@ class TestDequeRotationConcurrency:
     def test_deque_rotation_with_completion(self) -> None:
         """Completing a task should unblock dependents and update indexes."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             # task-1 depends on task-0
             tasks = {
@@ -382,7 +382,7 @@ class TestWorkerIndexIdempotency:
     def test_same_worker_repeated_claims(self) -> None:
         """Same worker claiming repeatedly should have single index entry."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -411,7 +411,7 @@ class TestWorkerIndexIdempotency:
     def test_worker_index_after_reclaim(self) -> None:
         """After task timeout and reclaim, old worker's index should be cleared."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -460,7 +460,7 @@ class TestPendingSetMembershipInvariant:
     def test_pending_set_matches_deque_after_operations(self) -> None:
         """Pending set must exactly match pending deque after any operation."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {}
             for i in range(10):
@@ -507,7 +507,7 @@ class IndexConsistencyStateMachine(RuleBasedStateMachine):
     def __init__(self) -> None:
         super().__init__()
         self.tmpdir = tempfile.mkdtemp()
-        self.manager = StateManager(Path(self.tmpdir))
+        self.manager = WorkflowStateStore(Path(self.tmpdir))
 
         # Create initial tasks with dependencies
         tasks = {}

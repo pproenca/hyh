@@ -31,7 +31,7 @@ import pytest
 from hypothesis import settings
 from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, rule
 
-from harness.state import StateManager, Task, TaskStatus, WorkflowState
+from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
 
 class TestNoDoubleAssignment:
@@ -52,7 +52,7 @@ class TestNoDoubleAssignment:
         Violation means two workers could execute same task simultaneously.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             # Create tasks with no dependencies (all claimable)
             tasks = {}
@@ -105,7 +105,7 @@ class TestNoDoubleAssignment:
     def test_idempotent_claim_same_worker(self) -> None:
         """Same worker calling claim_task multiple times gets same task."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -141,7 +141,7 @@ class TestHighContentionSerialization:
         Each task should be claimed exactly once and completed exactly once.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             num_tasks = 5
             num_threads = 100
@@ -216,7 +216,7 @@ class TestMemoryVisibility:
     def test_write_read_visibility(self) -> None:
         """Thread A writes, Thread B reads immediately - must see update."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -263,7 +263,7 @@ class TestMemoryVisibility:
     def test_rapid_state_transitions_visibility(self) -> None:
         """Rapid claim -> complete cycles must all be visible."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             num_tasks = 20
             tasks = {}
@@ -321,7 +321,7 @@ class TestLockContention:
     def test_lock_acquisition_under_contention(self) -> None:
         """Document lock contention behavior - not a pass/fail test."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             # Create single task - maximum contention
             tasks = {
@@ -387,7 +387,7 @@ class StateManagerStateMachine(RuleBasedStateMachine):
     def __init__(self) -> None:
         super().__init__()
         self.tmpdir = tempfile.mkdtemp()
-        self.manager = StateManager(Path(self.tmpdir))
+        self.manager = WorkflowStateStore(Path(self.tmpdir))
 
         # Create initial tasks
         tasks = {}

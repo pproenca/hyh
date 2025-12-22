@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 import pytest
 
-from harness.state import StateManager, Task, TaskStatus, WorkflowState
+from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
 
 class TestAtomicFileWriteRace:
@@ -34,7 +34,7 @@ class TestAtomicFileWriteRace:
     def test_fsync_is_called_during_save(self) -> None:
         """Verify fsync is called for crash safety."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             fsync_called = []
             original_fsync = os.fsync
@@ -59,7 +59,7 @@ class TestAtomicFileWriteRace:
     def test_concurrent_save_no_corruption(self) -> None:
         """Concurrent saves should not corrupt state file."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             initial = WorkflowState(
                 tasks={
@@ -160,7 +160,7 @@ class TestCacheInvalidation:
     def test_external_modification_cache_behavior(self) -> None:
         """Document cache behavior when file is externally modified."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             state1 = WorkflowState(
                 tasks={
@@ -200,7 +200,7 @@ class TestCacheInvalidation:
     def test_claim_uses_cached_state(self) -> None:
         """Document that claim_task uses cached state."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             state = WorkflowState(
                 tasks={
@@ -320,7 +320,7 @@ class TestPartialJSONRecovery:
     def test_partial_json_raises_clear_error(self) -> None:
         """StateManager should raise clear error for partial JSON."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
             state_file = manager.state_file
             state_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -333,7 +333,7 @@ class TestPartialJSONRecovery:
     def test_empty_file_handling(self) -> None:
         """StateManager should handle empty file gracefully."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
             state_file = manager.state_file
             state_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -366,7 +366,7 @@ class TestStateFilePermissionDenied:
         This test documents the expected behavior.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             state = WorkflowState(
                 tasks={
@@ -386,7 +386,7 @@ class TestStateFilePermissionDenied:
         """StateManager should create parent directories if needed."""
         with tempfile.TemporaryDirectory() as tmpdir:
             deep_path = Path(tmpdir) / "a" / "b" / "c"
-            manager = StateManager(deep_path)
+            manager = WorkflowStateStore(deep_path)
 
             state = WorkflowState(
                 tasks={

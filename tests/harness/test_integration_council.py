@@ -33,10 +33,10 @@ def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
 def test_amendments_work_together(socket_path, worktree):
     """All three Council amendments should work in harmony."""
     from harness.daemon import HarnessDaemon
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
     # Amendment C: Create valid DAG (no cycles)
-    manager = StateManager(worktree)
+    manager = WorkflowStateStore(worktree)
     state = WorkflowState(
         tasks={
             "task-1": Task(
@@ -83,9 +83,9 @@ def test_amendments_work_together(socket_path, worktree):
 
 def test_cyclic_dag_rejected_at_boundary(tmp_path):
     """Amendment C: Cyclic dependencies must be rejected."""
-    from harness.state import StateManager, Task, TaskStatus, WorkflowState
+    from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
-    manager = StateManager(tmp_path)
+    manager = WorkflowStateStore(tmp_path)
     cyclic_state = WorkflowState(
         tasks={
             "a": Task(id="a", description="A", status=TaskStatus.PENDING, dependencies=["b"]),

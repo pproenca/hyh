@@ -6,14 +6,14 @@ from typing import Any, Final
 
 
 class TrajectoryLogger:
-    __slots__ = ("_lock", "_parent_str", "_path_str", "trajectory_file")
+    __slots__ = ("_parent_str", "_path_str", "_write_lock", "trajectory_file")
 
     def __init__(self, trajectory_file: Path) -> None:
         self.trajectory_file: Final[Path] = Path(trajectory_file)
 
         self._path_str: Final[str] = str(self.trajectory_file)
         self._parent_str: Final[str] = str(self.trajectory_file.parent)
-        self._lock: Final[threading.Lock] = threading.Lock()
+        self._write_lock: Final[threading.Lock] = threading.Lock()
 
     def log(self, event: dict[str, Any]) -> None:
         line = (json.dumps(event) + "\n").encode("utf-8")
@@ -34,7 +34,7 @@ class TrajectoryLogger:
         if not self.trajectory_file.exists():
             return []
 
-        with self._lock:
+        with self._write_lock:
             return self._tail_reverse_seek(n, max_buffer_bytes)
 
     def _tail_reverse_seek(self, n: int, max_buffer_bytes: int) -> list[dict[str, Any]]:

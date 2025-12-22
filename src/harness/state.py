@@ -240,14 +240,14 @@ class ClaimResult(Struct, frozen=True, forbid_unknown_fields=True):
     is_reclaim: bool = False
 
 
-class StateManager:
-    __slots__ = ("_lock", "_state", "state_file", "worktree_root")
+class WorkflowStateStore:
+    __slots__ = ("_state", "_state_lock", "state_file", "worktree_root")
 
     def __init__(self, worktree_root: Path) -> None:
         self.worktree_root: Final[Path] = Path(worktree_root)
         self.state_file: Final[Path] = self.worktree_root / ".claude" / "dev-workflow-state.json"
         self._state: WorkflowState | None = None
-        self._lock: Final[threading.Lock] = threading.Lock()
+        self._state_lock: Final[threading.Lock] = threading.Lock()
 
     def _ensure_state_loaded(self) -> WorkflowState:
         if self._state is not None:
@@ -274,7 +274,7 @@ class StateManager:
         temp_file.rename(self.state_file)
 
     def load(self) -> WorkflowState | None:
-        with self._lock:
+        with self._state_lock:
             if not self.state_file.exists():
                 self._state = None
                 return None
@@ -284,14 +284,14 @@ class StateManager:
             return self._state
 
     def save(self, state: WorkflowState) -> None:
-        with self._lock:
+        with self._state_lock:
             state.validate_dag()
             state.rebuild_indexes()
             self._write_atomic(state)
             self._state = state
 
     def update(self, **kwargs: Any) -> WorkflowState:
-        with self._lock:
+        with self._state_lock:
             state = self._ensure_state_loaded()
 
             match kwargs.get("tasks"):
@@ -317,7 +317,7 @@ class StateManager:
         if not worker_id or not worker_id.strip():
             raise ValueError("Worker ID cannot be empty or whitespace-only")
 
-        with self._lock:
+        with self._state_lock:
             state = self._ensure_state_loaded()
             task = state.get_task_for_worker(worker_id)
 
@@ -345,7 +345,7 @@ class StateManager:
             return ClaimResult(task=updated_task, is_retry=is_retry, is_reclaim=is_reclaim)
 
     def complete_task(self, task_id: str, worker_id: str) -> None:
-        with self._lock:
+        with self._state_lock:
             state = self._ensure_state_loaded()
 
             task = state.tasks.get(task_id)
@@ -372,7 +372,7 @@ class StateManager:
             self._state = new_state
 
     def reset(self) -> None:
-        with self._lock:
+        with self._state_lock:
             if self.state_file.exists():
                 self.state_file.unlink()
             self._state = None

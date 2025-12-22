@@ -20,7 +20,7 @@ from .git import safe_git_exec
 from .plan import parse_plan_content
 from .registry import ProjectRegistry
 from .runtime import Runtime, create_runtime, decode_signal
-from .state import StateManager
+from .state import WorkflowStateStore
 from .trajectory import TrajectoryLogger
 
 TRUNCATE_LIMIT: Final[int] = 4096
@@ -367,7 +367,7 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 
     socket_path: str
     worktree_root: Path
-    state_manager: StateManager
+    state_manager: WorkflowStateStore
     trajectory_logger: TrajectoryLogger
     acp_emitter: ACPEmitter | None
     runtime: Runtime
@@ -383,7 +383,7 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     ) -> None:
         self.socket_path = socket_path
         self.worktree_root = Path(worktree_root)
-        self.state_manager = StateManager(self.worktree_root)
+        self.state_manager = WorkflowStateStore(self.worktree_root)
         self.trajectory_logger = TrajectoryLogger(
             self.worktree_root / ".claude" / "trajectory.jsonl"
         )

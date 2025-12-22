@@ -29,7 +29,7 @@ from pathlib import Path
 import pytest
 
 from harness.runtime import GLOBAL_EXEC_LOCK
-from harness.state import StateManager, Task, TaskStatus, WorkflowState
+from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 from harness.trajectory import TrajectoryLogger
 
 from .helpers.lock_tracker import (
@@ -116,7 +116,7 @@ class TestStateManagerLockHierarchy:
         from unittest.mock import patch
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -132,7 +132,7 @@ class TestStateManagerLockHierarchy:
             lock_held_during_log: list[bool] = []
 
             def tracking_log(self: TrajectoryLogger, event: dict[str, object]) -> None:
-                lock_held_during_log.append(manager._lock.locked())
+                lock_held_during_log.append(manager._state_lock.locked())
 
             with patch.object(TrajectoryLogger, "log", tracking_log):
                 # Create trajectory after patching
@@ -150,7 +150,7 @@ class TestStateManagerLockHierarchy:
     def test_complete_task_does_not_hold_lock_during_io(self) -> None:
         """complete_task should release lock before any I/O operations."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {
                 "task-1": Task(
@@ -274,7 +274,7 @@ class TestConcurrentHierarchyCompliance:
     def test_concurrent_claim_complete_no_hierarchy_violation(self) -> None:
         """Multiple threads doing claim/complete should not violate hierarchy."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {}
             for i in range(20):

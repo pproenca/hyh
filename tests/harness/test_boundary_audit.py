@@ -17,7 +17,7 @@ from pathlib import Path
 import msgspec
 import pytest
 
-from harness.state import StateManager, Task, TaskStatus, WorkflowState
+from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
 
 class TestEmptyInputHandling:
@@ -36,7 +36,7 @@ class TestEmptyInputHandling:
     def test_empty_worker_id_rejected(self) -> None:
         """Empty worker ID should be rejected by claim_task."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
             state = WorkflowState(
                 tasks={
                     "t1": Task(id="t1", description="x", status=TaskStatus.PENDING, dependencies=[])
@@ -50,7 +50,7 @@ class TestEmptyInputHandling:
     def test_whitespace_worker_id_rejected(self) -> None:
         """Whitespace-only worker ID should be rejected."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
             state = WorkflowState(
                 tasks={
                     "t1": Task(id="t1", description="x", status=TaskStatus.PENDING, dependencies=[])
@@ -296,7 +296,7 @@ class TestSpecialCharacters:
     def test_json_special_chars_round_trip(self) -> None:
         """JSON special characters should be properly escaped."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tricky_desc = 'Quote: "test", backslash: \\, newline: \n, tab: \t'
             state = WorkflowState(
@@ -369,7 +369,7 @@ class TestErrorRecovery:
     def test_partial_json_in_state_file(self) -> None:
         """StateManager should handle partial/corrupt JSON gracefully."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
             state_file = manager.state_file
             state_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -381,7 +381,7 @@ class TestErrorRecovery:
     def test_invalid_status_in_state_file(self) -> None:
         """Invalid status values should raise clear error."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
             state_file = manager.state_file
             state_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -407,7 +407,7 @@ class TestErrorRecovery:
     def test_missing_required_fields(self) -> None:
         """Missing required fields should raise clear error."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
             state_file = manager.state_file
             state_file.parent.mkdir(parents=True, exist_ok=True)
 

@@ -226,10 +226,10 @@ class TestDatetimeTimezoneConfusion:
 
     def test_datetime_round_trip_through_json(self) -> None:
         """Datetimes should survive JSON serialization round-trip."""
-        from harness.state import StateManager, Task, TaskStatus, WorkflowState
+        from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             task = Task(
                 id="task-1",
@@ -350,10 +350,10 @@ class TestStateManagerLocking:
 
     def test_concurrent_claim_and_complete(self) -> None:
         """Concurrent claims and completes should not corrupt state."""
-        from harness.state import StateManager, Task, TaskStatus, WorkflowState
+        from harness.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StateManager(Path(tmpdir))
+            manager = WorkflowStateStore(Path(tmpdir))
 
             tasks = {}
             for i in range(10):

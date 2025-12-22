@@ -136,12 +136,12 @@ def test_acp_worker_send_error_disables(monkeypatch):
 
     # Wait for emitter to be disabled
     wait_until(
-        lambda: emitter._disabled.is_set(),
+        lambda: emitter._disabled_event.is_set(),
         timeout=5.0,
         message="Emitter should be disabled after send failure",
     )
 
-    assert emitter._disabled.is_set() is True
+    assert emitter._disabled_event.is_set() is True
     emitter.close()
 
 
@@ -199,20 +199,20 @@ def test_acp_disabled_flag_is_thread_safe():
     emitter = ACPEmitter(port=59999)  # Nothing listening
 
     # _disabled should be a threading.Event, not a boolean
-    assert isinstance(emitter._disabled, threading.Event), (
+    assert isinstance(emitter._disabled_event, threading.Event), (
         "_disabled must be threading.Event for thread-safe access in Python 3.13t"
     )
 
     # Verify Event semantics work correctly
-    assert not emitter._disabled.is_set()  # Initially not disabled
+    assert not emitter._disabled_event.is_set()  # Initially not disabled
 
     emitter.emit({"event": "test"})
     # Wait for worker to attempt connection and disable (replaces time.sleep(0.2))
     wait_until(
-        lambda: emitter._disabled.is_set(),
+        lambda: emitter._disabled_event.is_set(),
         timeout=2.0,
         message="Emitter should be disabled after connection failure",
     )
 
-    assert emitter._disabled.is_set()  # Should be disabled after connection failure
+    assert emitter._disabled_event.is_set()  # Should be disabled after connection failure
     emitter.close()

@@ -37,7 +37,7 @@ class TestNonSerializableEvents:
 
             # Wait for emitter to become disabled after processing error (replaces time.sleep(0.1))
             wait_until(
-                lambda: emitter._disabled.is_set(),
+                lambda: emitter._disabled_event.is_set(),
                 timeout=2.0,
                 message="Emitter should process event without crashing",
             )
@@ -60,7 +60,7 @@ class TestNonSerializableEvents:
             emitter.emit(event)
             # Wait for emitter to process (replaces time.sleep(0.1))
             wait_until(
-                lambda: emitter._disabled.is_set(),
+                lambda: emitter._disabled_event.is_set(),
                 timeout=2.0,
                 message="Emitter should handle circular reference",
             )
@@ -81,13 +81,13 @@ class TestSocketFailures:
             emitter.emit({"type": "test"})
             # Wait for emitter to be disabled after connection failure (replaces time.sleep(0.2))
             wait_until(
-                lambda: emitter._disabled.is_set(),
+                lambda: emitter._disabled_event.is_set(),
                 timeout=2.0,
                 message="Emitter should be disabled after connection failure",
             )
 
             # Emitter should be disabled after failure
-            assert emitter._disabled.is_set()
+            assert emitter._disabled_event.is_set()
         finally:
             emitter.close()
 
@@ -103,7 +103,7 @@ class TestSocketFailures:
 
             # Wait for emitter to be disabled (replaces time.sleep(0.1))
             wait_until(
-                lambda: emitter._disabled.is_set(),
+                lambda: emitter._disabled_event.is_set(),
                 timeout=2.0,
                 message="Emitter should be disabled after connection failure",
             )
