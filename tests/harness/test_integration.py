@@ -188,7 +188,7 @@ def test_state_persistence_across_daemon_restart(integration_worktree):
         worktree_root=str(worktree),
     )
     assert resp["status"] == "ok"
-    assert resp["data"]["tasks"]["task-1"]["status"] == "completed"  # State persisted
+    assert resp["data"]["state"]["tasks"]["task-1"]["status"] == "completed"  # State persisted
 
 
 def test_cli_commands(integration_worktree):

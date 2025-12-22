@@ -193,9 +193,10 @@ def test_client_get_state(worktree_with_daemon):
 
     assert response["status"] == "ok"
 
-    assert "tasks" in response["data"]
-    assert "task-1" in response["data"]["tasks"]
-    assert response["data"]["tasks"]["task-1"]["status"] == "pending"
+    assert "state" in response["data"]
+    assert "tasks" in response["data"]["state"]
+    assert "task-1" in response["data"]["state"]["tasks"]
+    assert response["data"]["state"]["tasks"]["task-1"]["status"] == "pending"
 
 
 def test_client_git_command(worktree_with_daemon):
