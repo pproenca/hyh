@@ -20,8 +20,9 @@ This module provides instrumentation to:
 import threading
 from collections.abc import Generator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import ClassVar
+
+from msgspec import Struct
 
 
 class LockHierarchyError(Exception):
@@ -33,8 +34,7 @@ class LockHierarchyError(Exception):
         self.attempted_lock = attempted_lock
 
 
-@dataclass
-class LockInfo:
+class LockInfo(Struct):
     """Information about a tracked lock."""
 
     name: str

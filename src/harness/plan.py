@@ -1,5 +1,5 @@
 import re
-from typing import Final, TypedDict
+from typing import Final
 
 from msgspec import Struct, field
 
@@ -20,7 +20,7 @@ def _validate_task_id(task_id: str) -> None:
         )
 
 
-class _TaskData(TypedDict):
+class _TaskData(Struct):
     description: str
     instructions: str
     dependencies: list[str]
@@ -109,7 +109,7 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
 
             for t_id in groups[group_id]:
                 if t_id in tasks_data:
-                    tasks_data[t_id]["dependencies"] = prev_tasks
+                    tasks_data[t_id].dependencies = prev_tasks
 
     all_grouped_tasks = {t for tasks in groups.values() for t in tasks}
 
@@ -130,9 +130,9 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
     final_tasks = {}
     for t_id, t_data in tasks_data.items():
         final_tasks[t_id] = PlanTaskDefinition(
-            description=t_data["description"],
-            instructions=t_data["instructions"],
-            dependencies=t_data["dependencies"],
+            description=t_data.description,
+            instructions=t_data.instructions,
+            dependencies=t_data.dependencies,
             timeout_seconds=600,
             role=None,
         )

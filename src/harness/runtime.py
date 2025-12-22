@@ -3,8 +3,9 @@ import signal
 import subprocess
 import threading
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Final, Protocol
+
+from msgspec import Struct
 
 GLOBAL_EXEC_LOCK: Final[threading.Lock] = threading.Lock()
 
@@ -22,8 +23,7 @@ def decode_signal(returncode: int) -> str | None:
         return f"SIG{sig_num}"
 
 
-@dataclass(slots=True, frozen=True)
-class ExecutionResult:
+class ExecutionResult(Struct, frozen=True, forbid_unknown_fields=True):
     returncode: int
     stdout: str
     stderr: str
