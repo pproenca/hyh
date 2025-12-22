@@ -37,6 +37,8 @@ ENV/
 htmlcov/
 .tox/
 .nox/
+.benchmarks/
+.hypothesis/
 
 # Local development
 *.local.md
