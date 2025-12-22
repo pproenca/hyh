@@ -6,7 +6,7 @@ Uses socketserver.ThreadingUnixStreamServer for true parallelism
 in Python 3.13t (free-threading). No asyncio.
 
 Each client connection gets a real OS thread that runs in parallel.
-Pydantic validation happens here - the client is deliberately "dumb".
+msgspec validation happens here - the client is deliberately "dumb".
 """
 
 from __future__ import annotations
@@ -26,6 +26,8 @@ from io import TextIOWrapper
 from pathlib import Path
 from types import FrameType
 from typing import Any, Final
+
+import msgspec
 
 from .acp import ACPEmitter
 from .git import safe_git_exec
@@ -97,7 +99,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         state = server.state_manager.load()
         if state is None:
             return {"status": "ok", "data": None}
-        return {"status": "ok", "data": state.model_dump(mode="json")}
+        return {"status": "ok", "data": msgspec.to_builtins(state)}
 
     def _handle_status(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
         """Return workflow status summary with task counts and recent events."""
@@ -147,7 +149,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             "data": {
                 "active": True,
                 "summary": summary,
-                "tasks": {tid: t.model_dump(mode="json") for tid, t in tasks.items()},
+                "tasks": {tid: msgspec.to_builtins(t) for tid, t in tasks.items()},
                 "events": events,
                 "active_workers": active_workers,
             },
@@ -160,9 +162,9 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         if not updates:
             return {"status": "error", "message": "No updates provided"}
         try:
-            # Pydantic validation happens here (CPU-heavy, parallel thread)
+            # msgspec validation happens here (CPU-heavy, parallel thread)
             updated = server.state_manager.update(**updates)
-            return {"status": "ok", "data": updated.model_dump(mode="json")}
+            return {"status": "ok", "data": msgspec.to_builtins(updated)}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
@@ -224,7 +226,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             return {
                 "status": "ok",
                 "data": {
-                    "task": task.model_dump(mode="json"),
+                    "task": msgspec.to_builtins(task),
                     "is_retry": claim_result.is_retry,
                     "is_reclaim": claim_result.is_reclaim,
                 },

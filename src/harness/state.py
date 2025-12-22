@@ -1,6 +1,6 @@
 # src/harness/state.py
 """
-Pydantic state models for workflow management.
+msgspec state models for workflow management.
 
 WorkflowState is the canonical schema for dev-workflow state.
 StateManager handles persistence to JSON format.
@@ -10,6 +10,7 @@ Performance characteristics:
 - Worker task lookup: O(1) via _worker_index
 - Pending task claim: O(1) amortized via indexed deque
 - DAG validation: O(V + E) via iterative DFS
+- Serialization: Zero-copy with msgspec (faster than Pydantic)
 """
 
 from __future__ import annotations
@@ -18,15 +19,15 @@ import json
 import os
 import threading
 from collections import deque
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal, Self
+from typing import Annotated, Any, ClassVar, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+import msgspec
+from msgspec import Meta, Struct, field
+from msgspec.structs import replace as struct_replace
 
 
 def detect_cycle(graph: dict[str, list[str]]) -> str | None:  # Time: O(V+E), Space: O(V)
@@ -98,13 +99,30 @@ class TaskStatus(str, Enum):
     FAILED = "failed"
 
 
-class Task(BaseModel):
+# Constrained types using msgspec.Meta for validation during decode
+TimeoutSeconds = Annotated[int, Meta(ge=1, le=86400)]
+
+
+class Task(Struct, forbid_unknown_fields=True):
     """Individual task in workflow DAG.
 
-    Immutable after creation except via StateManager methods.
+    Thread-safe: Immutable after creation except via StateManager methods.
+    Uses msgspec.Struct for zero-copy serialization performance.
     """
 
-    model_config = ConfigDict(frozen=False, extra="forbid", validate_assignment=True)
+    # Required fields (no defaults)
+    id: str
+    description: str
+
+    # Optional fields with defaults
+    status: TaskStatus = TaskStatus.PENDING
+    dependencies: tuple[str, ...] = ()
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    claimed_by: str | None = None
+    timeout_seconds: TimeoutSeconds = 600
+    instructions: str | None = None
+    role: str | None = None
 
     # Class-level clock for testable timeout checking.
     # Tests can inject a mock clock via set_clock() to avoid real time.sleep().
@@ -120,42 +138,29 @@ class Task(BaseModel):
         """Reset to default system clock."""
         cls._clock = lambda: datetime.now(UTC)
 
-    id: str = Field(..., min_length=1, description="Unique task identifier")
-    description: str = Field(..., description="Task description")
-    status: TaskStatus = Field(default=TaskStatus.PENDING, description="Current task status")
-    dependencies: tuple[str, ...] = Field(
-        default_factory=tuple, description="Task IDs that must complete first"
-    )
-    started_at: datetime | None = Field(default=None, description="Task start timestamp")
-    completed_at: datetime | None = Field(default=None, description="Task completion timestamp")
-    claimed_by: str | None = Field(default=None, description="Worker ID that claimed this task")
-    timeout_seconds: int = Field(default=600, ge=1, le=86400, description="Timeout in seconds")
+    def __post_init__(self) -> None:
+        """Validate and normalize fields after initialization.
 
-    instructions: str | None = Field(default=None, description="Detailed prompt for agent")
-    role: str | None = Field(default=None, description="Agent role: frontend, backend, etc.")
+        Called by msgspec after struct creation and during decode.
 
-    @field_validator("id", mode="before")
-    @classmethod
-    def validate_id_not_empty(cls, v: str) -> str:  # Time: O(k), Space: O(1) where k=len(v)
-        """Reject empty or whitespace-only task IDs."""
-        if not isinstance(v, str):
-            raise TypeError(f"Task ID must be str, got {type(v).__name__}")
-        stripped = v.strip()
-        if not stripped:
-            raise ValueError("Task ID cannot be empty or whitespace-only")
-        return stripped
+        NOTE: msgspec validates types during decode (from JSON/external data),
+        but trusts internal code per its philosophy. We only validate:
+        1. Business logic constraints (empty ID, whitespace stripping)
+        2. Normalization (list→tuple coercion for dependencies)
 
-    @field_validator("dependencies", mode="before")
-    @classmethod
-    def coerce_dependencies_to_tuple(cls, v: Any) -> tuple[str, ...]:  # Time: O(n), Space: O(n)
-        """Convert list dependencies to immutable tuple."""
-        match v:
-            case tuple():
-                return v
-            case list():
-                return tuple(v)
-            case _:
-                raise TypeError(f"dependencies must be list or tuple, got {type(v).__name__}")
+        Type validation happens automatically when decoding via msgspec.convert().
+        """
+        # Business logic: strip whitespace from ID and reject empty
+        if isinstance(self.id, str):
+            stripped = self.id.strip()
+            if not stripped:
+                raise ValueError("Task ID cannot be empty or whitespace-only")
+            if stripped != self.id:
+                object.__setattr__(self, "id", stripped)
+
+        # Normalize: coerce list to tuple for immutability
+        if isinstance(self.dependencies, list):
+            object.__setattr__(self, "dependencies", tuple(self.dependencies))
 
     def is_timed_out(self) -> bool:  # Time: O(1), Space: O(1)
         """Check if task has exceeded timeout window.
@@ -175,61 +180,70 @@ class Task(BaseModel):
         return elapsed.total_seconds() > self.timeout_seconds
 
 
-class WorkflowState(BaseModel):
+class WorkflowState(Struct, forbid_unknown_fields=True, omit_defaults=True, dict=True):
     """State for an active workflow execution with task DAG.
 
     Index invariants maintained by rebuild_indexes():
     - _pending_deque: FIFO of task IDs with status=PENDING, sorted by dep count
     - _pending_set: O(1) membership test for _pending_deque
     - _worker_index: Maps worker_id → task_id for O(1) lookup
+
+    NOTE: Uses dict=True to allow private attributes stored in __dict__.
+    These are NOT serialized (only struct fields are), but ARE available at runtime.
+    This is the msgspec equivalent of Pydantic's PrivateAttr pattern.
     """
 
-    model_config = ConfigDict(frozen=False, extra="forbid", validate_assignment=True)
+    tasks: dict[str, Task] = field(default_factory=dict)
 
-    tasks: dict[str, Task] = Field(default_factory=dict, description="Task DAG by ID")
+    # Private indexes stored in __dict__ (enabled via dict=True)
+    # These won't be serialized because they're not struct fields
 
-    # Private indexes - not serialized, rebuilt on load
-    _pending_deque: deque[str] = PrivateAttr(default_factory=deque)
-    _pending_set: set[str] = PrivateAttr(default_factory=set)
-    _worker_index: dict[str, str] = PrivateAttr(default_factory=dict)
+    def __post_init__(self) -> None:
+        """Initialize indexes and normalize tasks input.
 
-    @model_validator(mode="before")
-    @classmethod
-    def validate_tasks_input(cls, data: Any) -> Any:  # Time: O(n), Space: O(n)
-        """Normalize tasks from list[Task|dict] to dict[str, Task|dict]."""
-        if not isinstance(data, dict):
-            return data
+        Called by msgspec after struct creation and during decode.
+        """
+        # Initialize private attrs in __dict__ (enabled by dict=True)
+        # These won't be serialized because they're not struct fields
+        self._pending_deque: deque[str] = deque()
+        self._pending_set: set[str] = set()
+        self._worker_index: dict[str, str] = {}
 
-        tasks_raw = data.get("tasks")
-        if not isinstance(tasks_raw, list):
-            return data
+        # Normalize tasks from list[Task|dict] to dict[str, Task]
+        if isinstance(self.tasks, list):
+            tasks_dict: dict[str, Task] = {}
+            for item in self.tasks:
+                match item:
+                    case Task() as t:
+                        tasks_dict[t.id] = item
+                    case {"id": str(task_id)} as d:
+                        tasks_dict[task_id] = msgspec.convert(d, Task)
+                    case dict():
+                        raise ValueError("Task dict must contain 'id' field")
+                    case _:
+                        raise TypeError(f"Invalid task type: {type(item).__name__}")
+            object.__setattr__(self, "tasks", tasks_dict)
 
-        tasks_dict: dict[str, Any] = {}
-        for item in tasks_raw:
-            match item:
-                case Task() as t:
-                    tasks_dict[t.id] = item
-                case {"id": str(task_id)}:
-                    tasks_dict[task_id] = item
-                case dict():
-                    raise ValueError("Task dict must contain 'id' field")
-                case _:
-                    raise TypeError(f"Invalid task type: {type(item).__name__}")
-
-        return {**data, "tasks": tasks_dict}
-
-    @model_validator(mode="after")
-    def _post_init_indexes(self) -> Self:  # Time: O(n log n), Space: O(n)
-        """Populate indexes after validation."""
+        # Rebuild indexes after initialization
         self.rebuild_indexes()
-        return self
 
     def rebuild_indexes(self) -> None:  # Time: O(n log n), Space: O(n)
         """Rebuild all O(1) access indexes from canonical tasks dict.
 
         Called on: initial load, after updates, after deserialization.
         Sort is O(n log n) but amortized across many O(1) reads.
+
+        NOTE: Initializes private attrs if missing. This handles the case where
+        struct_replace() creates a new instance without calling __post_init__.
         """
+        # Ensure private attrs exist (struct_replace skips __post_init__)
+        if not hasattr(self, "_pending_deque"):
+            self._pending_deque = deque()
+        if not hasattr(self, "_pending_set"):
+            self._pending_set = set()
+        if not hasattr(self, "_worker_index"):
+            self._worker_index = {}
+
         pending: list[str] = []
         self._worker_index.clear()
 
@@ -241,8 +255,11 @@ class WorkflowState(BaseModel):
 
         # Sort by dependency count: fewer deps → earlier in queue (heuristic)
         pending.sort(key=lambda tid: len(self.tasks[tid].dependencies))
-        self._pending_deque = deque(pending)
-        self._pending_set = set(pending)
+        # Clear and repopulate (instance attrs, not struct fields)
+        self._pending_deque.clear()
+        self._pending_deque.extend(pending)
+        self._pending_set.clear()
+        self._pending_set.update(pending)
 
     def validate_dag(self) -> None:  # Time: O(V + E), Space: O(V)
         """Validate DAG integrity: no missing deps, no cycles.
@@ -342,28 +359,24 @@ class WorkflowState(BaseModel):
             task = self.tasks.get(existing_tid)
             if task and task.status == TaskStatus.RUNNING and task.claimed_by == worker_id:
                 return task
-            # Stale index entry; will be cleaned on next rebuild
+            # Stale index entry; clean up (keyed by worker_id, not task_id)
             del self._worker_index[worker_id]
 
         return self.get_claimable_task()
 
 
-class PendingHandoff(BaseModel):
+class PendingHandoff(Struct, frozen=True, forbid_unknown_fields=True):
     """Handoff file for session resume."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     mode: Literal["sequential", "subagent"]
     plan: str
 
 
-class ClaimResult(BaseModel):
+class ClaimResult(Struct, frozen=True, forbid_unknown_fields=True):
     """Result of claim_task operation with atomic metadata.
 
     Flags computed atomically with claim to prevent TOCTOU races.
     """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     task: Task | None = None
     is_retry: bool = False
@@ -380,6 +393,9 @@ class StateManager:
 
     Thread-safety: Uses coarse-grained locking. For high contention,
     consider per-task fine-grained locking or optimistic concurrency.
+
+    Performance: Uses msgspec module-level functions which are thread-safe
+    and avoid repeated encoder/decoder allocation.
     """
 
     __slots__ = ("_lock", "_state", "state_file", "worktree_root")
@@ -406,8 +422,7 @@ class StateManager:
             raise ValueError("No workflow state: file not found and no cached state")
 
         data = json.loads(self.state_file.read_text(encoding="utf-8"))
-        self._state = WorkflowState.model_validate(data)
-        # rebuild_indexes called by _post_init_indexes validator
+        self._state = msgspec.convert(data, WorkflowState)
         return self._state
 
     def _write_atomic(self, state: WorkflowState) -> None:  # Time: O(n), Space: O(n)
@@ -415,9 +430,12 @@ class StateManager:
 
         Pattern: write to .tmp → fsync → rename over target.
         Rename is atomic on POSIX; provides crash consistency.
+
+        Uses msgspec.json.encode which is thread-safe (module-level function).
         """
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
-        content = state.model_dump_json(indent=2, exclude_none=True)
+        # msgspec.json.encode is thread-safe and handles datetime serialization
+        content = msgspec.json.encode(state).decode("utf-8")
         temp_file = self.state_file.with_suffix(".tmp")
 
         with temp_file.open("w", encoding="utf-8") as f:
@@ -439,7 +457,7 @@ class StateManager:
                 return None
 
             data = json.loads(self.state_file.read_text(encoding="utf-8"))
-            self._state = WorkflowState.model_validate(data)
+            self._state = msgspec.convert(data, WorkflowState)
             return self._state
 
     def save(self, state: WorkflowState) -> None:  # Time: O(V + E + n log n), Space: O(n)
@@ -479,14 +497,14 @@ class StateManager:
                     for tid, tdata in tasks_dict.items():
                         match tdata:
                             case dict():
-                                validated[tid] = Task.model_validate(tdata)
+                                validated[tid] = msgspec.convert(tdata, Task)
                             case Task():
                                 validated[tid] = tdata
                             case _:
                                 validated[tid] = tdata
                     kwargs["tasks"] = validated
 
-            new_state = state.model_copy(update=kwargs)
+            new_state = struct_replace(state, **kwargs)
             new_state.rebuild_indexes()
             self._write_atomic(new_state)
             self._state = new_state
@@ -522,16 +540,15 @@ class StateManager:
             is_reclaim = not was_mine and task.status == TaskStatus.RUNNING and task.is_timed_out()
 
             # Copy-on-write: modify copy, persist, then update cache
-            updated_task = task.model_copy(
-                update={
-                    "started_at": datetime.now(UTC),
-                    "status": TaskStatus.RUNNING,
-                    "claimed_by": worker_id,
-                }
+            updated_task = struct_replace(
+                task,
+                started_at=datetime.now(UTC),
+                status=TaskStatus.RUNNING,
+                claimed_by=worker_id,
             )
 
             new_tasks = {**state.tasks, updated_task.id: updated_task}
-            new_state = state.model_copy(update={"tasks": new_tasks})
+            new_state = struct_replace(state, tasks=new_tasks)
             new_state.rebuild_indexes()
 
             self._write_atomic(new_state)
@@ -562,15 +579,14 @@ class StateManager:
                     f"(owned by {task.claimed_by or 'nobody'})"
                 )
 
-            updated_task = task.model_copy(
-                update={
-                    "status": TaskStatus.COMPLETED,
-                    "completed_at": datetime.now(UTC),
-                }
+            updated_task = struct_replace(
+                task,
+                status=TaskStatus.COMPLETED,
+                completed_at=datetime.now(UTC),
             )
 
             new_tasks = {**state.tasks, task_id: updated_task}
-            new_state = state.model_copy(update={"tasks": new_tasks})
+            new_state = struct_replace(state, tasks=new_tasks)
             new_state.rebuild_indexes()
 
             self._write_atomic(new_state)

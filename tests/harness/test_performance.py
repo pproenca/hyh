@@ -10,6 +10,7 @@ Run with: make benchmark
 import contextlib
 
 import pytest
+from msgspec.structs import replace as struct_replace
 
 from harness.state import StateManager, Task, TaskStatus, WorkflowState
 from harness.trajectory import TrajectoryLogger
@@ -93,8 +94,8 @@ def test_claim_task_linear_dag(benchmark, dag_1000_linear):
         # Reload state to reset for each benchmark iteration
         state = manager.load()
         # Reset first task to pending for re-claiming
-        state.tasks["task-0"] = state.tasks["task-0"].model_copy(
-            update={"status": TaskStatus.PENDING, "claimed_by": None}
+        state.tasks["task-0"] = struct_replace(
+            state.tasks["task-0"], status=TaskStatus.PENDING, claimed_by=None
         )
         manager.save(state)
         return manager.claim_task("worker-1")
@@ -113,8 +114,8 @@ def test_claim_task_grouped_dag(benchmark, dag_1000_groups):
         # Reset all group-0 tasks to pending
         for i in range(10):
             task_id = f"group-0-task-{i}"
-            state.tasks[task_id] = state.tasks[task_id].model_copy(
-                update={"status": TaskStatus.PENDING, "claimed_by": None}
+            state.tasks[task_id] = struct_replace(
+                state.tasks[task_id], status=TaskStatus.PENDING, claimed_by=None
             )
         manager.save(state)
         return manager.claim_task("worker-1")
@@ -131,8 +132,8 @@ def test_claim_task_mostly_completed(benchmark, dag_900_completed):
     def claim():
         state = manager.load()
         # Reset one pending task
-        state.tasks["task-900"] = state.tasks["task-900"].model_copy(
-            update={"status": TaskStatus.PENDING, "claimed_by": None}
+        state.tasks["task-900"] = struct_replace(
+            state.tasks["task-900"], status=TaskStatus.PENDING, claimed_by=None
         )
         manager.save(state)
         return manager.claim_task("worker-1")

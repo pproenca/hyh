@@ -8,7 +8,7 @@ Validates DAG and converts to WorkflowState.
 import re
 from typing import Final, TypedDict
 
-from pydantic import BaseModel, Field
+from msgspec import Struct, field
 
 from .state import Task, TaskStatus, WorkflowState, detect_cycle
 
@@ -35,15 +35,19 @@ class _TaskData(TypedDict):
     dependencies: list[str]
 
 
-class PlanTaskDefinition(BaseModel):
+class PlanTaskDefinition(Struct, omit_defaults=True):
+    """Task definition from plan parsing."""
+
     description: str
-    dependencies: list[str] = Field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
     timeout_seconds: int = 600
     instructions: str | None = None
     role: str | None = None
 
 
-class PlanDefinition(BaseModel):
+class PlanDefinition(Struct):
+    """Complete plan with goal and tasks."""
+
     goal: str
     tasks: dict[str, PlanTaskDefinition]
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import msgspec
 import pytest
 
 from harness.state import (
@@ -62,16 +63,18 @@ class TestDetectCycleEdgeCases:
 
 
 class TestTaskValidatorEdgeCases:
-    """Cover edge cases in Task field validators."""
+    """Cover edge cases in Task field validators.
 
-    def test_non_string_task_id_raises_typeerror(self) -> None:
-        """Task ID must be string, not int or other types."""
-        with pytest.raises(TypeError, match="Task ID must be str"):
-            Task(
-                id=123,  # type: ignore[arg-type]
-                description="test",
-                status=TaskStatus.PENDING,
-                dependencies=[],
+    msgspec philosophy: Trust internal code, validate external data.
+    Type validation occurs during decode (msgspec.convert), not construction.
+    """
+
+    def test_non_string_task_id_rejected_on_decode(self) -> None:
+        """Task ID must be string - validated during decode."""
+        with pytest.raises(msgspec.ValidationError):
+            msgspec.convert(
+                {"id": 123, "description": "test"},
+                Task,
             )
 
     def test_dependencies_as_tuple_passthrough(self) -> None:
@@ -84,14 +87,12 @@ class TestTaskValidatorEdgeCases:
         )
         assert task.dependencies == ("dep-1", "dep-2")
 
-    def test_dependencies_invalid_type_raises_typeerror(self) -> None:
-        """Dependencies as dict or other invalid type should raise TypeError."""
-        with pytest.raises(TypeError, match="dependencies must be list or tuple"):
-            Task(
-                id="task-1",
-                description="test",
-                status=TaskStatus.PENDING,
-                dependencies={"a": 1},  # type: ignore[arg-type]
+    def test_dependencies_invalid_type_rejected_on_decode(self) -> None:
+        """Dependencies as dict rejected during decode."""
+        with pytest.raises(msgspec.ValidationError):
+            msgspec.convert(
+                {"id": "task-1", "description": "test", "dependencies": {"a": 1}},
+                Task,
             )
 
 

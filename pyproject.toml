@@ -5,7 +5,7 @@ description = "Autonomous Research Kernel with Thread-Safe Pull Engine"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "pydantic>=2.0",
+    "msgspec>=0.18",
 ]
 
 # Development dependencies use PEP 735 dependency-groups (not optional-dependencies)

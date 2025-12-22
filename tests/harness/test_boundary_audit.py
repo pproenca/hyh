@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import json
 import tempfile
-from datetime import datetime, timedelta
 from pathlib import Path
 
+import msgspec
 import pytest
 
 from harness.state import StateManager, Task, TaskStatus, WorkflowState
@@ -101,44 +101,37 @@ No tasks defined.
 
 
 class TestNullAndNoneHandling:
-    """Edge cases with None/null values."""
+    """Edge cases with None/null values.
 
-    def test_none_dependencies_handled(self) -> None:
-        """Task with None dependencies should fail or use empty list."""
-        # Pydantic should either reject None or convert to []
-        try:
-            task = Task(
-                id="t1",
-                description="x",
-                status=TaskStatus.PENDING,
-                dependencies=None,  # type: ignore
-            )
-            assert task.dependencies == []  # Converted to empty list
-        except (ValueError, TypeError):
-            pass  # Or rejected - both are acceptable
+    msgspec philosophy: Trust internal code, validate external data.
+    Type validation happens during decode (msgspec.convert), not construction.
+    These tests verify validation at the decode boundary.
+    """
 
-    def test_none_in_dependencies_list_rejected(self) -> None:
-        """Task with None inside dependencies list should fail."""
-        with pytest.raises((ValueError, TypeError)):
-            Task(
-                id="t1",
-                description="x",
-                status=TaskStatus.PENDING,
-                dependencies=[None, "t2"],  # type: ignore
+    def test_none_dependencies_rejected_on_decode(self) -> None:
+        """Task with null dependencies in JSON should be rejected during decode."""
+        # msgspec validates types during decode, not construction
+        with pytest.raises(msgspec.ValidationError):
+            msgspec.convert(
+                {"id": "t1", "description": "x", "dependencies": None},
+                Task,
             )
 
-    def test_none_description_handled(self) -> None:
-        """Task with None description should fail or use default."""
-        try:
-            task = Task(
-                id="t1",
-                description=None,  # type: ignore
-                status=TaskStatus.PENDING,
-                dependencies=[],  # type: ignore
+    def test_none_in_dependencies_list_rejected_on_decode(self) -> None:
+        """Task with None inside dependencies list rejected during decode."""
+        with pytest.raises(msgspec.ValidationError):
+            msgspec.convert(
+                {"id": "t1", "description": "x", "dependencies": [None, "t2"]},
+                Task,
             )
-            assert task.description is not None  # Should have default
-        except (ValueError, TypeError):
-            pass  # Or rejected
+
+    def test_none_description_rejected_on_decode(self) -> None:
+        """Task with null description in JSON should be rejected during decode."""
+        with pytest.raises(msgspec.ValidationError):
+            msgspec.convert(
+                {"id": "t1", "description": None, "dependencies": []},
+                Task,
+            )
 
 
 class TestTrajectoryTailBounds:
@@ -192,41 +185,34 @@ class TestTrajectoryTailBounds:
 
 
 class TestTimeoutEdgeCases:
-    """Timeout-related edge cases."""
+    """Timeout-related edge cases.
 
-    def test_zero_timeout_immediate_timeout(self) -> None:
-        """Task with timeout_seconds=0 should be rejected (minimum is 1)."""
-        with pytest.raises(ValueError):
-            Task(
-                id="t1",
-                description="x",
-                status=TaskStatus.RUNNING,
-                dependencies=[],
-                started_at=datetime.now() - timedelta(seconds=1),
-                timeout_seconds=0,
+    msgspec uses Annotated[int, Meta(ge=1, le=86400)] for constraint validation.
+    Constraints are enforced during decode, not construction.
+    """
+
+    def test_zero_timeout_rejected_on_decode(self) -> None:
+        """Task with timeout_seconds=0 should be rejected during decode (minimum is 1)."""
+        with pytest.raises(msgspec.ValidationError):
+            msgspec.convert(
+                {"id": "t1", "description": "x", "timeout_seconds": 0},
+                Task,
             )
 
-    def test_negative_timeout_rejected(self) -> None:
-        """Negative timeout should be rejected."""
-        with pytest.raises((ValueError, TypeError)):
-            Task(
-                id="t1",
-                description="x",
-                status=TaskStatus.PENDING,
-                dependencies=[],
-                timeout_seconds=-1,
+    def test_negative_timeout_rejected_on_decode(self) -> None:
+        """Negative timeout should be rejected during decode."""
+        with pytest.raises(msgspec.ValidationError):
+            msgspec.convert(
+                {"id": "t1", "description": "x", "timeout_seconds": -1},
+                Task,
             )
 
-    def test_huge_timeout_handled(self) -> None:
-        """Very large timeout exceeding max (86400) should be rejected."""
-        with pytest.raises(ValueError):
-            Task(
-                id="t1",
-                description="x",
-                status=TaskStatus.RUNNING,
-                dependencies=[],
-                started_at=datetime.now(),
-                timeout_seconds=10**15,  # Exceeds max of 86400
+    def test_huge_timeout_rejected_on_decode(self) -> None:
+        """Very large timeout exceeding max (86400) should be rejected during decode."""
+        with pytest.raises(msgspec.ValidationError):
+            msgspec.convert(
+                {"id": "t1", "description": "x", "timeout_seconds": 10**15},
+                Task,
             )
 
 
@@ -417,7 +403,7 @@ class TestErrorRecovery:
                 )
             )
 
-            with pytest.raises((ValueError, TypeError)):
+            with pytest.raises((ValueError, TypeError, msgspec.ValidationError)):
                 manager.load()
 
     def test_missing_required_fields(self) -> None:
@@ -442,5 +428,5 @@ class TestErrorRecovery:
                 )
             )
 
-            with pytest.raises((ValueError, TypeError, KeyError)):
+            with pytest.raises((ValueError, TypeError, KeyError, msgspec.ValidationError)):
                 manager.load()
