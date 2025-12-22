@@ -51,7 +51,7 @@ def test_version_matches_metadata():
 
     from hyh import __version__
 
-    installed_version = version("hyh-cli")
+    installed_version = version("hyh")
     assert __version__ == installed_version
 
 
@@ -85,7 +85,7 @@ Replace contents of `src/hyh/__init__.py`:
 from importlib.metadata import PackageNotFoundError, version
 
 try:
-    __version__ = version("hyh-cli")
+    __version__ = version("hyh")
 except PackageNotFoundError:
     # Running from source without install
     __version__ = "0.0.0+dev"
@@ -229,7 +229,7 @@ Create `scripts/release.sh`:
 ```bash
 #!/usr/bin/env bash
 #
-# Release automation script for hyh-cli
+# Release automation script for hyh
 # Usage: ./scripts/release.sh [major|minor|patch|alpha|beta|rc|stable]
 #
 
@@ -447,7 +447,7 @@ echo ""
 log_success "Release v$NEW_VERSION complete!"
 echo ""
 echo "Next steps:"
-echo "  - Verify the release on PyPI: https://pypi.org/project/hyh-cli/"
+echo "  - Verify the release on PyPI: https://pypi.org/project/hyh/"
 echo "  - Create GitHub release: https://github.com/pproenca/hyh/releases/new?tag=v$NEW_VERSION"
 ```
 

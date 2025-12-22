@@ -30,7 +30,7 @@ def test_version_matches_metadata():
 
     from hyh import __version__
 
-    installed_version = version("hyh-cli")
+    installed_version = version("hyh")
     assert __version__ == installed_version
 
 

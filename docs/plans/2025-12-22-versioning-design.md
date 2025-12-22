@@ -20,7 +20,7 @@ Version lives **only** in `pyproject.toml`:
 
 ```toml
 [project]
-name = "hyh-cli"
+name = "hyh"
 version = "0.1.0a1"
 ```
 
@@ -32,7 +32,7 @@ Use `importlib.metadata` to read version at runtime:
 from importlib.metadata import version, PackageNotFoundError
 
 try:
-    __version__ = version("hyh-cli")
+    __version__ = version("hyh")
 except PackageNotFoundError:
     # Running from source without install
     __version__ = "0.0.0+dev"

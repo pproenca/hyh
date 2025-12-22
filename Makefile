@@ -49,7 +49,7 @@ install-global:  ## Install hyh globally (editable, uses repo code)
 
 .PHONY: uninstall-global
 uninstall-global:  ## Remove global hyh installation
-	$(UV) tool uninstall hyh-cli || true
+	$(UV) tool uninstall hyh || true
 	$(UV) tool uninstall hyh || true
 	@echo "Uninstalled global hyh"
 
@@ -119,14 +119,14 @@ publish-test: build  ## Publish to TestPyPI (for testing)
 	$(UV) publish --index testpypi
 	@echo ""
 	@echo "Published to TestPyPI. Test install with:"
-	@echo "  uv tool install hyh-cli --index https://test.pypi.org/simple/"
+	@echo "  uv tool install hyh --index https://test.pypi.org/simple/"
 
 .PHONY: publish
 publish: build  ## Publish to PyPI (manual release)
 	$(UV) publish
 	@echo ""
 	@echo "Published to PyPI. Install with:"
-	@echo "  uv tool install hyh-cli"
+	@echo "  uv tool install hyh"
 
 ##@ Release Automation
 

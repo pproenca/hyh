@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Release automation script for hyh-cli
+# Release automation script for hyh
 # Usage: ./scripts/release.sh [major|minor|patch|alpha|beta|rc|stable]
 #
 
@@ -218,5 +218,5 @@ echo ""
 log_success "Release v$NEW_VERSION complete!"
 echo ""
 echo "Next steps:"
-echo "  - Verify the release on PyPI: https://pypi.org/project/hyh-cli/"
+echo "  - Verify the release on PyPI: https://pypi.org/project/hyh/"
 echo "  - Create GitHub release: https://github.com/pproenca/hyh/releases/new?tag=v$NEW_VERSION"

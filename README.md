@@ -1,7 +1,7 @@
-# hyh-cli
+# hyh
 
-[![PyPI version](https://img.shields.io/pypi/v/hyh-cli.svg)](https://pypi.org/project/hyh-cli/)
-[![Python versions](https://img.shields.io/pypi/pyversions/hyh-cli.svg)](https://pypi.org/project/hyh-cli/)
+[![PyPI version](https://img.shields.io/pypi/v/hyh.svg)](https://pypi.org/project/hyh/)
+[![Python versions](https://img.shields.io/pypi/pyversions/hyh.svg)](https://pypi.org/project/hyh/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 CLI orchestration tool for agentic workflows. Coordinate tasks with claude-code, AI agents, and development tools through a daemon-based task management system.
@@ -20,19 +20,19 @@ CLI orchestration tool for agentic workflows. Coordinate tasks with claude-code,
 ### Recommended: uv tool (persistent installation)
 
 ```bash
-uv tool install hyh-cli
+uv tool install hyh
 ```
 
 ### One-off execution
 
 ```bash
-uvx hyh-cli status
+uvx hyh status
 ```
 
 ### Traditional pip
 
 ```bash
-pip install hyh-cli
+pip install hyh
 ```
 
 ### From source (development)

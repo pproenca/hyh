@@ -20,7 +20,7 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-PACKAGE_NAME="hyh-cli"
+PACKAGE_NAME="hyh"
 CLI_NAME="hyh"
 REPO="pproenca/hyh"
 USE_GIT=false
@@ -200,7 +200,7 @@ show_shell_instructions() {
 main() {
   echo ""
   echo "╔════════════════════════════════════════════╗"
-  echo "║  hyh-cli installer                     ║"
+  echo "║  hyh installer                     ║"
   echo "║  CLI orchestration for agentic workflows   ║"
   echo "╚════════════════════════════════════════════╝"
   echo ""
