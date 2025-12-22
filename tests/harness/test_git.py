@@ -75,20 +75,26 @@ def test_uses_global_exec_lock():
     assert isinstance(GLOBAL_EXEC_LOCK, type(threading.Lock()))
 
 
-def test_git_uses_exclusive_locking(monkeypatch):
+def test_git_uses_exclusive_locking():
     """Git write operations should use exclusive locking.
 
     Read operations can run in parallel; write operations must be serialized.
     """
     from harness.git import safe_commit, safe_git_exec
 
-    execute_calls = []
+    execute_calls: list[dict[str, object]] = []
 
-    def mock_execute(command, cwd=None, timeout=None, exclusive=False):
+    def mock_execute(
+        command: list[str],
+        cwd: str | None = None,
+        timeout: int | None = None,
+        exclusive: bool = False,
+    ) -> MagicMock:
         execute_calls.append({"command": command, "exclusive": exclusive})
         return MagicMock(returncode=0, stdout="abc123\n", stderr="")
 
-    with patch("harness.git._runtime.execute", mock_execute):
+    with patch("harness.git._runtime") as mock_runtime:
+        mock_runtime.execute.side_effect = mock_execute
         # Write operation: safe_commit holds lock externally
         safe_commit(cwd="/tmp", message="Test commit")
         # safe_commit should have made git add and git commit calls
@@ -136,7 +142,8 @@ def test_get_head_sha_handles_failure():
 
     mock_result = MagicMock(returncode=128, stdout="", stderr="fatal: not a git repository")
 
-    with patch("harness.git._runtime.execute", return_value=mock_result):
+    with patch("harness.git._runtime") as mock_runtime:
+        mock_runtime.execute.return_value = mock_result
         sha = get_head_sha("/tmp/not-a-repo")
 
     assert sha is None
@@ -146,13 +153,19 @@ def test_safe_commit_stages_and_commits():
     """Verify safe_commit calls git add and git commit."""
     from harness.git import safe_commit
 
-    calls = []
+    calls: list[list[str]] = []
 
-    def mock_execute(args, cwd, timeout=None, exclusive=False):
+    def mock_execute(
+        args: list[str],
+        cwd: str,
+        timeout: int | None = None,
+        exclusive: bool = False,
+    ) -> MagicMock:
         calls.append(args)
         return MagicMock(returncode=0, stdout="", stderr="")
 
-    with patch("harness.git._runtime.execute", side_effect=mock_execute):
+    with patch("harness.git._runtime") as mock_runtime:
+        mock_runtime.execute.side_effect = mock_execute
         safe_commit("/tmp/repo", "test commit message")
 
     assert ["git", "add", "-A"] in calls
@@ -165,7 +178,8 @@ def test_get_head_sha_returns_commit_hash():
 
     mock_result = MagicMock(returncode=0, stdout="abc123def456\n", stderr="")
 
-    with patch("harness.git._runtime.execute", return_value=mock_result):
+    with patch("harness.git._runtime") as mock_runtime:
+        mock_runtime.execute.return_value = mock_result
         sha = get_head_sha("/tmp/repo")
 
     assert sha == "abc123def456"
@@ -177,7 +191,8 @@ def test_safe_git_exec_raises_on_failure():
 
     mock_result = MagicMock(returncode=128, stdout="", stderr="fatal: not a git repository")
 
-    with patch("harness.git._runtime.execute", return_value=mock_result):
+    with patch("harness.git._runtime") as mock_runtime:
+        mock_runtime.execute.return_value = mock_result
         result = safe_git_exec(["status"], "/tmp")
 
     assert result.returncode == 128
@@ -232,17 +247,16 @@ def test_safe_git_exec_read_only_skips_lock():
     Bug: All git commands use exclusive=True, serializing parallel reads.
     Fix: Add read_only parameter, only lock on write operations.
     """
-    from unittest.mock import MagicMock, patch
-
     from harness.git import safe_git_exec
 
-    execute_calls = []
+    execute_calls: list[dict[str, object]] = []
 
-    def mock_execute(command, cwd, timeout, exclusive):
+    def mock_execute(command: list[str], cwd: str, timeout: int, exclusive: bool) -> MagicMock:
         execute_calls.append({"command": command, "exclusive": exclusive})
         return MagicMock(returncode=0, stdout="", stderr="")
 
-    with patch("harness.git._runtime.execute", mock_execute):
+    with patch("harness.git._runtime") as mock_runtime:
+        mock_runtime.execute.side_effect = mock_execute
         # Read-only command should NOT use exclusive lock
         safe_git_exec(["status"], cwd="/tmp", read_only=True)
         assert execute_calls[-1]["exclusive"] is False, (

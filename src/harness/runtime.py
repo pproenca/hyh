@@ -67,41 +67,37 @@ class ExecutionResult:
 class PathMapper(ABC):
     """Abstract base class for mapping paths between host and runtime environments."""
 
+    __slots__ = ()
+
     @abstractmethod
     def to_runtime(self, host_path: str) -> str:
         """Map a host path to a runtime path."""
-        pass
+        ...
 
     @abstractmethod
     def to_host(self, runtime_path: str) -> str:
         """Map a runtime path to a host path."""
-        pass
+        ...
 
 
 class IdentityMapper(PathMapper):
     """Path mapper that returns paths unchanged."""
 
+    __slots__ = ()
+
     def to_runtime(self, host_path: str) -> str:
-        """Return the same path."""
         return host_path
 
     def to_host(self, runtime_path: str) -> str:
-        """Return the same path."""
         return runtime_path
 
 
 class VolumeMapper(PathMapper):
     """Path mapper for Docker volume mounts."""
 
-    def __init__(self, host_root: str, container_root: str) -> None:
-        """
-        Initialize VolumeMapper.
+    __slots__ = ("container_root", "host_root")
 
-        Args:
-            host_root: Root directory on the host (e.g., /host/workspace)
-            container_root: Root directory in the container (e.g., /workspace)
-        """
-        # Normalize paths by removing trailing slashes
+    def __init__(self, host_root: str, container_root: str) -> None:
         self.host_root = host_root.rstrip("/")
         self.container_root = container_root.rstrip("/")
 
@@ -182,6 +178,8 @@ class Runtime(Protocol):
 class LocalRuntime:
     """Runtime for executing commands directly on the host system."""
 
+    __slots__ = ()
+
     def execute(
         self,
         command: list[str],
@@ -247,6 +245,8 @@ class LocalRuntime:
 
 class DockerRuntime:
     """Runtime for executing commands inside a Docker container."""
+
+    __slots__ = ("container_id", "path_mapper")
 
     def __init__(self, container_id: str, path_mapper: PathMapper) -> None:
         self.container_id = container_id

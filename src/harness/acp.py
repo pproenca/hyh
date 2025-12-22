@@ -18,6 +18,8 @@ class ACPEmitter:
     data races in Python 3.13t (free-threaded).
     """
 
+    __slots__ = ("_disabled", "_host", "_port", "_queue", "_thread", "_warned")
+
     def __init__(self, host: str = "127.0.0.1", port: int = 9100) -> None:
         self._host = host
         self._port = port

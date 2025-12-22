@@ -115,9 +115,10 @@ class TestStateManagerLockHierarchy:
 
         This prevents convoy effect and ensures hierarchy compliance.
         """
+        from unittest.mock import patch
+
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = StateManager(Path(tmpdir))
-            trajectory = TrajectoryLogger(Path(tmpdir) / "trajectory.jsonl")
 
             tasks = {
                 "task-1": Task(
@@ -132,20 +133,17 @@ class TestStateManagerLockHierarchy:
             # Track lock state during log call
             lock_held_during_log: list[bool] = []
 
-            original_log = trajectory.log
-
-            def tracking_log(event: dict) -> None:
-                # Check if StateManager lock is held
-                # We can't directly check, but we can verify the pattern
-                # by checking thread's lock acquisition stack
+            def tracking_log(self: TrajectoryLogger, event: dict[str, object]) -> None:
                 lock_held_during_log.append(manager._lock.locked())
-                original_log(event)
 
-            trajectory.log = tracking_log
+            with patch.object(TrajectoryLogger, "log", tracking_log):
+                # Create trajectory after patching
+                trajectory = TrajectoryLogger(Path(tmpdir) / "trajectory.jsonl")
+                trajectory.log({"test": "event"})
 
-            # Perform claim
-            result = manager.claim_task("worker-1")
-            assert result.task is not None
+                # Perform claim
+                result = manager.claim_task("worker-1")
+                assert result.task is not None
 
             # The pattern requires logging AFTER releasing state lock
             # Note: claim_task doesn't log directly, but if integrated with

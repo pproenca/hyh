@@ -15,9 +15,7 @@ import os
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypeVar
-
-T = TypeVar("T")
+from typing import Any
 
 
 def _get_default_registry_path() -> Path:
@@ -31,6 +29,8 @@ def _get_default_registry_path() -> Path:
 class ProjectRegistry:
     """Process-safe project registry with file locking."""
 
+    __slots__ = ("_lock_file", "registry_file")
+
     def __init__(self, registry_file: Path | None = None) -> None:
         self.registry_file = Path(registry_file) if registry_file else _get_default_registry_path()
         self._ensure_parent_dir()
@@ -40,7 +40,7 @@ class ProjectRegistry:
         """Create parent directory if needed."""
         self.registry_file.parent.mkdir(parents=True, exist_ok=True)
 
-    def _with_lock(self, fn: Callable[[], T]) -> T:
+    def _with_lock[T](self, fn: Callable[[], T]) -> T:
         """Execute fn while holding exclusive lock on registry."""
         with self._lock_file.open("w") as lock_fd:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)

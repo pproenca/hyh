@@ -21,12 +21,9 @@ class TrajectoryLogger:
     - Separate lock from StateManager (prevents lock convoy)
     """
 
-    def __init__(self, trajectory_file: Path) -> None:
-        """Initialize the trajectory logger.
+    __slots__ = ("_lock", "trajectory_file")
 
-        Args:
-            trajectory_file: Path to the trajectory.jsonl file
-        """
+    def __init__(self, trajectory_file: Path) -> None:
         self.trajectory_file = Path(trajectory_file)
         self._lock = threading.Lock()
 
