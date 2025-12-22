@@ -25,7 +25,7 @@ from collections.abc import Callable
 from io import TextIOWrapper
 from pathlib import Path
 from types import FrameType
-from typing import Any
+from typing import Any, Final
 
 from .acp import ACPEmitter
 from .git import safe_git_exec
@@ -36,7 +36,7 @@ from .state import StateManager
 from .trajectory import TrajectoryLogger
 
 # Truncation limit for trajectory logs - agents need enough context to debug
-TRUNCATE_LIMIT = 4096
+TRUNCATE_LIMIT: Final[int] = 4096
 
 
 class HarnessHandler(socketserver.StreamRequestHandler):

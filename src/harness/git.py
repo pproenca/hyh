@@ -6,11 +6,13 @@ Git operations use exclusive=True to protect .git/index
 across ALL parallel threads without GIL contention.
 """
 
+from typing import Final
+
 from .runtime import ExecutionResult, LocalRuntime
 
-_runtime = LocalRuntime()
+_runtime: Final = LocalRuntime()
 
-_DANGEROUS_OPTIONS = frozenset(
+_DANGEROUS_OPTIONS: Final[frozenset[str]] = frozenset(
     {
         "-c",
         "--config",
@@ -21,7 +23,7 @@ _DANGEROUS_OPTIONS = frozenset(
     }
 )
 
-_DANGEROUS_PREFIXES = (
+_DANGEROUS_PREFIXES: Final[tuple[str, ...]] = (
     "-c=",
     "--config=",
     "--upload-pack=",

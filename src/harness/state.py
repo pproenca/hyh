@@ -149,11 +149,13 @@ class Task(BaseModel):
     @classmethod
     def coerce_dependencies_to_tuple(cls, v: Any) -> tuple[str, ...]:  # Time: O(n), Space: O(n)
         """Convert list dependencies to immutable tuple."""
-        if isinstance(v, tuple):
-            return v
-        if isinstance(v, list):
-            return tuple(v)
-        raise TypeError(f"dependencies must be list or tuple, got {type(v).__name__}")
+        match v:
+            case tuple():
+                return v
+            case list():
+                return tuple(v)
+            case _:
+                raise TypeError(f"dependencies must be list or tuple, got {type(v).__name__}")
 
     def is_timed_out(self) -> bool:  # Time: O(1), Space: O(1)
         """Check if task has exceeded timeout window.
@@ -471,14 +473,18 @@ class StateManager:
             state = self._ensure_state_loaded()
 
             # Validate task dicts at boundary
-            if "tasks" in kwargs and isinstance(kwargs["tasks"], dict):
-                validated: dict[str, Task] = {}
-                for tid, tdata in kwargs["tasks"].items():
-                    if isinstance(tdata, dict):
-                        validated[tid] = Task.model_validate(tdata)
-                    else:
-                        validated[tid] = tdata
-                kwargs["tasks"] = validated
+            match kwargs.get("tasks"):
+                case dict() as tasks_dict:
+                    validated: dict[str, Task] = {}
+                    for tid, tdata in tasks_dict.items():
+                        match tdata:
+                            case dict():
+                                validated[tid] = Task.model_validate(tdata)
+                            case Task():
+                                validated[tid] = tdata
+                            case _:
+                                validated[tid] = tdata
+                    kwargs["tasks"] = validated
 
             new_state = state.model_copy(update=kwargs)
             new_state.rebuild_indexes()

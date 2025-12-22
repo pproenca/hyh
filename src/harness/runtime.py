@@ -18,10 +18,10 @@ import subprocess
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Final, Protocol
 
 # Global execution lock for exclusive operations
-GLOBAL_EXEC_LOCK = threading.Lock()
+GLOBAL_EXEC_LOCK: Final[threading.Lock] = threading.Lock()
 
 
 def decode_signal(returncode: int) -> str | None:
@@ -55,9 +55,12 @@ def decode_signal(returncode: int) -> str | None:
         return f"SIG{sig_num}"
 
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class ExecutionResult:
-    """Result of executing a command."""
+    """Immutable result of executing a command.
+
+    Thread-safe by design: frozen dataclass prevents mutation after creation.
+    """
 
     returncode: int
     stdout: str

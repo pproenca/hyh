@@ -15,7 +15,7 @@ import os
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 
 def _get_default_registry_path() -> Path:
@@ -32,9 +32,10 @@ class ProjectRegistry:
     __slots__ = ("_lock_file", "registry_file")
 
     def __init__(self, registry_file: Path | None = None) -> None:
-        self.registry_file = Path(registry_file) if registry_file else _get_default_registry_path()
+        resolved_path = Path(registry_file) if registry_file else _get_default_registry_path()
+        self.registry_file: Final[Path] = resolved_path
         self._ensure_parent_dir()
-        self._lock_file = self.registry_file.with_suffix(".lock")
+        self._lock_file: Final[Path] = self.registry_file.with_suffix(".lock")
 
     def _ensure_parent_dir(self) -> None:
         """Create parent directory if needed."""

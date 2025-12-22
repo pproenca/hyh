@@ -78,40 +78,71 @@ def test_emitter_logs_once_on_failure(capsys):
     assert captured.err.count("ACP") <= 1
 
 
-def test_acp_worker_send_error_disables():
-    """Worker should disable emitter after send failure."""
+def test_acp_worker_send_error_disables(monkeypatch):
+    """Worker should disable emitter after send failure.
 
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind(("127.0.0.1", 0))
-    port = server.getsockname()[1]
-    server.listen(1)
+    Uses monkeypatch to inject a controlled socket that fails on send.
+    This is the industry-standard approach for testing network error handling
+    without relying on timing-dependent real network behavior.
+    """
+    send_count = 0
+    connect_called = threading.Event()
+    send_failed = threading.Event()
 
-    emitter = ACPEmitter(host="127.0.0.1", port=port)
-    connection_established = threading.Event()
+    class MockSocket:
+        """Mock socket that fails on second send."""
 
-    def accept_and_close():
-        conn, _ = server.accept()
-        connection_established.set()
-        conn.close()
+        def __init__(self, *args, **kwargs):
+            pass
 
-    threading.Thread(target=accept_and_close, daemon=True).start()
+        def settimeout(self, timeout):
+            pass
 
+        def connect(self, address):
+            connect_called.set()
+
+        def sendall(self, data):
+            nonlocal send_count
+            send_count += 1
+            if send_count > 1:
+                send_failed.set()
+                raise OSError("Connection reset by peer")
+
+        def close(self):
+            pass
+
+    # Patch socket.socket to return our mock
+    monkeypatch.setattr(socket, "socket", MockSocket)
+
+    emitter = ACPEmitter(host="127.0.0.1", port=9999)
     emitter.emit({"event": "test1"})
-    # Wait for connection to be established and closed (replaces time.sleep(0.3))
-    connection_established.wait(timeout=2.0)
 
+    # Wait for first message to be sent
+    wait_until(
+        lambda: send_count >= 1,
+        timeout=5.0,
+        message="First message should be sent",
+    )
+
+    # Send second message which will trigger the failure
     emitter.emit({"event": "test2"})
-    # Wait for emitter to detect send failure and disable (replaces time.sleep(0.3))
+
+    # Wait for send failure to be detected
+    wait_until(
+        lambda: send_failed.is_set(),
+        timeout=5.0,
+        message="Send failure should occur",
+    )
+
+    # Wait for emitter to be disabled
     wait_until(
         lambda: emitter._disabled.is_set(),
-        timeout=2.0,
+        timeout=5.0,
         message="Emitter should be disabled after send failure",
     )
 
     assert emitter._disabled.is_set() is True
     emitter.close()
-    server.close()
 
 
 def test_acp_worker_cleanup_on_shutdown_with_connection():

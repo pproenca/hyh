@@ -19,7 +19,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 
 def get_worker_id() -> str:
@@ -65,7 +65,7 @@ def get_worker_id() -> str:
 
 
 # Generate stable WORKER_ID on module load
-WORKER_ID = get_worker_id()
+WORKER_ID: Final[str] = get_worker_id()
 
 
 def get_socket_path(worktree: "Path | None" = None) -> str:
@@ -602,53 +602,56 @@ def main() -> None:
         worktree_root = os.getenv("HARNESS_WORKTREE") or _get_git_root()
     socket_path = get_socket_path(Path(worktree_root))
 
-    if args.command == "ping":
-        _cmd_ping(socket_path, worktree_root)
-    elif args.command == "get-state":
-        _cmd_get_state(socket_path, worktree_root)
-    elif args.command == "update-state":
-        _cmd_update_state(socket_path, worktree_root, args.fields or [])
-    elif args.command == "git":
-        git_args = args.git_args
-        if git_args and git_args[0] == "--":
-            git_args = git_args[1:]
-        _cmd_git(socket_path, worktree_root, git_args)
-    elif args.command == "task":
-        if args.task_command == "claim":
-            _cmd_task_claim(socket_path, worktree_root)
-        elif args.task_command == "complete":
-            _cmd_task_complete(socket_path, worktree_root, args.id)
-    elif args.command == "plan":
-        if args.plan_command == "import":
-            _cmd_plan_import(socket_path, worktree_root, args.file)
-        elif args.plan_command == "template":
-            _cmd_plan_template()
-        elif args.plan_command == "reset":
-            _cmd_plan_reset(socket_path, worktree_root)
-    elif args.command == "exec":
-        command_args = args.command_args
-        if command_args and command_args[0] == "--":
-            command_args = command_args[1:]
-        _cmd_exec(
-            socket_path,
-            worktree_root,
-            command_args,
-            args.cwd,
-            args.env_vars or [],
-            args.timeout,
-        )
-    elif args.command == "session-start":
-        _cmd_session_start(socket_path, worktree_root)
-    elif args.command == "check-state":
-        _cmd_check_state(socket_path, worktree_root)
-    elif args.command == "check-commit":
-        _cmd_check_commit(socket_path, worktree_root)
-    elif args.command == "shutdown":
-        _cmd_shutdown(socket_path, worktree_root)
-    elif args.command == "worker-id":
-        _cmd_worker_id()
-    elif args.command == "status":
-        _cmd_status(args, socket_path, worktree_root)
+    match args.command:
+        case "ping":
+            _cmd_ping(socket_path, worktree_root)
+        case "get-state":
+            _cmd_get_state(socket_path, worktree_root)
+        case "update-state":
+            _cmd_update_state(socket_path, worktree_root, args.fields or [])
+        case "git":
+            git_args = args.git_args
+            if git_args and git_args[0] == "--":
+                git_args = git_args[1:]
+            _cmd_git(socket_path, worktree_root, git_args)
+        case "task":
+            match args.task_command:
+                case "claim":
+                    _cmd_task_claim(socket_path, worktree_root)
+                case "complete":
+                    _cmd_task_complete(socket_path, worktree_root, args.id)
+        case "plan":
+            match args.plan_command:
+                case "import":
+                    _cmd_plan_import(socket_path, worktree_root, args.file)
+                case "template":
+                    _cmd_plan_template()
+                case "reset":
+                    _cmd_plan_reset(socket_path, worktree_root)
+        case "exec":
+            command_args = args.command_args
+            if command_args and command_args[0] == "--":
+                command_args = command_args[1:]
+            _cmd_exec(
+                socket_path,
+                worktree_root,
+                command_args,
+                args.cwd,
+                args.env_vars or [],
+                args.timeout,
+            )
+        case "session-start":
+            _cmd_session_start(socket_path, worktree_root)
+        case "check-state":
+            _cmd_check_state(socket_path, worktree_root)
+        case "check-commit":
+            _cmd_check_commit(socket_path, worktree_root)
+        case "shutdown":
+            _cmd_shutdown(socket_path, worktree_root)
+        case "worker-id":
+            _cmd_worker_id()
+        case "status":
+            _cmd_status(args, socket_path, worktree_root)
 
 
 def _cmd_ping(socket_path: str, worktree_root: str) -> None:

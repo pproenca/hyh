@@ -8,7 +8,7 @@ import json
 import os
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 
 class TrajectoryLogger:
@@ -21,11 +21,15 @@ class TrajectoryLogger:
     - Separate lock from StateManager (prevents lock convoy)
     """
 
-    __slots__ = ("_lock", "trajectory_file")
+    __slots__ = ("_lock", "_parent_str", "_path_str", "trajectory_file")
 
     def __init__(self, trajectory_file: Path) -> None:
-        self.trajectory_file = Path(trajectory_file)
-        self._lock = threading.Lock()
+        self.trajectory_file: Final[Path] = Path(trajectory_file)
+        # Cache string representations for thread safety in free-threaded Python.
+        # Path objects can have race conditions when accessed from multiple threads.
+        self._path_str: Final[str] = str(self.trajectory_file)
+        self._parent_str: Final[str] = str(self.trajectory_file.parent)
+        self._lock: Final[threading.Lock] = threading.Lock()
 
     def log(self, event: dict[str, Any]) -> None:
         """Append an event to the trajectory log.
@@ -42,11 +46,14 @@ class TrajectoryLogger:
         """
         line = (json.dumps(event) + "\n").encode("utf-8")
 
-        self.trajectory_file.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure parent directory exists.
+        # Use cached string paths for thread safety in free-threaded Python.
+        # Path.mkdir() has race conditions with concurrent access in 3.14t.
+        os.makedirs(self._parent_str, exist_ok=True)  # noqa: PTH103
 
         # O_APPEND: kernel guarantees atomic append (no interleaving)
         # This eliminates the need for self._lock during writes
-        fd = os.open(self.trajectory_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        fd = os.open(self._path_str, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
         try:
             os.write(fd, line)
             os.fsync(fd)

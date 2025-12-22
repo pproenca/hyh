@@ -6,7 +6,7 @@ Validates DAG and converts to WorkflowState.
 """
 
 import re
-from typing import TypedDict
+from typing import Final, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +14,7 @@ from .state import Task, TaskStatus, WorkflowState, detect_cycle
 
 # Regex for safe task IDs: alphanumeric, hyphens, underscores, dots
 # NO shell metacharacters: $ ` ; | & ( ) < > ' " \ ! etc.
-_SAFE_TASK_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-\.]*$")
+_SAFE_TASK_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-\.]*$")
 
 
 def _validate_task_id(task_id: str) -> None:

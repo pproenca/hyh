@@ -8,7 +8,7 @@ import queue
 import socket
 import sys
 import threading
-from typing import Any
+from typing import Any, Final
 
 
 class ACPEmitter:
@@ -21,12 +21,13 @@ class ACPEmitter:
     __slots__ = ("_disabled", "_host", "_port", "_queue", "_thread", "_warned")
 
     def __init__(self, host: str = "127.0.0.1", port: int = 9100) -> None:
-        self._host = host
-        self._port = port
-        self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
-        self._disabled = threading.Event()
-        self._warned = False
-        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._host: Final[str] = host
+        self._port: Final[int] = port
+        self._queue: Final[queue.Queue[dict[str, Any] | None]] = queue.Queue()
+        self._disabled: Final[threading.Event] = threading.Event()
+        # Thread-safe flag for warning dedup
+        self._warned: Final[threading.Event] = threading.Event()
+        self._thread: Final[threading.Thread] = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
 
     def emit(self, entry: dict[str, Any]) -> None:
@@ -57,10 +58,10 @@ class ACPEmitter:
                         with contextlib.suppress(OSError):
                             sock.close()
                     sock = None
-                    if not self._warned:
+                    if not self._warned.is_set():
+                        self._warned.set()
                         msg = f"ACP: Claude Code not available on port {self._port}"
                         print(msg, file=sys.stderr)
-                        self._warned = True
                     continue
 
             try:
