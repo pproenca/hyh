@@ -13,8 +13,6 @@ Performance characteristics:
 - Serialization: Zero-copy with msgspec (faster than Pydantic)
 """
 
-from __future__ import annotations
-
 import json
 import os
 import threading

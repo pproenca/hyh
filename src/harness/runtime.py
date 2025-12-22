@@ -10,8 +10,6 @@ This module provides:
 - Factory function for creating runtime instances from environment variables
 """
 
-from __future__ import annotations
-
 import os
 import signal
 import subprocess

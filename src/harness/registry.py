@@ -6,8 +6,6 @@ Uses fcntl.flock for race-condition safety across concurrent daemons.
 CRITICAL: This module MUST NOT import pydantic (client.py constraint).
 """
 
-from __future__ import annotations
-
 import fcntl
 import hashlib
 import json
