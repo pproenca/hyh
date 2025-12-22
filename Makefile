@@ -13,7 +13,7 @@ UV ?= uv
 PYTHON := $(UV) run python
 PYTEST := $(UV) run pytest
 RUFF := $(UV) run ruff
-MYPY := $(UV) run mypy
+TY := $(UV) run ty
 PYUPGRADE := $(UV) run pyupgrade
 
 # Source directories
@@ -100,8 +100,8 @@ lint:  ## Check code style and quality (no auto-fix)
 	$(RUFF) format --check $(SRC_DIR) $(TEST_DIR)
 
 .PHONY: typecheck
-typecheck:  ## Run type checking with mypy
-	$(MYPY) $(SRC_DIR)
+typecheck:  ## Run type checking with ty
+	$(TY) check $(SRC_DIR)
 
 .PHONY: format
 format:  ## Auto-format code
@@ -120,7 +120,7 @@ build:  ## Build wheel for distribution
 clean:  ## Remove build artifacts, caches, and venv
 	$(RM) -r build dist .venv
 	$(RM) -r *.egg-info src/*.egg-info .eggs
-	$(RM) -r .pytest_cache .ruff_cache .mypy_cache .benchmarks
+	$(RM) -r .pytest_cache .ruff_cache .ty_cache .benchmarks
 	$(RM) -r __pycache__ src/harness/__pycache__ tests/__pycache__ tests/harness/__pycache__
 	$(RM) -r .coverage htmlcov
 	@echo "Cleaned"
