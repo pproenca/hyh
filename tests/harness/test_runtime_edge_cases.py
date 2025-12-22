@@ -4,8 +4,6 @@ Runtime Edge Cases Tests.
 Tests for LocalRuntime, DockerRuntime, and execution edge cases.
 """
 
-from __future__ import annotations
-
 import subprocess
 import tempfile
 from pathlib import Path

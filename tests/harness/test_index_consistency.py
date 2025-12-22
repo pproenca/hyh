@@ -22,8 +22,6 @@ Tests focus on:
 - Worker index idempotency
 """
 
-from __future__ import annotations
-
 import tempfile
 import threading
 from datetime import UTC, datetime, timedelta

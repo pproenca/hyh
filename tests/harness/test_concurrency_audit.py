@@ -11,8 +11,6 @@ Tests focus on:
 - DateTime timezone confusion
 """
 
-from __future__ import annotations
-
 import json
 import os
 import socketserver

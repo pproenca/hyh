@@ -22,8 +22,6 @@ Tests focus on:
 - Concurrent operations don't violate hierarchy
 """
 
-from __future__ import annotations
-
 import tempfile
 import threading
 from pathlib import Path

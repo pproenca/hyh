@@ -4,8 +4,6 @@ ACP Telemetry Robustness Tests.
 Tests for ACPEmitter failure handling - telemetry failures should never crash daemon.
 """
 
-from __future__ import annotations
-
 import contextlib
 import socket
 import threading

@@ -17,8 +17,6 @@ This module provides instrumentation to:
 </approach>
 """
 
-from __future__ import annotations
-
 import threading
 from collections.abc import Generator
 from contextlib import contextmanager

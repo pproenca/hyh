@@ -12,8 +12,6 @@ Tests focus on:
 - Docker command injection
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
 import tempfile

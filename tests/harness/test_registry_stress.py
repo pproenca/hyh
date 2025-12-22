@@ -4,8 +4,6 @@ Registry Stress Tests for Concurrent Registration.
 Tests for project registry concurrency and path handling.
 """
 
-from __future__ import annotations
-
 import tempfile
 import threading
 from pathlib import Path

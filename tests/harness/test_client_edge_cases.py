@@ -4,8 +4,6 @@ Client Edge Cases Tests.
 Tests for CLI client robustness and error handling.
 """
 
-from __future__ import annotations
-
 import os
 import tempfile
 from pathlib import Path

@@ -21,8 +21,6 @@ Tests focus on:
 - State machine correctness under adversarial timing
 """
 
-from __future__ import annotations
-
 import tempfile
 import threading
 from datetime import UTC, datetime, timedelta

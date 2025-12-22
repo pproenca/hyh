@@ -4,8 +4,6 @@ Plan Parsing Edge Cases Tests.
 Tests for markdown plan parser boundary conditions and error handling.
 """
 
-from __future__ import annotations
-
 import contextlib
 import re
 

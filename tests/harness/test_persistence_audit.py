@@ -11,8 +11,6 @@ Tests focus on:
 - File permission issues
 """
 
-from __future__ import annotations
-
 import json
 import os
 import stat

@@ -21,8 +21,6 @@ Tests focus on:
 - Serialization correctness under load
 """
 
-from __future__ import annotations
-
 import tempfile
 import threading
 import time

@@ -5,8 +5,6 @@ Additional tests to increase coverage for state.py edge cases.
 These tests target specific uncovered branches identified by coverage analysis.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime, timedelta
 
 import msgspec

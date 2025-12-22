@@ -9,8 +9,6 @@ These tests are slower than unit tests (~10s each) but provide
 empirical evidence that algorithms scale as expected.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 
 import big_o
