@@ -123,12 +123,11 @@ class TestLocalRuntime:
         NOTE: LocalRuntime doesn't catch TimeoutExpired - it propagates.
         This documents actual behavior.
         """
-
         runtime = LocalRuntime()
 
         # This should raise TimeoutExpired
         with pytest.raises(subprocess.TimeoutExpired):
-            runtime.execute(["sleep", "10"], cwd=".", timeout=1)
+            runtime.execute(["sleep", "10"], cwd=".", timeout=0.1)
 
     def test_execute_with_env(self) -> None:
         """Environment variables should be passed to command."""

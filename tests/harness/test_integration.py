@@ -871,14 +871,14 @@ def test_exec_timeout_and_signal_decoding(workflow_with_tasks):
     send_command = workflow_with_tasks["send_command"]
     worktree = workflow_with_tasks["worktree"]
 
-    # Exec a command that exceeds timeout (sleep 10 with 1s timeout)
+    # Exec a command that exceeds timeout
     resp = send_command(
         {
             "command": "exec",
             "args": ["sleep", "10"],
             "cwd": str(worktree),
             "env": {},
-            "timeout": 1.0,
+            "timeout": 0.1,
         }
     )
 

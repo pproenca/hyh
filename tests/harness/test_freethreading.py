@@ -375,6 +375,7 @@ class TestLockContention:
 # -----------------------------------------------------------------------------
 
 
+@settings(max_examples=50, stateful_step_count=30)
 class StateManagerStateMachine(RuleBasedStateMachine):
     """Property-based stateful test for StateManager concurrency invariants.
 
@@ -498,22 +499,20 @@ class StateManagerStateMachine(RuleBasedStateMachine):
             )
 
 
-# Run with Hypothesis default settings (100 examples)
 TestStateManagerConcurrency = StateManagerStateMachine.TestCase
 
 
-@pytest.mark.slow
-@settings(max_examples=50, stateful_step_count=25)
+# Extended version with more examples for deeper exploration
+# Use pytest -m "not slow" for fast iteration
 class ExtendedStateManagerStateMachine(StateManagerStateMachine):
-    """Extended version with more examples for deeper exploration.
-
-    Mark as slow - use pytest -m "not slow" for fast iteration.
-    """
+    """Extended version with more examples for deeper exploration."""
 
     pass
 
 
 TestStateManagerConcurrencyExtended = ExtendedStateManagerStateMachine.TestCase
+TestStateManagerConcurrencyExtended.settings = settings(max_examples=200, stateful_step_count=50)
+TestStateManagerConcurrencyExtended = pytest.mark.slow(TestStateManagerConcurrencyExtended)
 
 
 # -----------------------------------------------------------------------------

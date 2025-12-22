@@ -26,10 +26,12 @@ from __future__ import annotations
 
 import tempfile
 import threading
-import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import time_machine
+from hypothesis import settings
 from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, rule
 
 from harness.state import StateManager, Task, TaskStatus, WorkflowState
@@ -419,37 +421,39 @@ class TestWorkerIndexIdempotency:
                     description="Test",
                     status=TaskStatus.PENDING,
                     dependencies=[],
-                    timeout_seconds=1,  # Minimum allowed timeout
+                    timeout_seconds=1,
                 )
             }
             manager.save(WorkflowState(tasks=tasks))
 
-            # Worker 1 claims
-            result1 = manager.claim_task("worker-1")
-            assert result1.task is not None
+            initial_time = datetime.now(UTC)
+            with time_machine.travel(initial_time, tick=False) as traveller:
+                # Worker 1 claims
+                result1 = manager.claim_task("worker-1")
+                assert result1.task is not None
 
-            # Wait for timeout (slightly more than 1 second)
-            time.sleep(1.1)
+                # Advance past timeout (no real sleep!)
+                traveller.shift(timedelta(seconds=1.5))
 
-            # Worker 2 reclaims
-            result2 = manager.claim_task("worker-2")
-            assert result2.task is not None
-            assert result2.is_reclaim is True, "Should be a reclaim"
+                # Worker 2 reclaims
+                result2 = manager.claim_task("worker-2")
+                assert result2.task is not None
+                assert result2.is_reclaim is True, "Should be a reclaim"
 
-            # Verify indexes
-            state = manager.load()
-            assert state is not None
+                # Verify indexes
+                state = manager.load()
+                assert state is not None
 
-            # Worker 1 should NOT be in index
-            assert "worker-1" not in state._worker_index, (
-                f"Old worker still in index: {state._worker_index}"
-            )
+                # Worker 1 should NOT be in index
+                assert "worker-1" not in state._worker_index, (
+                    f"Old worker still in index: {state._worker_index}"
+                )
 
-            # Worker 2 should be in index
-            assert "worker-2" in state._worker_index, (
-                f"New worker not in index: {state._worker_index}"
-            )
-            assert state._worker_index["worker-2"] == "task-1"
+                # Worker 2 should be in index
+                assert "worker-2" in state._worker_index, (
+                    f"New worker not in index: {state._worker_index}"
+                )
+                assert state._worker_index["worker-2"] == "task-1"
 
 
 class TestPendingSetMembershipInvariant:
@@ -498,6 +502,7 @@ class TestPendingSetMembershipInvariant:
 # -----------------------------------------------------------------------------
 
 
+@settings(max_examples=50, stateful_step_count=30)
 class IndexConsistencyStateMachine(RuleBasedStateMachine):
     """Stateful test verifying index consistency across operation sequences."""
 

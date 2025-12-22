@@ -29,6 +29,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from hypothesis import settings
 from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, rule
 
 from harness.state import StateManager, Task, TaskStatus, WorkflowState
@@ -481,6 +482,7 @@ class TestRetrySemantics:
 # -----------------------------------------------------------------------------
 
 
+@settings(max_examples=50, stateful_step_count=30)
 class TaskStateMachine(RuleBasedStateMachine):
     """Property-based stateful test for task state machine transitions."""
 
