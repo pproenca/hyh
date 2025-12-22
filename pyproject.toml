@@ -1,6 +1,6 @@
 [project]
 name = "harness-cli"
-version = "2.0.0"
+version = "0.1.0a1"
 description = "CLI orchestration tool for agentic workflows - coordinate tasks with claude-code and other AI agents"
 readme = "README.md"
 requires-python = ">=3.13"
