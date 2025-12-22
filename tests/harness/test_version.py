@@ -50,4 +50,6 @@ def test_version_is_alpha():
     """Verify current version is alpha release."""
     from harness import __version__
 
-    assert "a" in __version__ or "+dev" in __version__, f"Expected alpha version, got '{__version__}'"
+    assert "a" in __version__ or "+dev" in __version__, (
+        f"Expected alpha version, got '{__version__}'"
+    )
