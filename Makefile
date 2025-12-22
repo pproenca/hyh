@@ -12,7 +12,6 @@
 UV ?= uv
 PYTHON := $(UV) run python
 PYTEST := $(UV) run pytest
-RUFF := $(UV) run ruff
 TY := $(UV) run ty
 PYUPGRADE := $(UV) run pyupgrade
 
@@ -97,8 +96,8 @@ check: lint typecheck test  ## Run all checks (lint + typecheck + test)
 .PHONY: lint
 lint:  ## Check code style and quality (no auto-fix)
 	@find $(SRC_DIR) $(TEST_DIR) -name '*.py' -exec $(PYUPGRADE) --py313-plus {} +
-	$(RUFF) check $(SRC_DIR) $(TEST_DIR)
-	$(RUFF) format --check $(SRC_DIR) $(TEST_DIR)
+	$(UV) run ruff check $(SRC_DIR) $(TEST_DIR)
+	UV_PREVIEW=1 $(UV) format --check
 
 .PHONY: typecheck
 typecheck:  ## Run type checking with ty
@@ -106,8 +105,8 @@ typecheck:  ## Run type checking with ty
 
 .PHONY: format
 format:  ## Auto-format code
-	$(RUFF) format $(SRC_DIR) $(TEST_DIR)
-	$(RUFF) check --fix $(SRC_DIR) $(TEST_DIR)
+	UV_PREVIEW=1 $(UV) format
+	$(UV) run ruff check --fix $(SRC_DIR) $(TEST_DIR)
 
 ##@ Build & Publish
 

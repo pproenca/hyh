@@ -12,25 +12,17 @@ from libcst import matchers as m
 class RemoveCommentsAndDocstrings(cst.CSTTransformer):
     """Transformer that removes all docstrings and comments from Python code."""
 
-    def leave_Module(
-        self, original_node: cst.Module, updated_node: cst.Module
-    ) -> cst.Module:
+    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
         # Remove docstrings at the top of the module
         new_body = [
             node
             for node in updated_node.body
-            if not m.matches(
-                node, m.SimpleStatementLine(body=[m.Expr(value=m.SimpleString())])
-            )
+            if not m.matches(node, m.SimpleStatementLine(body=[m.Expr(value=m.SimpleString())]))
         ]
         return updated_node.with_changes(
             body=new_body,
-            header=[
-                item for item in updated_node.header if not isinstance(item, cst.Comment)
-            ],
-            footer=[
-                item for item in updated_node.footer if not isinstance(item, cst.Comment)
-            ],
+            header=[item for item in updated_node.header if not isinstance(item, cst.Comment)],
+            footer=[item for item in updated_node.footer if not isinstance(item, cst.Comment)],
         )
 
     def leave_FunctionDef(
@@ -49,9 +41,7 @@ class RemoveCommentsAndDocstrings(cst.CSTTransformer):
             new_body_content = [
                 stmt
                 for stmt in body.body
-                if not m.matches(
-                    stmt, m.SimpleStatementLine(body=[m.Expr(value=m.SimpleString())])
-                )
+                if not m.matches(stmt, m.SimpleStatementLine(body=[m.Expr(value=m.SimpleString())]))
             ]
             return node.with_changes(body=body.with_changes(body=new_body_content))
         return node
@@ -97,16 +87,12 @@ def process_file(path: Path, *, dry_run: bool, verbose: bool) -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Strip docstrings and comments from Python files"
-    )
+    parser = argparse.ArgumentParser(description="Strip docstrings and comments from Python files")
     parser.add_argument("folder", type=Path, help="Folder to process recursively")
     parser.add_argument(
         "--dry-run", action="store_true", help="Show what would be changed without writing"
     )
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Print processed files"
-    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Print processed files")
     args = parser.parse_args()
 
     folder: Path = args.folder
