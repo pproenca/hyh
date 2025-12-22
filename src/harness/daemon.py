@@ -234,12 +234,6 @@ class PlanImportData(Struct, forbid_unknown_fields=True, frozen=True):
     task_count: int
 
 
-class UnknownCommandData(Struct, forbid_unknown_fields=True, frozen=True):
-    """Response data for unknown commands."""
-
-    command: str | None
-
-
 class HarnessHandler(socketserver.StreamRequestHandler):
     server: HarnessDaemon
 

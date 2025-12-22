@@ -628,7 +628,7 @@ def _cmd_update_state(socket_path: str, worktree_root: str, fields: list[list[st
     if response["status"] != "ok":
         print(f"Error: {response.get('message')}", file=sys.stderr)
         sys.exit(1)
-    print(f"Updated: current_task={response['data'].get('current_task')}")
+    print(f"Updated: current_task={response['data']['state'].get('current_task')}")
 
 
 def _cmd_git(socket_path: str, worktree_root: str, git_args: list[str]) -> None:
