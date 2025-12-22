@@ -129,6 +129,28 @@ publish: build  ## Publish to PyPI (manual release)
 	@echo "Published to PyPI. Install with:"
 	@echo "  uv tool install harness-cli"
 
+##@ Release Automation
+
+.PHONY: release
+release:  ## Release with version bump (Usage: make release TYPE=patch)
+	@if [ -z "$(TYPE)" ]; then \
+		echo "Usage: make release TYPE=[major|minor|patch|alpha|beta|rc|stable]"; \
+		exit 1; \
+	fi
+	./scripts/release.sh $(TYPE)
+
+.PHONY: release-alpha
+release-alpha:  ## Bump alpha version and release
+	./scripts/release.sh alpha
+
+.PHONY: release-patch
+release-patch:  ## Bump patch version and release
+	./scripts/release.sh patch
+
+.PHONY: release-minor
+release-minor:  ## Bump minor version and release
+	./scripts/release.sh minor
+
 ##@ Cleanup
 
 .PHONY: clean
