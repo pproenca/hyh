@@ -109,7 +109,7 @@ wheels = [
 ]
 
 [[package]]
-name = "harness"
+name = "harness-cli"
 version = "2.0.0"
 source = { editable = "." }
 dependencies = [
