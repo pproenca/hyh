@@ -1,12 +1,36 @@
 [project]
-name = "harness"
+name = "harness-cli"
 version = "2.0.0"
-description = "Autonomous Research Kernel with Thread-Safe Pull Engine"
+description = "CLI orchestration tool for agentic workflows - coordinate tasks with claude-code and other AI agents"
 readme = "README.md"
 requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Pedro Proenca" }]
+keywords = ["cli", "orchestration", "workflow", "tasks", "agents", "claude-code", "daemon", "unix-socket"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+    "Typing :: Typed",
+]
 dependencies = [
     "msgspec>=0.18",
 ]
+
+[project.urls]
+Homepage = "https://github.com/pproenca/harness"
+Documentation = "https://github.com/pproenca/harness#readme"
+Repository = "https://github.com/pproenca/harness.git"
+Issues = "https://github.com/pproenca/harness/issues"
+Changelog = "https://github.com/pproenca/harness/releases"
 
 # Development dependencies use PEP 735 dependency-groups (not optional-dependencies)
 # See: https://peps.python.org/pep-0735/
@@ -105,4 +129,9 @@ include = ["src"]
 # Default strictness level
 # All rules enabled by default, customize only if needed
 
-
+# TestPyPI index for testing before real PyPI publish
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true

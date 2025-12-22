@@ -4,8 +4,12 @@
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/pproenca/harness/master/install.sh | bash
 #
-# Or with a specific version:
-#   curl -fsSL https://raw.githubusercontent.com/pproenca/harness/master/install.sh | bash -s -- v2.0.0
+# With a specific version:
+#   curl -fsSL https://raw.githubusercontent.com/pproenca/harness/master/install.sh | bash -s -- 2.0.0
+#
+# From git (development):
+#   curl -fsSL https://raw.githubusercontent.com/pproenca/harness/master/install.sh | bash -s -- --git
+#   curl -fsSL https://raw.githubusercontent.com/pproenca/harness/master/install.sh | bash -s -- --git v2.0.0
 
 set -euo pipefail
 
@@ -16,8 +20,25 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+PACKAGE_NAME="harness-cli"
+CLI_NAME="harness"
 REPO="pproenca/harness"
-VERSION="${1:-}"  # Optional version argument (e.g., v2.0.0)
+USE_GIT=false
+VERSION=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --git)
+      USE_GIT=true
+      shift
+      ;;
+    *)
+      VERSION="$1"
+      shift
+      ;;
+  esac
+done
 
 info() { echo -e "${BLUE}==>${NC} $*"; }
 success() { echo -e "${GREEN}==>${NC} $*"; }
@@ -82,19 +103,30 @@ ensure_uv() {
 install_harness() {
   local install_spec
 
-  if [[ -n "$VERSION" ]]; then
-    # Install specific version (tag)
-    install_spec="git+https://github.com/${REPO}@${VERSION}"
-    info "Installing harness ${VERSION}..."
+  if [[ "$USE_GIT" == true ]]; then
+    # Install from git (development)
+    if [[ -n "$VERSION" ]]; then
+      install_spec="git+https://github.com/${REPO}@${VERSION}"
+      info "Installing ${CLI_NAME} ${VERSION} from git..."
+    else
+      install_spec="git+https://github.com/${REPO}"
+      info "Installing ${CLI_NAME} (latest) from git..."
+    fi
   else
-    # Install latest from main branch
-    install_spec="git+https://github.com/${REPO}"
-    info "Installing harness (latest)..."
+    # Install from PyPI (default)
+    if [[ -n "$VERSION" ]]; then
+      install_spec="${PACKAGE_NAME}==${VERSION}"
+      info "Installing ${CLI_NAME} ${VERSION} from PyPI..."
+    else
+      install_spec="${PACKAGE_NAME}"
+      info "Installing ${CLI_NAME} (latest) from PyPI..."
+    fi
   fi
 
   # Uninstall existing version if present
-  if uv tool list 2>/dev/null | grep -q "^harness"; then
-    info "Removing existing harness installation..."
+  if uv tool list 2>/dev/null | grep -q "^${PACKAGE_NAME}\|^harness "; then
+    info "Removing existing ${CLI_NAME} installation..."
+    uv tool uninstall "${PACKAGE_NAME}" >/dev/null 2>&1 || true
     uv tool uninstall harness >/dev/null 2>&1 || true
   fi
 
@@ -115,22 +147,22 @@ install_harness() {
 
 # Verify installation
 verify_installation() {
-  if ! has harness; then
-    error "Installation failed: harness not found in PATH"
+  if ! has "$CLI_NAME"; then
+    error "Installation failed: ${CLI_NAME} not found in PATH"
     error "Try opening a new terminal or running: export PATH=\"\$HOME/.local/bin:\$PATH\""
     exit 1
   fi
 
   local version
-  version=$(harness --version 2>/dev/null || harness --help | head -1)
-  success "harness installed successfully!"
+  version=$("$CLI_NAME" --version 2>/dev/null || "$CLI_NAME" --help | head -1)
+  success "${CLI_NAME} installed successfully!"
   echo ""
   info "Version: $version"
-  info "Location: $(which harness)"
+  info "Location: $(which "$CLI_NAME")"
   echo ""
   info "Quick start:"
-  echo "    harness ping          # Check daemon status"
-  echo "    harness --help        # Show all commands"
+  echo "    ${CLI_NAME} ping          # Check daemon status"
+  echo "    ${CLI_NAME} --help        # Show all commands"
   echo ""
 }
 
@@ -167,10 +199,10 @@ show_shell_instructions() {
 
 main() {
   echo ""
-  echo "╔══════════════════════════════════════╗"
-  echo "║     harness installer                ║"
-  echo "║     Thread-safe task coordination    ║"
-  echo "╚══════════════════════════════════════╝"
+  echo "╔════════════════════════════════════════════╗"
+  echo "║  harness-cli installer                     ║"
+  echo "║  CLI orchestration for agentic workflows   ║"
+  echo "╚════════════════════════════════════════════╝"
   echo ""
 
   detect_platform >/dev/null  # Validate platform early

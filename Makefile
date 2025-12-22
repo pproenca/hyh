@@ -50,6 +50,7 @@ install-global:  ## Install harness globally (editable, uses repo code)
 
 .PHONY: uninstall-global
 uninstall-global:  ## Remove global harness installation
+	$(UV) tool uninstall harness-cli || true
 	$(UV) tool uninstall harness || true
 	@echo "Uninstalled global harness"
 
@@ -108,11 +109,25 @@ format:  ## Auto-format code
 	$(RUFF) format $(SRC_DIR) $(TEST_DIR)
 	$(RUFF) check --fix $(SRC_DIR) $(TEST_DIR)
 
-##@ Build
+##@ Build & Publish
 
 .PHONY: build
 build:  ## Build wheel for distribution
-	$(UV) build
+	$(UV) build --no-sources
+
+.PHONY: publish-test
+publish-test: build  ## Publish to TestPyPI (for testing)
+	$(UV) publish --index testpypi
+	@echo ""
+	@echo "Published to TestPyPI. Test install with:"
+	@echo "  uv tool install harness-cli --index https://test.pypi.org/simple/"
+
+.PHONY: publish
+publish: build  ## Publish to PyPI (manual release)
+	$(UV) publish
+	@echo ""
+	@echo "Published to PyPI. Install with:"
+	@echo "  uv tool install harness-cli"
 
 ##@ Cleanup
 
