@@ -92,4 +92,17 @@ ignore = [
 # State uses **kwargs: Any for Pydantic model_copy (legitimate Any usage)
 "src/harness/state.py" = ["ANN401"]
 
+[tool.ty]
+# Target Python version
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.ty.src]
+# Include source and tests
+include = ["src"]
+
+[tool.ty.rules]
+# Match mypy's default strictness
+# All rules enabled by default, customize only if needed
+
 
