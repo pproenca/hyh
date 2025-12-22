@@ -133,7 +133,7 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
                         if stderr_fd > 2:
                             os.close(stderr_fd)
 
-                        # Execute daemon (S606 is expected - we need execv for daemonization)
+                        # Execute daemon (execv required for daemonization)
                         os.execv(  # noqa: S606
                             sys.executable,
                             [
