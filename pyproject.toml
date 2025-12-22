@@ -119,7 +119,7 @@ ignore = [
 [tool.ty]
 # Target Python version
 [tool.ty.environment]
-python-version = "3.13"
+python-version = "3.14"
 
 [tool.ty.src]
 # Include source and tests

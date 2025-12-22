@@ -155,6 +155,7 @@ class TestWorkflowStateComplexity:
         # Should be linearithmic or better (includes state creation overhead)
         acceptable = (
             big_o.complexities.Constant,
+            big_o.complexities.Logarithmic,
             big_o.complexities.Linear,
             big_o.complexities.Linearithmic,
         )
