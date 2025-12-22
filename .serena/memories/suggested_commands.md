@@ -28,7 +28,7 @@ make perf             # Run all performance tests (benchmark + memory)
 ## Code Quality
 ```bash
 make lint             # Check code style and quality (no auto-fix)
-make typecheck        # Run type checking with mypy
+make typecheck        # Run type checking with ty
 make format           # Auto-format code with ruff
 make check            # Run all checks (lint + typecheck + test)
 ```
@@ -57,7 +57,7 @@ uv run pytest -m benchmark --benchmark-enable  # Benchmarks only
 uv run ruff check src tests              # Check only
 uv run ruff check --fix src tests        # Check and fix
 uv run ruff format src tests             # Format code
-uv run mypy src                          # Type check
+uv run ty check src                      # Type check
 ```
 
 ## System Commands (macOS/Darwin)

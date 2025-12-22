@@ -32,7 +32,7 @@ uv run pytest -k "test_claim"
 
 # Code Quality
 make lint                 # Check style (ruff + pyupgrade)
-make typecheck            # mypy
+make typecheck            # ty
 make format               # Auto-format
 make check                # All checks (lint + typecheck + test)
 

@@ -21,7 +21,7 @@ Checks:
 ```bash
 make typecheck
 ```
-Runs mypy on src/ directory.
+Runs ty on src/ directory.
 
 ## 4. Run Tests
 ```bash
@@ -45,7 +45,7 @@ uv run pre-commit run --all-files
 ## Before Committing
 1. `make format` - Auto-fix formatting
 2. `make check` - Verify all checks pass
-3. Ensure no type errors (mypy)
+3. Ensure no type errors (ty)
 4. Ensure all tests pass
 5. Write meaningful commit message
 

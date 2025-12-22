@@ -18,7 +18,7 @@ Harness is a task management and workflow orchestration system that provides:
 - **Serialization**: msgspec (fast struct-based serialization)
 - **Testing**: pytest (with hypothesis, time-machine, pytest-benchmark, pytest-memray)
 - **Linting**: ruff (all-in-one linter and formatter)
-- **Type Checking**: mypy
+- **Type Checking**: ty
 - **Pre-commit**: pyupgrade hook for Python modernization
 
 ## Architecture
