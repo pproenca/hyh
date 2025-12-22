@@ -1,10 +1,3 @@
-"""
-Plan extraction from LLM output.
-
-Parses Markdown format with Task Groups table and `### Task ID:` sections.
-Validates DAG and converts to WorkflowState.
-"""
-
 import re
 from typing import Final, TypedDict
 
@@ -12,8 +5,6 @@ from msgspec import Struct, field
 
 from .state import Task, TaskStatus, WorkflowState, detect_cycle
 
-# Regex for safe task IDs: alphanumeric, hyphens, underscores, dots
-# NO shell metacharacters: $ ` ; | & ( ) < > ' " \ ! etc.
 _SAFE_TASK_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-\.]*$")
 
 
@@ -36,8 +27,6 @@ class _TaskData(TypedDict):
 
 
 class PlanTaskDefinition(Struct, omit_defaults=True):
-    """Task definition from plan parsing."""
-
     description: str
     dependencies: list[str] = field(default_factory=list)
     timeout_seconds: int = 600
@@ -46,8 +35,6 @@ class PlanTaskDefinition(Struct, omit_defaults=True):
 
 
 class PlanDefinition(Struct):
-    """Complete plan with goal and tasks."""
-
     goal: str
     tasks: dict[str, PlanTaskDefinition]
 
@@ -81,19 +68,6 @@ class PlanDefinition(Struct):
 
 
 def parse_markdown_plan(content: str) -> PlanDefinition:
-    """Parse structured Markdown plan format.
-
-    Extracts:
-    1. Goal from `**Goal:** <text>`
-    2. Task groups from `| Group N | task_ids |` table rows
-    3. Task definitions from `### Task <ID>` headers (colon optional)
-
-    Dependencies: Tasks in Group N depend on ALL tasks in Group N-1.
-
-    Validation:
-    - Rejects orphan tasks (in body but not in table)
-    - Rejects phantom tasks (in table but not in body)
-    """
     goal_match = re.search(r"\*\*Goal:\*\*\s*(.+)", content)
     goal = goal_match.group(1).strip() if goal_match else "Goal not specified"
 

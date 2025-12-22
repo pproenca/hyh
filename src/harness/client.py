@@ -1,13 +1,3 @@
-# src/harness/client.py
-"""
-Harness CLI Client - "Dumb" client with auto-spawn.
-
-CRITICAL: This module MUST NOT import pydantic or harness.state.
-Every import adds ~200ms latency to git hooks.
-
-Only stdlib allowed: sys, json, socket, os, subprocess, time, argparse, pathlib, hashlib
-"""
-
 import argparse
 import hashlib
 import json
@@ -23,13 +13,10 @@ from typing import Any, Final
 
 
 def get_worker_id() -> str:
-    """Get stable worker ID, persisting across CLI invocations using Atomic Write."""
-    # Allow override via env var (for testing or custom locations)
     worker_id_path = os.getenv("HARNESS_WORKER_ID_FILE")
     if worker_id_path:
         worker_id_file = Path(worker_id_path)
     else:
-        # Use XDG_RUNTIME_DIR if available (more secure), fallback to /tmp
         runtime_dir = os.getenv("XDG_RUNTIME_DIR", "/tmp")
         username = os.getenv("USER", "default")
         worker_id_file = Path(f"{runtime_dir}/harness-worker-{username}.id")
@@ -37,8 +24,7 @@ def get_worker_id() -> str:
     if worker_id_file.exists():
         try:
             worker_id = worker_id_file.read_text().strip()
-            # Basic validation to prevent using corrupt data
-            # Format: "worker-" (7) + 12 hex chars = 19 total
+
             if worker_id.startswith("worker-") and len(worker_id) == 19:
                 return worker_id
         except OSError:
@@ -48,37 +34,23 @@ def get_worker_id() -> str:
 
     tmp_file = worker_id_file.with_suffix(".tmp")
     try:
-        # Using open with low-level flags to ensure permissions from creation
         fd = os.open(str(tmp_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(worker_id)
             f.flush()
-            os.fsync(f.fileno())  # Durability
+            os.fsync(f.fileno())
 
         tmp_file.rename(worker_id_file)
     except OSError:
-        # If persistence fails (e.g. read-only FS), return ephemeral ID
-        # This keeps the client usable even if stateful restart is broken
         pass
 
     return worker_id
 
 
-# Generate stable WORKER_ID on module load
 WORKER_ID: Final[str] = get_worker_id()
 
 
 def get_socket_path(worktree: Path | None = None) -> str:
-    """Get socket path for a worktree.
-
-    Args:
-        worktree: Git worktree root. If None, uses current directory.
-
-    Returns:
-        Socket path. Uses HARNESS_SOCKET env var if set, otherwise
-        computes hash-based path in ~/.harness/sockets/.
-    """
-    # Environment override takes precedence
     env_socket = os.getenv("HARNESS_SOCKET")
     if env_socket:
         return env_socket
@@ -95,15 +67,6 @@ def get_socket_path(worktree: Path | None = None) -> str:
 
 
 def spawn_daemon(worktree_root: str, socket_path: str) -> None:
-    """
-    Spawn daemon as a fully detached process using double-fork.
-
-    This ensures no Popen object keeps a reference to the daemon process,
-    avoiding ResourceWarning when the daemon continues running after spawn.
-
-    The daemon will acquire fcntl lock to prevent duplicates.
-    Timeout is configurable via HARNESS_TIMEOUT env var (default 5s).
-    """
     import contextlib
     import tempfile
 
@@ -117,7 +80,6 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
         pid = os.fork()
         if pid == 0:
             try:
-                # Create new session to detach from terminal
                 os.setsid()
 
                 daemon_pid = os.fork()
@@ -133,7 +95,6 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
                         if stderr_fd > 2:
                             os.close(stderr_fd)
 
-                        # Execute daemon (execv required for daemonization)
                         os.execv(  # noqa: S606
                             sys.executable,
                             [
@@ -145,7 +106,6 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
                             ],
                         )
                     except Exception as e:
-                        # Write error to stderr file (best effort, ignore failures)
                         with contextlib.suppress(Exception):
                             Path(stderr_path).write_text(str(e))
                         os._exit(1)
@@ -164,16 +124,15 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
             raise RuntimeError("Failed to get daemon PID")
         daemon_pid = int(daemon_pid_str)
 
-        # Wait for socket to appear (default 5 seconds for CI reliability)
         try:
             timeout_seconds = int(os.getenv("HARNESS_TIMEOUT", "5"))
         except (ValueError, TypeError):
             timeout_seconds = 5
-        iterations = timeout_seconds * 10  # 0.1s per iteration
+        iterations = timeout_seconds * 10
 
         for _ in range(iterations):
             try:
-                os.kill(daemon_pid, 0)  # Signal 0 checks if process exists
+                os.kill(daemon_pid, 0)
             except OSError as err:
                 stderr_content = ""
                 with contextlib.suppress(Exception):
@@ -181,7 +140,7 @@ def spawn_daemon(worktree_root: str, socket_path: str) -> None:
                 raise RuntimeError(f"Daemon crashed on startup: {stderr_content}") from err
 
             if Path(socket_path).exists():
-                time.sleep(0.05)  # Extra delay for server to start accepting
+                time.sleep(0.05)
                 return
             time.sleep(0.1)
 
@@ -209,11 +168,6 @@ def send_rpc(
     timeout: float = 5.0,
     max_retries: int = 1,
 ) -> dict[str, Any]:
-    """
-    Send RPC request to daemon.
-
-    If connection fails, auto-spawns daemon and retries.
-    """
     for attempt in range(max_retries + 1):
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(timeout)
@@ -242,12 +196,10 @@ def send_rpc(
         finally:
             sock.close()
 
-    # This should never be reached due to the raise in the except block
     raise RuntimeError("send_rpc failed after all retries")
 
 
 def _get_git_root() -> str:
-    """Get git worktree root."""
     result = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],
         capture_output=True,
@@ -258,14 +210,7 @@ def _get_git_root() -> str:
     return str(Path.cwd())
 
 
-# NOTE: No _coerce_value function!
-# Type coercion is the Daemon's job via Pydantic schemas.
-# The client passes raw strings to avoid data corruption.
-# (e.g., branch name "true" should not become bool(True))
-
-
 def _format_duration(seconds: float) -> str:
-    """Format seconds as human-readable duration."""
     if seconds < 60:
         return f"{int(seconds)}s"
     if seconds < 3600:
@@ -278,7 +223,6 @@ def _format_duration(seconds: float) -> str:
 
 
 def _format_relative_time(iso_timestamp: str) -> str:
-    """Format ISO timestamp as relative time (e.g., '2m ago')."""
     dt = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
     now = datetime.now(UTC)
     delta = (now - dt).total_seconds()
@@ -291,7 +235,6 @@ def _format_relative_time(iso_timestamp: str) -> str:
 
 
 def _cmd_status_all() -> int:
-    """List all registered projects with status."""
     from harness.registry import ProjectRegistry
 
     registry = ProjectRegistry()
@@ -317,8 +260,6 @@ def _cmd_status_all() -> int:
 
 
 def _cmd_status(args: argparse.Namespace, socket_path: str, worktree_root: str) -> None:
-    """Display workflow status with progress, tasks, and recent events."""
-
     if getattr(args, "all", False):
         _cmd_status_all()
         return
@@ -327,7 +268,6 @@ def _cmd_status(args: argparse.Namespace, socket_path: str, worktree_root: str) 
     watch_interval = args.watch
 
     def render_once() -> bool:
-        """Render status once. Returns True if workflow is active."""
         try:
             response = send_rpc(socket_path, {"command": "status"}, worktree_root)
         except FileNotFoundError:
@@ -493,7 +433,6 @@ def _cmd_status(args: argparse.Namespace, socket_path: str, worktree_root: str) 
 
 
 def main() -> None:
-    """CLI entry point using argparse."""
     parser = argparse.ArgumentParser(
         prog="harness", description="Thread-safe state management for dev-workflow"
     )
@@ -679,11 +618,6 @@ def _cmd_get_state(socket_path: str, worktree_root: str) -> None:
 
 
 def _cmd_update_state(socket_path: str, worktree_root: str, fields: list[list[str]]) -> None:
-    """Update state fields. fields is list of [key, value] pairs from argparse.
-
-    NOTE: All values are passed as raw strings to the daemon.
-    Pydantic handles type coercion based on the schema.
-    """
     updates = {key: value for key, value in fields}
 
     response = send_rpc(
@@ -698,7 +632,6 @@ def _cmd_update_state(socket_path: str, worktree_root: str, fields: list[list[st
 
 
 def _cmd_git(socket_path: str, worktree_root: str, git_args: list[str]) -> None:
-    """Execute git command through daemon mutex."""
     cwd = str(Path.cwd())
     response = send_rpc(
         socket_path,
@@ -732,7 +665,6 @@ def _cmd_session_start(socket_path: str, worktree_root: str) -> None:
         print("{}")
         return
 
-    # Calculate progress from task DAG
     total_tasks = len(tasks)
     completed_tasks = sum(1 for t in tasks.values() if t.get("status") == "completed")
 
@@ -762,7 +694,6 @@ def _cmd_check_state(socket_path: str, worktree_root: str) -> None:
         print("allow")
         return
 
-    # Calculate progress from task DAG
     total_tasks = len(tasks)
     completed_tasks = sum(1 for t in tasks.values() if t.get("status") == "completed")
 
@@ -785,14 +716,13 @@ def _cmd_check_commit(socket_path: str, worktree_root: str) -> None:
 
     state = response["data"]
 
-    # Get current HEAD via daemon (mutex-protected)
     git_response = send_rpc(
         socket_path,
         {"command": "git", "args": ["rev-parse", "HEAD"], "cwd": str(Path.cwd())},
         worktree_root,
     )
     if git_response["status"] != "ok":
-        print("allow")  # Fail open
+        print("allow")
         return
 
     current_head = git_response["data"]["stdout"].strip()
@@ -813,7 +743,6 @@ def _cmd_shutdown(socket_path: str, _worktree_root: str) -> None:
 
 
 def _cmd_task_claim(socket_path: str, worktree_root: str) -> None:
-    """Claim next available task."""
     response = send_rpc(
         socket_path,
         {"command": "task_claim", "worker_id": WORKER_ID},
@@ -826,7 +755,6 @@ def _cmd_task_claim(socket_path: str, worktree_root: str) -> None:
 
 
 def _cmd_task_complete(socket_path: str, worktree_root: str, task_id: str) -> None:
-    """Mark task as complete."""
     response = send_rpc(
         socket_path,
         {"command": "task_complete", "task_id": task_id, "worker_id": WORKER_ID},
@@ -846,8 +774,6 @@ def _cmd_exec(
     env_vars: list[str],
     timeout: float,
 ) -> None:
-    """Execute command through daemon mutex."""
-    # Parse environment variables
     env: dict[str, str] = {}
     for env_var in env_vars:
         if "=" in env_var:
@@ -857,7 +783,6 @@ def _cmd_exec(
             print(f"Error: Invalid env var format: {env_var}", file=sys.stderr)
             sys.exit(1)
 
-    # Use current directory if not specified
     if cwd is None:
         cwd = str(Path.cwd())
 
@@ -883,12 +808,10 @@ def _cmd_exec(
 
 
 def _cmd_worker_id() -> None:
-    """Print stable worker ID."""
     print(get_worker_id())
 
 
 def _cmd_plan_import(socket_path: str, worktree_root: str, file_path: str) -> None:
-    """Import plan from file."""
     path = Path(file_path)
     if not path.exists():
         print(f"Error: File not found: {file_path}", file=sys.stderr)
@@ -907,15 +830,12 @@ def _cmd_plan_import(socket_path: str, worktree_root: str, file_path: str) -> No
 
 
 def _cmd_plan_template() -> None:
-    """Print plan template for agent self-healing."""
-    # Lazy import to avoid loading pydantic on normal client operations
     from harness.plan import get_plan_template
 
     print(get_plan_template())
 
 
 def _cmd_plan_reset(socket_path: str, worktree_root: str) -> None:
-    """Clear all workflow state."""
     response = send_rpc(
         socket_path,
         {"command": "plan_reset"},

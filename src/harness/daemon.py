@@ -1,14 +1,3 @@
-# src/harness/daemon.py
-"""
-Harness Daemon - Thread-safe state management server.
-
-Uses socketserver.ThreadingUnixStreamServer for true parallelism
-in Python 3.13t (free-threading). No asyncio.
-
-Each client connection gets a real OS thread that runs in parallel.
-msgspec validation happens here - the client is deliberately "dumb".
-"""
-
 import contextlib
 import fcntl
 import json
@@ -34,18 +23,10 @@ from .runtime import Runtime, create_runtime, decode_signal
 from .state import StateManager
 from .trajectory import TrajectoryLogger
 
-# Truncation limit for trajectory logs - agents need enough context to debug
 TRUNCATE_LIMIT: Final[int] = 4096
 
 
 class HarnessHandler(socketserver.StreamRequestHandler):
-    """
-    Handle a single client connection.
-
-    In Python 3.13t, this runs in a parallel thread without GIL contention.
-    CPU-heavy msgspec validation happens here, not in the client.
-    """
-
     server: HarnessDaemon
 
     def handle(self) -> None:
@@ -62,7 +43,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             self.wfile.write(json.dumps(error_response).encode() + b"\n")
 
     def dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
-        """Route command to handler using match/case (O(1) dispatch, no dict allocation)."""
         command = request.get("command")
         server = self.server
 
@@ -101,10 +81,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         return {"status": "ok", "data": msgspec.to_builtins(state)}
 
     def _handle_status(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
-        """Return workflow status summary with task counts and recent events.
-
-        Time: O(n) single-pass counting instead of O(4n) separate iterations.
-        """
         from .state import TaskStatus
 
         state = server.state_manager.load()
@@ -129,7 +105,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
 
         tasks = state.tasks
 
-        # Single-pass O(n) counting with match/case (replaces 4 separate iterations)
         completed = running = pending = failed = 0
         active_workers: set[str] = set()
 
@@ -174,7 +149,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         if not updates:
             return {"status": "error", "message": "No updates provided"}
         try:
-            # msgspec validation happens here (CPU-heavy, parallel thread)
             updated = server.state_manager.update(**updates)
             return {"status": "ok", "data": msgspec.to_builtins(updated)}
         except Exception as e:
@@ -197,18 +171,15 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         return {"status": "ok", "data": {"running": True, "pid": os.getpid()}}
 
     def _handle_shutdown(self, _request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
-        # Schedule shutdown in separate thread to allow response
         threading.Thread(target=server.shutdown, daemon=True).start()
         return {"status": "ok", "data": {"shutdown": True}}
 
     def _handle_task_claim(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
-        """Claim a task for a worker (atomic operation with idempotency)."""
         worker_id = request.get("worker_id")
         if not worker_id:
             return {"status": "error", "message": "worker_id is required"}
 
         try:
-            # Atomically claim task with is_retry/is_reclaim computed inside lock
             claim_result = server.state_manager.claim_task(worker_id)
 
             if not claim_result.task:
@@ -216,7 +187,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
 
             task = claim_result.task
 
-            # Log to trajectory AFTER state lock is released to avoid holding the lock during I/O
             server.trajectory_logger.log(
                 {
                     "event_type": "task_claim",
@@ -249,7 +219,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
     def _handle_task_complete(
         self, request: dict[str, Any], server: HarnessDaemon
     ) -> dict[str, Any]:
-        """Complete a task with ownership validation."""
         task_id = request.get("task_id")
         worker_id = request.get("worker_id")
 
@@ -259,10 +228,8 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             return {"status": "error", "message": "worker_id is required"}
 
         try:
-            # Atomically complete task (validates ownership, state lock released inside)
             server.state_manager.complete_task(task_id, worker_id)
 
-            # Log to trajectory AFTER state lock is released to avoid holding the lock during I/O
             server.trajectory_logger.log(
                 {
                     "event_type": "task_complete",
@@ -283,7 +250,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             return {"status": "error", "message": str(e)}
 
     def _handle_exec(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
-        """Execute a command using the runtime."""
         args = request.get("args", [])
         cwd = request.get("cwd")
         env = request.get("env")
@@ -328,8 +294,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
 
             return {"status": "ok", "data": response_data}
         except subprocess.TimeoutExpired as e:
-            # Timeout is a normal case - return success with timeout info
-
             duration_ms = int((time.monotonic() - start_time) * 1000)
             signal_name = "SIGTERM"
             server.trajectory_logger.log(
@@ -355,7 +319,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             return {"status": "error", "message": str(e)}
 
     def _handle_plan_import(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
-        """Import plan from LLM output."""
         content = request.get("content")
         if not content:
             return {"status": "error", "message": "content required"}
@@ -389,7 +352,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             return {"status": "error", "message": msg}
 
     def _handle_plan_reset(self, _request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
-        """Reset workflow state (clear all tasks)."""
         server.state_manager.reset()
 
         server.trajectory_logger.log({"event_type": "plan_reset"})
@@ -400,12 +362,6 @@ class HarnessHandler(socketserver.StreamRequestHandler):
 
 
 class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    """
-    Threaded Unix socket server for workflow state management.
-
-    ThreadingMixIn + Python 3.13t = true parallel thread execution.
-    """
-
     daemon_threads = True
     allow_reuse_address = True
 
@@ -436,16 +392,14 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         registry = ProjectRegistry()
         registry.register(self.worktree_root)
         self.runtime = create_runtime()
-        self.runtime.check_capabilities()  # Fail fast if dependencies unavailable
+        self.runtime.check_capabilities()
         self._lock_fd = None
 
-        # Acquire exclusive lock to prevent multiple daemons
         self._acquire_lock()
 
         if Path(socket_path).exists():
             Path(socket_path).unlink()
 
-        # Create socket with restrictive permissions from the start
         old_umask = os.umask(0o077)
         try:
             super().__init__(socket_path, HarnessHandler)
@@ -457,7 +411,6 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         self.state_manager.load()
 
     def _acquire_lock(self) -> None:
-        """Acquire exclusive lock on socket path (idempotency)."""
         self._lock_path = self.socket_path + ".lock"
         lock_path = Path(self._lock_path)
         self._lock_fd = lock_path.open("w")
@@ -468,7 +421,6 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
             raise RuntimeError("Another daemon is already running") from err
 
     def server_close(self) -> None:
-        """Clean up on shutdown."""
         super().server_close()
         if self.acp_emitter:
             self.acp_emitter.close()
@@ -485,11 +437,9 @@ class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 
 
 def run_daemon(socket_path: str, worktree_root: str) -> None:
-    """Entry point for running daemon as subprocess."""
     daemon = HarnessDaemon(socket_path, worktree_root)
 
     def handle_sigterm(_signum: int, _frame: FrameType | None) -> None:
-        # shutdown() must be called from a different thread than serve_forever()
         threading.Thread(target=daemon.shutdown, daemon=True).start()
 
     signal_module.signal(signal_module.SIGTERM, handle_sigterm)

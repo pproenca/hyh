@@ -1,11 +1,3 @@
-"""Project registry for multi-project isolation.
-
-Tracks registered projects for --all queries.
-Uses fcntl.flock for race-condition safety across concurrent daemons.
-
-CRITICAL: This module MUST NOT import pydantic (client.py constraint).
-"""
-
 import fcntl
 import hashlib
 import json
@@ -17,7 +9,6 @@ from typing import Any, Final
 
 
 def _get_default_registry_path() -> Path:
-    """Get default registry path, respecting HARNESS_REGISTRY_FILE env var."""
     env_path = os.getenv("HARNESS_REGISTRY_FILE")
     if env_path:
         return Path(env_path)
@@ -25,8 +16,6 @@ def _get_default_registry_path() -> Path:
 
 
 class ProjectRegistry:
-    """Process-safe project registry with file locking."""
-
     __slots__ = ("_lock_file", "registry_file")
 
     def __init__(self, registry_file: Path | None = None) -> None:
@@ -36,11 +25,9 @@ class ProjectRegistry:
         self._lock_file: Final[Path] = self.registry_file.with_suffix(".lock")
 
     def _ensure_parent_dir(self) -> None:
-        """Create parent directory if needed."""
         self.registry_file.parent.mkdir(parents=True, exist_ok=True)
 
     def _with_lock[T](self, fn: Callable[[], T]) -> T:
-        """Execute fn while holding exclusive lock on registry."""
         with self._lock_file.open("w") as lock_fd:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
             try:
@@ -49,7 +36,6 @@ class ProjectRegistry:
                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
     def _load_unlocked(self) -> dict[str, Any]:
-        """Load registry from disk (caller must hold lock)."""
         if not self.registry_file.exists():
             return {"projects": {}}
         try:
@@ -59,7 +45,6 @@ class ProjectRegistry:
             return {"projects": {}}
 
     def _save_unlocked(self, data: dict[str, Any]) -> None:
-        """Atomic write to registry file (caller must hold lock)."""
         tmp = self.registry_file.with_suffix(".tmp")
         content = json.dumps(data, indent=2)
         with tmp.open("w") as f:
@@ -69,7 +54,6 @@ class ProjectRegistry:
         tmp.rename(self.registry_file)
 
     def register(self, worktree: Path) -> str:
-        """Register a project, return its hash ID. Thread/process-safe."""
         worktree = worktree.resolve()
         path_hash = hashlib.sha256(str(worktree).encode()).hexdigest()[:16]
 
@@ -85,10 +69,8 @@ class ProjectRegistry:
         return self._with_lock(_do_register)
 
     def list_projects(self) -> dict[str, dict[str, Any]]:
-        """Return all registered projects."""
         return self._with_lock(lambda: self._load_unlocked().get("projects", {}))
 
     def get_hash_for_path(self, worktree: Path) -> str:
-        """Compute hash for a worktree path (no lock needed)."""
         worktree = worktree.resolve()
         return hashlib.sha256(str(worktree).encode()).hexdigest()[:16]
