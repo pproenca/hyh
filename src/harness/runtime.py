@@ -191,13 +191,12 @@ class LocalRuntime:
         timeout: float | None = None,
         exclusive: bool = False,
     ) -> ExecutionResult:
-        """
-        Execute a command locally.
+        """Execute a command locally.
 
         Args:
             command: Command and arguments to execute
             cwd: Working directory for the command
-            env: Environment variables to pass to the command
+            env: Environment variables to pass to the command (merged with os.environ)
             timeout: Timeout in seconds (None for no timeout)
             exclusive: If True, acquire GLOBAL_EXEC_LOCK before executing
 
@@ -206,10 +205,8 @@ class LocalRuntime:
         """
 
         def _execute() -> ExecutionResult:
-            # Build environment (merge with current environment if provided)
-            exec_env: dict[str, str] | None = os.environ.copy() if env else None
-            if env and exec_env is not None:
-                exec_env.update(env)
+            # Merge env with os.environ only if env is provided (walrus operator)
+            exec_env = {**os.environ, **env} if env else None
 
             result = subprocess.run(
                 command,

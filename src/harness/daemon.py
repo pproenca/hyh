@@ -21,7 +21,6 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable
 from io import TextIOWrapper
 from pathlib import Path
 from types import FrameType
@@ -65,35 +64,37 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             self.wfile.write(json.dumps(error_response).encode() + b"\n")
 
     def dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
-        """Route command to handler."""
+        """Route command to handler using match/case (O(1) dispatch, no dict allocation)."""
         command = request.get("command")
         server = self.server
 
-        handlers: dict[
-            str,
-            Callable[[dict[str, Any], HarnessDaemon], dict[str, Any]],
-        ] = {
-            "get_state": self._handle_get_state,
-            "status": self._handle_status,
-            "update_state": self._handle_update_state,
-            "git": self._handle_git,
-            "ping": self._handle_ping,
-            "shutdown": self._handle_shutdown,
-            "task_claim": self._handle_task_claim,
-            "task_complete": self._handle_task_complete,
-            "exec": self._handle_exec,
-            "plan_import": self._handle_plan_import,
-            "plan_reset": self._handle_plan_reset,
-        }
-
-        if command is None:
-            return {"status": "error", "message": "Missing command"}
-
-        handler = handlers.get(command)
-        if not handler:
-            return {"status": "error", "message": f"Unknown command: {command}"}
-
-        return handler(request, server)
+        match command:
+            case None:
+                return {"status": "error", "message": "Missing command"}
+            case "get_state":
+                return self._handle_get_state(request, server)
+            case "status":
+                return self._handle_status(request, server)
+            case "update_state":
+                return self._handle_update_state(request, server)
+            case "git":
+                return self._handle_git(request, server)
+            case "ping":
+                return self._handle_ping(request, server)
+            case "shutdown":
+                return self._handle_shutdown(request, server)
+            case "task_claim":
+                return self._handle_task_claim(request, server)
+            case "task_complete":
+                return self._handle_task_complete(request, server)
+            case "exec":
+                return self._handle_exec(request, server)
+            case "plan_import":
+                return self._handle_plan_import(request, server)
+            case "plan_reset":
+                return self._handle_plan_reset(request, server)
+            case _:
+                return {"status": "error", "message": f"Unknown command: {command}"}
 
     def _handle_get_state(self, _request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
         state = server.state_manager.load()
@@ -102,7 +103,10 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         return {"status": "ok", "data": msgspec.to_builtins(state)}
 
     def _handle_status(self, request: dict[str, Any], server: HarnessDaemon) -> dict[str, Any]:
-        """Return workflow status summary with task counts and recent events."""
+        """Return workflow status summary with task counts and recent events.
+
+        Time: O(n) single-pass counting instead of O(4n) separate iterations.
+        """
         from .state import TaskStatus
 
         state = server.state_manager.load()
@@ -126,21 +130,31 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             }
 
         tasks = state.tasks
+
+        # Single-pass O(n) counting with match/case (replaces 4 separate iterations)
+        completed = running = pending = failed = 0
+        active_workers: set[str] = set()
+
+        for task in tasks.values():
+            match task.status:
+                case TaskStatus.COMPLETED:
+                    completed += 1
+                case TaskStatus.RUNNING:
+                    running += 1
+                    if task.claimed_by:
+                        active_workers.add(task.claimed_by)
+                case TaskStatus.PENDING:
+                    pending += 1
+                case TaskStatus.FAILED:
+                    failed += 1
+
         summary = {
             "total": len(tasks),
-            "completed": sum(1 for t in tasks.values() if t.status == TaskStatus.COMPLETED),
-            "running": sum(1 for t in tasks.values() if t.status == TaskStatus.RUNNING),
-            "pending": sum(1 for t in tasks.values() if t.status == TaskStatus.PENDING),
-            "failed": sum(1 for t in tasks.values() if t.status == TaskStatus.FAILED),
+            "completed": completed,
+            "running": running,
+            "pending": pending,
+            "failed": failed,
         }
-
-        active_workers = list(
-            {
-                t.claimed_by
-                for t in tasks.values()
-                if t.status == TaskStatus.RUNNING and t.claimed_by
-            }
-        )
 
         events = server.trajectory_logger.tail(n=request.get("event_count", 10))
 
@@ -151,7 +165,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                 "summary": summary,
                 "tasks": {tid: msgspec.to_builtins(t) for tid, t in tasks.items()},
                 "events": events,
-                "active_workers": active_workers,
+                "active_workers": list(active_workers),
             },
         }
 
