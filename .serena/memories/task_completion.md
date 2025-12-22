@@ -1,57 +1,71 @@
 # Task Completion Checklist
 
-When completing a task in the hyh project, run these checks:
+When a task is completed, run these commands to verify quality:
 
-## 1. Format Code
+## Required Checks
+
+### 1. Format Code
 ```bash
 make format
 ```
-Ensures consistent code style with ruff.
+Auto-fixes formatting issues with ruff and pyupgrade.
 
-## 2. Lint Check
+### 2. Lint Check
 ```bash
 make lint
 ```
-Checks:
-- pyupgrade (py313+ patterns)
-- ruff check (E, F, UP, B, SIM, I, N, ANN, S, DTZ, PTH, RET, ARG, RUF)
-- ruff format --check
+Verifies:
+- pyupgrade (Python 3.13+ syntax)
+- ruff linting rules
+- Code formatting compliance
 
-## 3. Type Check
+### 3. Type Check
 ```bash
 make typecheck
 ```
-Runs ty on src/ directory.
+Runs `ty check` on source code.
 
-## 4. Run Tests
+### 4. Run Tests
 ```bash
 make test
 ```
-Runs all tests with 30-second timeout per test.
+Runs full test suite with 30-second timeout per test.
 
-## 5. All-in-One Check
+## All-in-One Command
+
 ```bash
 make check
 ```
-Runs lint + typecheck + test in sequence.
+Runs lint → typecheck → test in sequence.
 
-## Pre-commit Hooks
-The project uses pre-commit with pyupgrade hook (--py313-plus).
-Run manually if needed:
+## Pre-Commit Hooks
+
+The project uses pre-commit with pyupgrade. Git commits will automatically:
+- Upgrade syntax to Python 3.13+
+
+To run manually:
 ```bash
 uv run pre-commit run --all-files
 ```
 
-## Before Committing
-1. `make format` - Auto-fix formatting
-2. `make check` - Verify all checks pass
-3. Ensure no type errors (ty)
-4. Ensure all tests pass
-5. Write meaningful commit message
+## Before Creating a PR
 
-## Common Issues to Avoid
-- Missing type annotations (ANN rules)
-- Using naive datetimes (use UTC)
-- Using os.path instead of pathlib
-- Using mutable default arguments
-- Leaving unused imports or variables
+1. `make format` - Fix any formatting issues
+2. `make check` - Ensure all checks pass
+3. Verify tests cover new functionality
+4. Update CHANGELOG.md if needed
+
+## Common Issues
+
+### Lint Failures
+- ANN: Missing type annotations (required for src/, optional for tests/)
+- S101: assert in source (allowed, just ignored)
+- DTZ: Timezone-naive datetime (use `datetime.now(UTC)`)
+
+### Type Check Failures
+- Ensure all function parameters and returns have type hints
+- Use `X | None` instead of `Optional[X]`
+
+### Test Failures
+- Check for 30-second timeout (use `--timeout=0` for debugging)
+- Run specific file: `make test-file FILE=tests/hyh/test_xxx.py`

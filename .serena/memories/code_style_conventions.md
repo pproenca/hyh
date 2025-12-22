@@ -1,27 +1,7 @@
 # Code Style & Conventions
 
-## General Style
-- **Line length**: 100 characters
-- **Target Python version**: 3.14 (py314)
-- **Import sorting**: isort via ruff (I rules)
-
-## Naming Conventions
-- `snake_case` for functions, methods, variables
-- `PascalCase` for classes
-- `SCREAMING_SNAKE_CASE` for constants
-- Private methods/attributes prefixed with `_`
-
-## Type Hints
-**Mandatory** - ruff ANN rules are enabled. All functions must have:
-- Parameter type annotations
-- Return type annotations
-
-```python
-def process_task(task: Task, timeout: float = 5.0) -> bool:
-    ...
-```
-
 ## Data Structures
+
 Use **msgspec.Struct** instead of dataclasses or Pydantic:
 
 ```python
@@ -31,44 +11,116 @@ class Task(Struct, forbid_unknown_fields=True):
     id: str
     description: str
     status: TaskStatus = TaskStatus.PENDING
-    dependencies: tuple[str, ...] = ()  # Use tuple, not list
+    dependencies: tuple[str, ...] = ()
+    timeout_seconds: int = 600
 ```
 
-## Enums
-Inherit from both `str` and `Enum` for JSON serialization:
+Key patterns:
+- Use `forbid_unknown_fields=True` for strict validation
+- Use tuples for immutable collections (not lists)
+- Provide sensible defaults
+
+## Type Hints
+
+**Mandatory everywhere** - ruff ANN rules enforce this:
 
 ```python
-class TaskStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+from typing import Any, Final, ClassVar
+
+def send_rpc(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    ...
+
+class ACPEmitter:
+    _host: Final[str]
+    _clock: ClassVar[Callable[[], datetime]]
 ```
 
-## Modern Python Patterns (py313+)
-- Use `|` for union types: `datetime | None`
-- Use `tuple[str, ...]` for variable-length tuples
-- Use `list[str]` not `List[str]` (no typing imports needed)
-- Use `dict[str, Any]` not `Dict[str, Any]`
-- Use `pathlib.Path` for file operations (PTH rules)
+- Use `Final` for immutable instance attributes
+- Use `ClassVar` for class-level attributes
+- Use `X | None` syntax (not `Optional[X]`)
+- Use builtin generics (`list`, `dict`, `tuple`) not `typing.List`
+
+## Class Design
+
+Use `__slots__` for performance in non-Struct classes:
+
+```python
+class ACPEmitter:
+    __slots__ = ("_disabled_event", "_host", "_port", "_queue", "_thread", "_warned_event")
+```
 
 ## Datetime Handling
-- Always use timezone-aware datetimes (DTZ rules enabled)
-- Use `datetime.now(UTC)` not `datetime.now()`
-- Avoid naive datetime comparisons
 
-## Security
-- Bandit (S) rules enabled
-- `assert` allowed in general code (S101 ignored)
-- Subprocess calls audited per-file
+Always use UTC and timezone-aware datetimes:
 
-## Docstrings
-- Use triple quotes for multi-line docstrings
-- Follow Google style (Args, Returns, Raises sections)
-- Module-level docstrings for test files
+```python
+from datetime import UTC, datetime
 
-## Test File Conventions
-- Tests in `tests/hyh/` mirroring `src/hyh/`
-- Fixtures in `conftest.py`
-- Use condition-based waiting (`wait_until`) instead of `time.sleep`
-- Thread isolation for free-threaded Python (3.14t)
+now = datetime.now(UTC)
+```
+
+## Naming
+
+- **snake_case** for functions and variables
+- **PascalCase** for classes
+- **UPPER_SNAKE_CASE** for constants
+- Private attributes: `_single_underscore`
+- Module-level type aliases: `TimeoutSeconds = int`
+
+## Imports
+
+Order enforced by ruff isort:
+1. Standard library
+2. Third-party packages
+3. Local imports
+
+## Error Handling
+
+- Raise specific exceptions with helpful messages
+- Use `contextlib.suppress()` for expected exceptions
+
+```python
+import contextlib
+
+with contextlib.suppress(OSError):
+    sock.close()
+```
+
+## Testing Conventions
+
+- Use pytest with fixtures
+- Test file naming: `test_<module>.py`
+- Test function naming: `test_<behavior>` or `test_<feature>_<condition>`
+- Use hypothesis for property-based testing where appropriate
+- Arrange-Act-Assert pattern
+
+```python
+def test_task_model_basic_validation():
+    """Task should validate and store all fields."""
+    task = Task(
+        id="task-1",
+        description="Implement feature X",
+        status=TaskStatus.PENDING,
+        dependencies=[],
+    )
+    assert task.id == "task-1"
+```
+
+## Ruff Configuration
+
+Line length: 100 characters
+Target: Python 3.14
+
+Enabled rule sets:
+- E (pycodestyle), F (Pyflakes), UP (pyupgrade)
+- B (bugbear), SIM (simplify), I (isort)
+- N (pep8-naming), ANN (annotations), S (bandit security)
+- DTZ (datetimez), PTH (pathlib), RET (return), ARG (unused-arguments)
+- RUF (ruff-specific)
+
+## Documentation
+
+- Minimal docstrings (not enforced)
+- Use type hints as primary documentation
+- Module-level comments for complex logic
+- Section comments with `# ===...===` separators

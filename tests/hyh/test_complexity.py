@@ -41,9 +41,12 @@ class TestDetectCycleComplexity:
         )
 
         # Should be linear or better, not quadratic
-        assert isinstance(best, (big_o.complexities.Constant, big_o.complexities.Linear)), (
-            f"Expected O(1) or O(n), got {best}"
+        acceptable = (
+            big_o.complexities.Constant,
+            big_o.complexities.Logarithmic,
+            big_o.complexities.Linear,
         )
+        assert isinstance(best, acceptable), f"Expected O(1), O(log n), or O(n), got {best}"
 
     @pytest.mark.slow
     def test_detect_cycle_linear_chain(self) -> None:
@@ -73,9 +76,12 @@ class TestDetectCycleComplexity:
         )
 
         # Linear chain should be O(V) = O(n)
-        assert isinstance(best, (big_o.complexities.Constant, big_o.complexities.Linear)), (
-            f"Expected O(n) or better, got {best}"
+        acceptable = (
+            big_o.complexities.Constant,
+            big_o.complexities.Logarithmic,
+            big_o.complexities.Linear,
         )
+        assert isinstance(best, acceptable), f"Expected O(n) or better, got {best}"
 
 
 class TestWorkflowStateComplexity:

@@ -1,70 +1,130 @@
-# Suggested Commands
+# Development Commands
 
 ## Setup
+
 ```bash
-make install          # Install all dependencies (uv sync --dev)
-make install-global   # Install hyh globally (editable)
-make uninstall-global # Remove global installation
+# Install all dependencies (first time setup)
+make install
+
+# Install globally for use anywhere (editable - uses repo code)
+make install-global
+
+# Uninstall global installation
+make uninstall-global
 ```
 
 ## Development
+
 ```bash
-make dev              # Start the daemon (development mode)
-make shell            # Open interactive Python shell with project loaded
+# Start the daemon (development mode)
+make dev
+
+# Open interactive Python shell with project loaded
+make shell
 ```
 
 ## Testing
-```bash
-make test             # Run all tests
-make test-fast        # Run tests without timeout (faster iteration)
-make test-file FILE=tests/hyh/test_state.py  # Run specific test file
 
-# Performance testing
-make benchmark        # Run benchmark tests
-make memcheck         # Run memory profiling tests
-make perf             # Run all performance tests (benchmark + memory)
+```bash
+# Run all tests
+make test
+
+# Run tests without timeout (faster iteration)
+make test-fast
+
+# Run specific test file
+make test-file FILE=tests/hyh/test_state.py
+
+# Run benchmark tests
+make benchmark
+
+# Run memory profiling tests
+make memcheck
+
+# Run all performance tests (benchmark + memory)
+make perf
 ```
 
 ## Code Quality
+
 ```bash
-make lint             # Check code style and quality (no auto-fix)
-make typecheck        # Run type checking with ty
-make format           # Auto-format code with ruff
-make check            # Run all checks (lint + typecheck + test)
+# Check code style and quality (no auto-fix)
+make lint
+
+# Run type checking with ty
+make typecheck
+
+# Auto-format code
+make format
+
+# Run all checks (lint + typecheck + test)
+make check
 ```
 
-## Build
+## Build & Publish
+
 ```bash
-make build            # Build wheel for distribution
+# Build wheel for distribution
+make build
+
+# Publish to TestPyPI (for testing)
+make publish-test
+
+# Publish to PyPI
+make publish
+```
+
+## Release
+
+```bash
+# Release with version bump
+make release TYPE=patch   # or: major, minor, alpha, beta, rc, stable
+
+# Shorthand commands
+make release-alpha
+make release-patch
+make release-minor
 ```
 
 ## Cleanup
+
 ```bash
-make clean            # Remove build artifacts, caches, and venv
+# Remove build artifacts, caches, and venv
+make clean
 ```
 
-## Running Tests Directly
+## CLI Usage
+
 ```bash
-uv run pytest -v                           # All tests
-uv run pytest tests/hyh/test_state.py  # Specific file
-uv run pytest -k "test_claim"              # By name pattern
-uv run pytest -m "not slow"                # Exclude slow tests
-uv run pytest -m benchmark --benchmark-enable  # Benchmarks only
+# Check daemon is running
+hyh ping
+
+# Import a plan file
+hyh plan import --file plan.md
+
+# Show workflow status
+hyh status
+
+# Claim and execute tasks
+hyh task claim
+hyh task complete --id task-1
+
+# Execute commands with mutex
+hyh exec -- make test
+
+# Safe git operations
+hyh git -- status
+
+# Get worker ID
+hyh worker-id
 ```
 
-## Linting Directly
-```bash
-uv run ruff check src tests              # Check only
-uv run ruff check --fix src tests        # Check and fix
-uv run ruff format src tests             # Format code
-uv run ty check src                      # Type check
-```
+## Quick Reference
 
-## System Commands (macOS/Darwin)
-```bash
-ls -la                  # List files with details
-find . -name "*.py"     # Find Python files
-grep -r "pattern" src/  # Search in files
-git status              # Check git status
-git diff                # Show changes
-```
+| Task | Command |
+|------|---------|
+| Setup project | `make install` |
+| Run tests | `make test` |
+| Check everything | `make check` |
+| Format code | `make format` |
+| Start daemon | `make dev` |

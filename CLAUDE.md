@@ -4,108 +4,57 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Hyh is an Autonomous Research Kernel with Thread-Safe Pull Engine - a daemon-based task orchestration system for managing workflow execution. It provides:
-- Task state management with dependency-aware execution (DAG validation)
-- Thread-safe operations for concurrent task handling
-- Client-daemon architecture via Unix sockets
-- Command execution runtimes (local and Docker)
-- Git integration for safe operations
+**hyh** (hold your horses) is a CLI orchestration tool for agentic workflows. It coordinates tasks with claude-code and AI agents through a daemon-based task management system using Unix socket RPC.
 
 ## Commands
 
 ```bash
-# Setup
-make install              # Install dependencies (uv sync --dev)
-make install-global       # Install hyh CLI globally (editable)
-
-# Development
-make dev                  # Start daemon
-make shell                # Python REPL with hyh loaded
-
-# Testing
-make test                 # Run all tests
-make test-fast            # Tests without timeout
-make test-file FILE=tests/hyh/test_state.py  # Single file
-
-# Run specific test by name
-uv run pytest -k "test_claim"
-
-# Code Quality
-make lint                 # Check style (ruff + pyupgrade)
-make typecheck            # ty
-make format               # Auto-format
-make check                # All checks (lint + typecheck + test)
-
-# Performance
-make benchmark            # Benchmark tests
-make memcheck             # Memory profiling (memray)
+make install          # Install dependencies
+make test             # Run all tests
+make test-file FILE=tests/hyh/test_state.py  # Run single test file
+make lint             # Check code style (no auto-fix)
+make typecheck        # Run ty type checker
+make format           # Auto-format code
+make check            # Run lint + typecheck + test
+make dev              # Start daemon in development mode
 ```
 
 ## Architecture
 
 ```
-src/hyh/
-├── client.py      # CLI client, sends RPC to daemon via Unix socket
-├── daemon.py      # HarnessDaemon + HarnessHandler, processes RPC requests
-├── state.py       # Task, WorkflowState, StateManager - core state machine
-├── runtime.py     # Runtime abstraction (LocalRuntime, DockerRuntime)
-├── plan.py        # Markdown plan parsing → PlanDefinition → WorkflowState
-├── git.py         # Safe git execution with dangerous option validation
-├── registry.py    # ProjectRegistry - thread-safe project hash storage
-├── trajectory.py  # TrajectoryLogger - append-only execution logging
-├── acp.py         # ACPEmitter - Agent Communication Protocol output
+Client (hyh CLI) ──Unix Socket RPC──► Daemon (per-project)
+                                           │
+                    ┌──────────────────────┼──────────────────────┐
+                    │                      │                      │
+              WorkflowStateStore      Runtime              ACPEmitter
+              (atomic task ops)    (cmd execution)      (agent protocol)
 ```
 
-### Data Flow
+**Key modules:**
+- `client.py` - CLI entry point, RPC client, daemon spawning
+- `daemon.py` - Unix socket server handling RPC requests
+- `state.py` - `Task` and `WorkflowState` structs, `WorkflowStateStore` for atomic operations
+- `runtime.py` - Command execution with mutex protection
+- `plan.py` - Markdown plan parsing into task DAG
 
-1. **Client** (`hyh <cmd>`) → Unix socket RPC → **Daemon**
-2. **Daemon** dispatches to **HarnessHandler** methods
-3. **StateManager** handles atomic task state transitions with file locking
-4. **Runtime** executes commands (local subprocess or Docker container)
+**Data flow:** Client sends JSON-RPC over Unix socket → Daemon routes to handler → State mutations via `WorkflowStateStore.update()` with lock → Response back to client
 
-### Key Design Patterns
+## Code Conventions
 
-- **Pull-based task claiming**: Workers call `claim_task(worker_id)` to atomically claim next available task
-- **DAG validation**: Dependency cycles detected before execution via `detect_cycle()`
-- **Atomic file operations**: `StateManager._write_atomic()` uses temp file + rename
-- **Thread safety**: `GLOBAL_EXEC_LOCK` serializes execution; state operations are lock-protected
-
-## Code Style
-
-- **Python 3.13+** (targets 3.14), uses modern syntax (`|` unions, `list[T]` generics)
-- **Type hints required** on all functions (ANN rules enforced)
-- **Use `msgspec.Struct`** for data classes, not dataclasses/Pydantic
-- **Use `pathlib.Path`** for file operations (PTH rules)
-- **Timezone-aware datetimes** required (DTZ rules)
-
-### msgspec Struct Example
-
+Use **msgspec.Struct** (not dataclasses):
 ```python
-from msgspec import Struct
-
 class Task(Struct, forbid_unknown_fields=True):
     id: str
-    description: str
     status: TaskStatus = TaskStatus.PENDING
-    dependencies: tuple[str, ...] = ()  # Use tuple, not list
+    dependencies: tuple[str, ...] = ()  # tuples, not lists
 ```
 
-### Enum Pattern
+Type hints mandatory everywhere. Use `Final` for immutable attributes, `ClassVar` for class-level. Always use `datetime.now(UTC)` for timezone-aware datetimes.
 
-```python
-class TaskStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-```
+## Tech Stack
 
-## Testing Patterns
-
-Tests mirror source structure in `tests/hyh/`. Key test categories:
-- `test_state*.py` - State machine transitions
-- `test_concurrency_audit.py`, `test_freethreading.py` - Thread safety
-- `test_security_audit.py` - Input validation, git safety
-- `test_performance.py`, `test_memory.py` - Benchmarks (marked `@pytest.mark.benchmark`, `@pytest.mark.memcheck`)
-
-Use condition-based waiting (`wait_until`) instead of `time.sleep` for async tests.
+- Python 3.13+ (targeting 3.14)
+- uv for package management
+- msgspec for serialization
+- ruff for linting/formatting
+- ty for type checking
