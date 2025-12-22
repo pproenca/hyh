@@ -52,19 +52,19 @@ jobs:
       - name: Smoke test (wheel)
         run: |
           uv run --isolated --no-project --python ${{ matrix.python-version }} \
-            --with dist/*.whl -- python -c "from harness.client import main; print('wheel ok')"
+            --with dist/*.whl -- python -c "from hyh.client import main; print('wheel ok')"
 
       - name: Smoke test (sdist)
         run: |
           uv run --isolated --no-project --python ${{ matrix.python-version }} \
-            --with dist/*.tar.gz -- python -c "from harness.client import main; print('sdist ok')"
+            --with dist/*.tar.gz -- python -c "from hyh.client import main; print('sdist ok')"
 
   publish:
     needs: test
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/harness-cli/
+      url: https://pypi.org/project/hyh-cli/
     permissions:
       id-token: write  # Required for trusted publishing
       contents: read

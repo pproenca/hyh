@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# install.sh - Install harness CLI tool
+# install.sh - Install hyh CLI tool
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/pproenca/harness/master/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/pproenca/hyh/master/install.sh | bash
 #
 # With a specific version:
-#   curl -fsSL https://raw.githubusercontent.com/pproenca/harness/master/install.sh | bash -s -- 2.0.0
+#   curl -fsSL https://raw.githubusercontent.com/pproenca/hyh/master/install.sh | bash -s -- 2.0.0
 #
 # From git (development):
-#   curl -fsSL https://raw.githubusercontent.com/pproenca/harness/master/install.sh | bash -s -- --git
-#   curl -fsSL https://raw.githubusercontent.com/pproenca/harness/master/install.sh | bash -s -- --git v2.0.0
+#   curl -fsSL https://raw.githubusercontent.com/pproenca/hyh/master/install.sh | bash -s -- --git
+#   curl -fsSL https://raw.githubusercontent.com/pproenca/hyh/master/install.sh | bash -s -- --git v2.0.0
 
 set -euo pipefail
 
@@ -20,9 +20,9 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-PACKAGE_NAME="harness-cli"
-CLI_NAME="harness"
-REPO="pproenca/harness"
+PACKAGE_NAME="hyh-cli"
+CLI_NAME="hyh"
+REPO="pproenca/hyh"
 USE_GIT=false
 VERSION=""
 
@@ -99,8 +99,8 @@ ensure_uv() {
   success "uv installed successfully"
 }
 
-# Install harness using uv
-install_harness() {
+# Install hyh using uv
+install_hyh() {
   local install_spec
 
   if [[ "$USE_GIT" == true ]]; then
@@ -124,13 +124,13 @@ install_harness() {
   fi
 
   # Uninstall existing version if present
-  if uv tool list 2>/dev/null | grep -q "^${PACKAGE_NAME}\|^harness "; then
+  if uv tool list 2>/dev/null | grep -q "^${PACKAGE_NAME}\|^hyh " "; then
     info "Removing existing ${CLI_NAME} installation..."
     uv tool uninstall "${PACKAGE_NAME}" >/dev/null 2>&1 || true
-    uv tool uninstall harness >/dev/null 2>&1 || true
+    uv tool uninstall hyh >/dev/null 2>&1 || true
   fi
 
-  # Install harness
+  # Install hyh
   uv tool install "$install_spec"
 
   # Ensure PATH includes tool bin directory
@@ -187,7 +187,7 @@ show_shell_instructions() {
   fi
 
   if [[ -n "$shell_profile" ]]; then
-    info "To make harness permanently available, add to $shell_profile:"
+    info "To make hyh permanently available, add to $shell_profile:"
     if [[ "$shell_name" == "fish" ]]; then
       echo "    fish_add_path \$HOME/.local/bin"
     else
@@ -200,14 +200,14 @@ show_shell_instructions() {
 main() {
   echo ""
   echo "╔════════════════════════════════════════════╗"
-  echo "║  harness-cli installer                     ║"
+  echo "║  hyh-cli installer                     ║"
   echo "║  CLI orchestration for agentic workflows   ║"
   echo "╚════════════════════════════════════════════╝"
   echo ""
 
   detect_platform >/dev/null  # Validate platform early
   ensure_uv
-  install_harness
+  install_hyh
   verify_installation
 
   # Show shell instructions if PATH wasn't already set

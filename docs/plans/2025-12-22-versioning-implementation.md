@@ -13,12 +13,12 @@
 ## Task 1: Dynamic Version in `__init__.py`
 
 **Files:**
-- Modify: `src/harness/__init__.py`
-- Create: `tests/harness/test_version.py`
+- Modify: `src/hyh/__init__.py`
+- Create: `tests/hyh/test_version.py`
 
 **Step 1: Write failing test for version access** (2-5 min)
 
-Create `tests/harness/test_version.py`:
+Create `tests/hyh/test_version.py`:
 
 ```python
 """Tests for version management."""
@@ -30,7 +30,7 @@ import sys
 
 def test_version_importable():
     """Verify __version__ is accessible from package."""
-    from harness import __version__
+    from hyh import __version__
 
     assert __version__ is not None
     assert isinstance(__version__, str)
@@ -38,7 +38,7 @@ def test_version_importable():
 
 def test_version_format_pep440():
     """Verify version follows PEP 440 format."""
-    from harness import __version__
+    from hyh import __version__
 
     # PEP 440: N[.N]+[{a|b|rc}N][.postN][.devN]
     pep440_pattern = r"^\d+\.\d+\.\d+(a|b|rc)?\d*(\.post\d+)?(\.dev\d+)?(\+.+)?$"
@@ -49,16 +49,16 @@ def test_version_matches_metadata():
     """Verify __version__ matches installed package metadata."""
     from importlib.metadata import version
 
-    from harness import __version__
+    from hyh import __version__
 
-    installed_version = version("harness-cli")
+    installed_version = version("hyh-cli")
     assert __version__ == installed_version
 
 
 def test_version_cli_accessible():
     """Verify version can be accessed via CLI import."""
     result = subprocess.run(
-        [sys.executable, "-c", "from harness import __version__; print(__version__)"],
+        [sys.executable, "-c", "from hyh import __version__; print(__version__)"],
         capture_output=True,
         text=True,
         check=True,
@@ -70,14 +70,14 @@ def test_version_cli_accessible():
 **Step 2: Run test to verify it fails** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_version.py -v
+uv run pytest tests/hyh/test_version.py -v
 ```
 
 Expected: FAIL (current hardcoded version doesn't match metadata pattern expectations)
 
 **Step 3: Update `__init__.py` with dynamic version** (2-5 min)
 
-Replace contents of `src/harness/__init__.py`:
+Replace contents of `src/hyh/__init__.py`:
 
 ```python
 """Harness - Autonomous Research Kernel with Thread-Safe Pull Engine."""
@@ -85,7 +85,7 @@ Replace contents of `src/harness/__init__.py`:
 from importlib.metadata import PackageNotFoundError, version
 
 try:
-    __version__ = version("harness-cli")
+    __version__ = version("hyh-cli")
 except PackageNotFoundError:
     # Running from source without install
     __version__ = "0.0.0+dev"
@@ -94,7 +94,7 @@ except PackageNotFoundError:
 **Step 4: Run test to verify it passes** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_version.py -v
+uv run pytest tests/hyh/test_version.py -v
 ```
 
 Expected: PASS (4 passed)
@@ -102,7 +102,7 @@ Expected: PASS (4 passed)
 **Step 5: Commit** (30 sec)
 
 ```bash
-git add src/harness/__init__.py tests/harness/test_version.py
+git add src/hyh/__init__.py tests/hyh/test_version.py
 git commit -m "feat(version): use importlib.metadata for dynamic versioning"
 ```
 
@@ -115,12 +115,12 @@ git commit -m "feat(version): use importlib.metadata for dynamic versioning"
 
 **Step 1: Write failing test for alpha version format** (2-5 min)
 
-Add to `tests/harness/test_version.py`:
+Add to `tests/hyh/test_version.py`:
 
 ```python
 def test_version_is_alpha():
     """Verify current version is alpha release."""
-    from harness import __version__
+    from hyh import __version__
 
     assert "a" in __version__ or "+dev" in __version__, f"Expected alpha version, got '{__version__}'"
 ```
@@ -128,7 +128,7 @@ def test_version_is_alpha():
 **Step 2: Run test to verify it fails** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_version.py::test_version_is_alpha -v
+uv run pytest tests/hyh/test_version.py::test_version_is_alpha -v
 ```
 
 Expected: FAIL (current version is `2.0.0`, not alpha)
@@ -150,7 +150,7 @@ uv sync
 **Step 5: Run test to verify it passes** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_version.py::test_version_is_alpha -v
+uv run pytest tests/hyh/test_version.py::test_version_is_alpha -v
 ```
 
 Expected: PASS
@@ -158,7 +158,7 @@ Expected: PASS
 **Step 6: Commit** (30 sec)
 
 ```bash
-git add pyproject.toml uv.lock tests/harness/test_version.py
+git add pyproject.toml uv.lock tests/hyh/test_version.py
 git commit -m "chore(version): set initial alpha version 0.1.0a1"
 ```
 
@@ -196,8 +196,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Dynamic versioning via `importlib.metadata`
 - Automated release workflow script
 
-[Unreleased]: https://github.com/pproenca/harness/compare/v0.1.0a1...HEAD
-[0.1.0a1]: https://github.com/pproenca/harness/releases/tag/v0.1.0a1
+[Unreleased]: https://github.com/pproenca/hyh/compare/v0.1.0a1...HEAD
+[0.1.0a1]: https://github.com/pproenca/hyh/releases/tag/v0.1.0a1
 ```
 
 **Step 2: Verify changelog format** (30 sec)
@@ -229,7 +229,7 @@ Create `scripts/release.sh`:
 ```bash
 #!/usr/bin/env bash
 #
-# Release automation script for harness-cli
+# Release automation script for hyh-cli
 # Usage: ./scripts/release.sh [major|minor|patch|alpha|beta|rc|stable]
 #
 
@@ -395,13 +395,13 @@ if [[ -f "CHANGELOG.md" ]]; then
     # Update comparison links at bottom
     if grep -q "\[Unreleased\]:" CHANGELOG.md; then
         # Update unreleased link
-        sed -i.bak "s|\[Unreleased\]:.*|\[Unreleased\]: https://github.com/pproenca/harness/compare/v$NEW_VERSION...HEAD|" CHANGELOG.md
+        sed -i.bak "s|\[Unreleased\]:.*|\[Unreleased\]: https://github.com/pproenca/hyh/compare/v$NEW_VERSION...HEAD|" CHANGELOG.md
         # Add new version link if not exists
         if ! grep -q "\[$NEW_VERSION\]:" CHANGELOG.md; then
             if [[ -n "$LAST_TAG" ]]; then
-                echo "[$NEW_VERSION]: https://github.com/pproenca/harness/compare/$LAST_TAG...v$NEW_VERSION" >> CHANGELOG.md
+                echo "[$NEW_VERSION]: https://github.com/pproenca/hyh/compare/$LAST_TAG...v$NEW_VERSION" >> CHANGELOG.md
             else
-                echo "[$NEW_VERSION]: https://github.com/pproenca/harness/releases/tag/v$NEW_VERSION" >> CHANGELOG.md
+                echo "[$NEW_VERSION]: https://github.com/pproenca/hyh/releases/tag/v$NEW_VERSION" >> CHANGELOG.md
             fi
         fi
         rm -f CHANGELOG.md.bak
@@ -447,8 +447,8 @@ echo ""
 log_success "Release v$NEW_VERSION complete!"
 echo ""
 echo "Next steps:"
-echo "  - Verify the release on PyPI: https://pypi.org/project/harness-cli/"
-echo "  - Create GitHub release: https://github.com/pproenca/harness/releases/new?tag=v$NEW_VERSION"
+echo "  - Verify the release on PyPI: https://pypi.org/project/hyh-cli/"
+echo "  - Create GitHub release: https://github.com/pproenca/hyh/releases/new?tag=v$NEW_VERSION"
 ```
 
 **Step 2: Make script executable** (30 sec)
@@ -539,7 +539,7 @@ git commit -m "build: add release automation targets to Makefile"
 **Step 1: Run full test suite** (2-5 min)
 
 ```bash
-uv run pytest tests/harness/test_version.py -v
+uv run pytest tests/hyh/test_version.py -v
 uv run pytest --timeout=60
 ```
 
@@ -557,7 +557,7 @@ Expected: No errors
 **Step 3: Verify version is accessible** (30 sec)
 
 ```bash
-uv run python -c "from harness import __version__; print(f'Version: {__version__}')"
+uv run python -c "from hyh import __version__; print(f'Version: {__version__}')"
 ```
 
 Expected: `Version: 0.1.0a1`

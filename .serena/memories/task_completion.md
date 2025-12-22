@@ -1,6 +1,6 @@
 # Task Completion Checklist
 
-When completing a task in the harness project, run these checks:
+When completing a task in the hyh project, run these checks:
 
 ## 1. Format Code
 ```bash

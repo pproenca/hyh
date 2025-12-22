@@ -23,7 +23,7 @@ Harness is a task management and workflow orchestration system that provides:
 
 ## Architecture
 ```
-src/harness/
+src/hyh/
 ├── __init__.py      # Package exports
 ├── __main__.py      # Entry point
 ├── client.py        # CLI client
@@ -38,5 +38,5 @@ src/harness/
 ```
 
 ## Entry Points
-- `harness` CLI command (defined in pyproject.toml project.scripts)
-- `python -m harness.daemon` to start daemon
+- `hyh` CLI command (defined in pyproject.toml project.scripts)
+- `python -m hyh.daemon` to start daemon

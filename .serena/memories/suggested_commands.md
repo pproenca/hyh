@@ -3,7 +3,7 @@
 ## Setup
 ```bash
 make install          # Install all dependencies (uv sync --dev)
-make install-global   # Install harness globally (editable)
+make install-global   # Install hyh globally (editable)
 make uninstall-global # Remove global installation
 ```
 
@@ -17,7 +17,7 @@ make shell            # Open interactive Python shell with project loaded
 ```bash
 make test             # Run all tests
 make test-fast        # Run tests without timeout (faster iteration)
-make test-file FILE=tests/harness/test_state.py  # Run specific test file
+make test-file FILE=tests/hyh/test_state.py  # Run specific test file
 
 # Performance testing
 make benchmark        # Run benchmark tests
@@ -46,7 +46,7 @@ make clean            # Remove build artifacts, caches, and venv
 ## Running Tests Directly
 ```bash
 uv run pytest -v                           # All tests
-uv run pytest tests/harness/test_state.py  # Specific file
+uv run pytest tests/hyh/test_state.py  # Specific file
 uv run pytest -k "test_claim"              # By name pattern
 uv run pytest -m "not slow"                # Exclude slow tests
 uv run pytest -m benchmark --benchmark-enable  # Benchmarks only

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Harness Demo Script
+# Hyh Demo Script
 # An interactive tour for developers to understand the project
 #
 
@@ -72,8 +72,8 @@ cleanup() {
     print_step "Cleaning up demo environment..."
 
     # Shutdown daemon if running
-    if harness ping >/dev/null 2>&1; then
-        harness shutdown >/dev/null 2>&1 || true
+    if hyh ping >/dev/null 2>&1; then
+        hyh shutdown >/dev/null 2>&1 || true
     fi
 
     # Remove demo directory
@@ -95,9 +95,9 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
-# Ensure harness is installed
-if ! command -v harness &> /dev/null; then
-    echo -e "${CYAN}▶ ${BOLD}Installing harness...${NC}"
+# Ensure hyh is installed
+if ! command -v hyh &> /dev/null; then
+    echo -e "${CYAN}▶ ${BOLD}Installing hyh...${NC}"
     if command -v uv &> /dev/null; then
         uv pip install -e "$SCRIPT_DIR" --quiet
     else
@@ -109,11 +109,11 @@ if ! command -v harness &> /dev/null; then
         export PATH="$SCRIPT_DIR/.venv/bin:$PATH"
     fi
 
-    if ! command -v harness &> /dev/null; then
-        echo -e "${RED}ERROR: Failed to install harness. Please run: uv pip install -e .${NC}"
+    if ! command -v hyh &> /dev/null; then
+        echo -e "${RED}ERROR: Failed to install hyh. Please run: uv pip install -e .${NC}"
         exit 1
     fi
-    echo -e "${GREEN}✓ harness installed${NC}"
+    echo -e "${GREEN}✓ hyh installed${NC}"
 fi
 
 # ============================================================================
@@ -266,7 +266,7 @@ print_step "Each worker has a stable identity"
 print_info "Worker IDs persist across CLI invocations using atomic writes"
 echo ""
 
-run_command "harness worker-id"
+run_command "hyh worker-id"
 
 print_explanation "This ID is used for task ownership (lease renewal)"
 print_explanation "Multiple invocations return the same ID"
@@ -319,12 +319,12 @@ run_command "cat '$DEMO_DIR/llm-output.md'"
 print_step "Import the plan"
 echo ""
 
-run_command "harness plan import --file '$DEMO_DIR/llm-output.md'"
+run_command "hyh plan import --file '$DEMO_DIR/llm-output.md'"
 
 print_step "View the imported state"
 echo ""
 
-run_command "harness get-state | jq '.tasks | to_entries[] | {id: .key, status: .value.status, deps: .value.dependencies}'"
+run_command "hyh get-state | jq '.tasks | to_entries[] | {id: .key, status: .value.status, deps: .value.dependencies}'"
 
 print_explanation "Dependencies are inferred from Task Groups (Group N depends on Group N-1)"
 print_explanation "Task instructions come from the Markdown body under each ### Task header"
@@ -333,7 +333,7 @@ echo ""
 print_step "Get the plan template (shows format documentation)"
 echo ""
 
-run_command "harness plan template | head -50"
+run_command "hyh plan template | head -50"
 
 print_explanation "Use 'plan template' to see the full Markdown format for LLM prompting"
 
@@ -349,7 +349,7 @@ print_step "Ping the daemon"
 print_info "The daemon auto-spawns on first command if not running"
 echo ""
 
-run_command "harness ping"
+run_command "hyh ping"
 
 print_explanation "The daemon is now running as a background process"
 print_explanation "It listens on a Unix socket for client requests"
@@ -359,7 +359,7 @@ wait_for_user
 print_step "View the current workflow state"
 echo ""
 
-run_command "harness get-state | jq . | head -40"
+run_command "hyh get-state | jq . | head -40"
 
 print_explanation "All 3 tasks are 'pending' - none have been claimed yet"
 print_explanation "Only 'setup-db' is claimable (it has no dependencies)"
@@ -376,7 +376,7 @@ print_step "View workflow status at a glance"
 print_info "The 'status' command provides a real-time dashboard"
 echo ""
 
-run_command "harness status"
+run_command "hyh status"
 
 print_explanation "Progress bar shows completion percentage"
 print_explanation "Task table shows status, worker, and blocking dependencies"
@@ -387,10 +387,10 @@ wait_for_user
 print_step "Machine-readable output for scripting"
 echo ""
 
-run_command "harness status --json | jq '.summary'"
+run_command "hyh status --json | jq '.summary'"
 
 print_explanation "Use --json for CI/CD integration"
-print_explanation "Use --watch for live updates (e.g., harness status --watch 2)"
+print_explanation "Use --watch for live updates (e.g., hyh status --watch 2)"
 
 wait_for_user
 
@@ -404,7 +404,7 @@ print_step "Claim the first available task"
 print_info "Each worker gets a unique ID and claims tasks atomically"
 echo ""
 
-run_command "harness task claim"
+run_command "hyh task claim"
 
 print_explanation "We got 'setup-db' - the only task with no dependencies"
 print_explanation "The task is now 'running' and locked to our worker ID"
@@ -415,7 +415,7 @@ print_step "Try to claim again (idempotency)"
 print_info "Claiming again returns the same task - lease renewal pattern"
 echo ""
 
-run_command "harness task claim"
+run_command "hyh task claim"
 
 print_explanation "Same task returned - this is intentional!"
 print_explanation "It renews the lease timestamp, preventing task theft on retries"
@@ -425,7 +425,7 @@ wait_for_user
 print_step "Complete the setup-db task"
 echo ""
 
-run_command "harness task complete --id setup-db"
+run_command "hyh task complete --id setup-db"
 
 print_success "Task completed!"
 echo ""
@@ -433,7 +433,7 @@ echo ""
 print_step "What tasks are claimable now?"
 echo ""
 
-run_command "harness get-state | jq -r '
+run_command "hyh get-state | jq -r '
   .tasks as \$tasks |
   \$tasks | to_entries[] |
   .key as \$tid |
@@ -452,25 +452,25 @@ print_step "Complete the remaining tasks"
 echo ""
 
 # Claim and complete auth-endpoints
-echo -e "${YELLOW}  \$ harness task claim${NC}"
-CLAIM_RESULT=$(harness task claim)
+echo -e "${YELLOW}  \$ hyh task claim${NC}"
+CLAIM_RESULT=$(hyh task claim)
 TASK_ID=$(echo "$CLAIM_RESULT" | jq -r '.task.id')
 echo "    Claimed: $TASK_ID"
 echo ""
 
-echo -e "${YELLOW}  \$ harness task complete --id $TASK_ID${NC}"
-harness task complete --id "$TASK_ID"
+echo -e "${YELLOW}  \$ hyh task complete --id $TASK_ID${NC}"
+hyh task complete --id "$TASK_ID"
 echo ""
 
 # Claim and complete api-tests
-echo -e "${YELLOW}  \$ harness task claim${NC}"
-CLAIM_RESULT=$(harness task claim)
+echo -e "${YELLOW}  \$ hyh task claim${NC}"
+CLAIM_RESULT=$(hyh task claim)
 TASK_ID=$(echo "$CLAIM_RESULT" | jq -r '.task.id')
 echo "    Claimed: $TASK_ID"
 echo ""
 
-echo -e "${YELLOW}  \$ harness task complete --id $TASK_ID${NC}"
-harness task complete --id "$TASK_ID"
+echo -e "${YELLOW}  \$ hyh task complete --id $TASK_ID${NC}"
+hyh task complete --id "$TASK_ID"
 echo ""
 
 print_success "All tasks completed!"
@@ -480,7 +480,7 @@ wait_for_user
 print_step "Final state"
 echo ""
 
-run_command "harness get-state | jq -r '.tasks | to_entries[] | \"\\(.key): \\(.value.status)\"'"
+run_command "hyh get-state | jq -r '.tasks | to_entries[] | \"\\(.key): \\(.value.status)\"'"
 
 print_explanation "Every task is now 'completed' - workflow finished!"
 
@@ -496,15 +496,15 @@ print_step "The problem: parallel git operations corrupt .git/index"
 print_info "Two workers running 'git add' simultaneously = data loss"
 echo ""
 
-print_step "The solution: harness git -- <command>"
+print_step "The solution: hyh git -- <command>"
 print_info "All git operations go through a global mutex"
 echo ""
 
 echo "demo content" > demo.txt
 
-run_command "harness git -- add demo.txt"
-run_command "harness git -- status"
-run_command "harness git -- commit -m 'Add demo file'"
+run_command "hyh git -- add demo.txt"
+run_command "hyh git -- status"
+run_command "hyh git -- commit -m 'Add demo file'"
 
 print_explanation "Each git command acquires an exclusive lock"
 print_explanation "Parallel workers block until the lock is free"
@@ -524,7 +524,7 @@ echo ""
 
 echo -e "  ${BOLD}1. SessionStart Hook${NC} - Shows workflow progress on session resume"
 echo ""
-run_command "harness session-start | jq ."
+run_command "hyh session-start | jq ."
 
 print_explanation "This output gets injected into Claude's context at session start"
 echo ""
@@ -549,18 +549,18 @@ EOF
 
 echo -e "  ${DIM}Created workflow with 1 pending task${NC}"
 echo ""
-run_command "harness check-state || true"
+run_command "hyh check-state || true"
 
 print_explanation "Exit code 1 + 'deny' = Claude Code blocks the session end"
 echo ""
 
 # Now complete the task
-harness task claim >/dev/null
-harness task complete --id incomplete-task >/dev/null
+hyh task claim >/dev/null
+hyh task complete --id incomplete-task >/dev/null
 echo -e "  ${DIM}Task completed...${NC}"
 echo ""
 
-run_command "harness check-state"
+run_command "hyh check-state"
 
 print_explanation "Exit code 0 + 'allow' = Session can end"
 echo ""
@@ -571,9 +571,9 @@ echo ""
 
 # Set up last_commit in state
 CURRENT_HEAD=$(git rev-parse HEAD)
-harness update-state --field last_commit "$CURRENT_HEAD" >/dev/null
+hyh update-state --field last_commit "$CURRENT_HEAD" >/dev/null
 
-run_command "harness check-commit || true"
+run_command "hyh check-commit || true"
 
 print_explanation "If HEAD matches last_commit, agent hasn't committed new work"
 print_explanation "Useful to ensure code changes are persisted"
@@ -593,15 +593,15 @@ echo ""
 print_explanation "This demo project has its own daemon socket at:"
 echo ""
 SOCKET_HASH=$(echo -n "$DEMO_DIR" | shasum -a 256 | head -c 12)
-echo -e "  ${DIM}~/.harness/sockets/${SOCKET_HASH}.sock${NC}"
+echo -e "  ${DIM}~/.hyh/sockets/${SOCKET_HASH}.sock${NC}"
 echo ""
 
 print_step "View all registered projects"
 echo ""
 
-run_command "harness status --all"
+run_command "hyh status --all"
 
-print_explanation "Multiple harness daemons can run simultaneously"
+print_explanation "Multiple hyh daemons can run simultaneously"
 print_explanation "Use --project <path> to target a specific project"
 
 wait_for_user
@@ -616,8 +616,8 @@ print_step "Execute arbitrary commands"
 print_info "The 'exec' command runs any shell command through the daemon"
 echo ""
 
-run_command "harness exec -- echo 'Hello from harness!'"
-run_command "harness exec -- python3 -c 'print(2 + 2)'"
+run_command "hyh exec -- echo 'Hello from hyh!'"
+run_command "hyh exec -- python3 -c 'print(2 + 2)'"
 
 print_explanation "Commands can optionally acquire the exclusive lock (--exclusive)"
 print_explanation "Useful for operations that need serialization"
@@ -646,8 +646,8 @@ print_step "Update state fields directly"
 print_info "Useful for orchestration metadata"
 echo ""
 
-run_command "harness update-state --field current_phase 'deployment' --field parallel_workers 3"
-run_command "harness get-state | jq 'del(.tasks)'"
+run_command "hyh update-state --field current_phase 'deployment' --field parallel_workers 3"
+run_command "hyh get-state | jq 'del(.tasks)'"
 
 print_explanation "State updates are atomic and validated by msgspec"
 print_explanation "Unknown fields are allowed for flexibility"
@@ -724,39 +724,39 @@ wait_for_user
 print_header "Recap: Key Commands"
 
 echo -e "  ${BOLD}Daemon Control${NC}"
-echo -e "    ${YELLOW}harness ping${NC}              Check if daemon is running"
-echo -e "    ${YELLOW}harness shutdown${NC}          Stop the daemon"
+echo -e "    ${YELLOW}hyh ping${NC}              Check if daemon is running"
+echo -e "    ${YELLOW}hyh shutdown${NC}          Stop the daemon"
 echo ""
 echo -e "  ${BOLD}Worker Identity${NC}"
-echo -e "    ${YELLOW}harness worker-id${NC}         Print stable worker ID"
+echo -e "    ${YELLOW}hyh worker-id${NC}         Print stable worker ID"
 echo ""
 echo -e "  ${BOLD}Plan Management${NC}"
-echo -e "    ${YELLOW}harness plan import --file${NC}  Import LLM-generated plan"
-echo -e "    ${YELLOW}harness plan template${NC}       Show Markdown plan format"
-echo -e "    ${YELLOW}harness plan reset${NC}          Clear workflow state"
+echo -e "    ${YELLOW}hyh plan import --file${NC}  Import LLM-generated plan"
+echo -e "    ${YELLOW}hyh plan template${NC}       Show Markdown plan format"
+echo -e "    ${YELLOW}hyh plan reset${NC}          Clear workflow state"
 echo ""
 echo -e "  ${BOLD}Status Dashboard${NC}"
-echo -e "    ${YELLOW}harness status${NC}            Show workflow dashboard"
-echo -e "    ${YELLOW}harness status --json${NC}     Machine-readable output"
-echo -e "    ${YELLOW}harness status --watch${NC}    Auto-refresh mode"
-echo -e "    ${YELLOW}harness status --all${NC}      List all projects"
+echo -e "    ${YELLOW}hyh status${NC}            Show workflow dashboard"
+echo -e "    ${YELLOW}hyh status --json${NC}     Machine-readable output"
+echo -e "    ${YELLOW}hyh status --watch${NC}    Auto-refresh mode"
+echo -e "    ${YELLOW}hyh status --all${NC}      List all projects"
 echo ""
 echo -e "  ${BOLD}State Management${NC}"
-echo -e "    ${YELLOW}harness get-state${NC}         Get current workflow state"
-echo -e "    ${YELLOW}harness update-state${NC}      Update state fields"
+echo -e "    ${YELLOW}hyh get-state${NC}         Get current workflow state"
+echo -e "    ${YELLOW}hyh update-state${NC}      Update state fields"
 echo ""
 echo -e "  ${BOLD}Task Workflow${NC}"
-echo -e "    ${YELLOW}harness task claim${NC}        Claim next available task"
-echo -e "    ${YELLOW}harness task complete${NC}     Mark task as completed"
+echo -e "    ${YELLOW}hyh task claim${NC}        Claim next available task"
+echo -e "    ${YELLOW}hyh task complete${NC}     Mark task as completed"
 echo ""
 echo -e "  ${BOLD}Command Execution${NC}"
-echo -e "    ${YELLOW}harness git -- <cmd>${NC}      Git with mutex"
-echo -e "    ${YELLOW}harness exec -- <cmd>${NC}     Arbitrary command"
+echo -e "    ${YELLOW}hyh git -- <cmd>${NC}      Git with mutex"
+echo -e "    ${YELLOW}hyh exec -- <cmd>${NC}     Arbitrary command"
 echo ""
 echo -e "  ${BOLD}Hook Integration${NC}"
-echo -e "    ${YELLOW}harness session-start${NC}     SessionStart hook output"
-echo -e "    ${YELLOW}harness check-state${NC}       Stop hook (deny if incomplete)"
-echo -e "    ${YELLOW}harness check-commit${NC}      SubagentStop hook (deny if no commit)"
+echo -e "    ${YELLOW}hyh session-start${NC}     SessionStart hook output"
+echo -e "    ${YELLOW}hyh check-state${NC}       Stop hook (deny if incomplete)"
+echo -e "    ${YELLOW}hyh check-commit${NC}      SubagentStop hook (deny if no commit)"
 echo ""
 
 wait_for_user
@@ -768,15 +768,15 @@ wait_for_user
 print_header "Next Steps"
 
 echo -e "  ${BOLD}1. Explore the codebase${NC}"
-echo "     src/harness/client.py    - Dumb CLI client"
-echo "     src/harness/daemon.py    - ThreadingMixIn server"
-echo "     src/harness/state.py     - msgspec models + StateManager"
-echo "     src/harness/trajectory.py - JSONL logging"
-echo "     src/harness/runtime.py   - Local/Docker execution"
-echo "     src/harness/plan.py      - Markdown plan parser → WorkflowState"
-echo "     src/harness/git.py       - Git operations via runtime"
-echo "     src/harness/acp.py       - Background event emitter"
-echo "     src/harness/registry.py  - Multi-project registry"
+echo "     src/hyh/client.py    - Dumb CLI client"
+echo "     src/hyh/daemon.py    - ThreadingMixIn server"
+echo "     src/hyh/state.py     - msgspec models + StateManager"
+echo "     src/hyh/trajectory.py - JSONL logging"
+echo "     src/hyh/runtime.py   - Local/Docker execution"
+echo "     src/hyh/plan.py      - Markdown plan parser → WorkflowState"
+echo "     src/hyh/git.py       - Git operations via runtime"
+echo "     src/hyh/acp.py       - Background event emitter"
+echo "     src/hyh/registry.py  - Multi-project registry"
 echo ""
 echo -e "  ${BOLD}2. Run the tests${NC}"
 echo "     make test                           # All tests (30s timeout)"
@@ -787,7 +787,7 @@ echo -e "  ${BOLD}3. Read the architecture docs${NC}"
 echo "     docs/plans/                         # Design documents"
 echo ""
 echo -e "  ${BOLD}4. Try parallel workers${NC}"
-echo "     Open multiple terminals and run 'harness task claim'"
+echo "     Open multiple terminals and run 'hyh task claim'"
 echo "     Watch them coordinate via the shared state"
 echo ""
 

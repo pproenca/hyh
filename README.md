@@ -1,7 +1,7 @@
-# harness-cli
+# hyh-cli
 
-[![PyPI version](https://img.shields.io/pypi/v/harness-cli.svg)](https://pypi.org/project/harness-cli/)
-[![Python versions](https://img.shields.io/pypi/pyversions/harness-cli.svg)](https://pypi.org/project/harness-cli/)
+[![PyPI version](https://img.shields.io/pypi/v/hyh-cli.svg)](https://pypi.org/project/hyh-cli/)
+[![Python versions](https://img.shields.io/pypi/pyversions/hyh-cli.svg)](https://pypi.org/project/hyh-cli/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 CLI orchestration tool for agentic workflows. Coordinate tasks with claude-code, AI agents, and development tools through a daemon-based task management system.
@@ -11,7 +11,7 @@ CLI orchestration tool for agentic workflows. Coordinate tasks with claude-code,
 - **Task orchestration** - DAG-based dependency resolution with cycle detection
 - **Thread-safe operations** - Concurrent task claiming with atomic state transitions
 - **Client-daemon architecture** - Unix socket RPC for fast, reliable communication
-- **Pull-based task claiming** - Workers claim tasks atomically via `harness task claim`
+- **Pull-based task claiming** - Workers claim tasks atomically via `hyh task claim`
 - **Command execution** - Run commands with mutex protection (local or Docker)
 - **Git integration** - Safe git operations with dangerous option validation
 
@@ -20,54 +20,54 @@ CLI orchestration tool for agentic workflows. Coordinate tasks with claude-code,
 ### Recommended: uv tool (persistent installation)
 
 ```bash
-uv tool install harness-cli
+uv tool install hyh-cli
 ```
 
 ### One-off execution
 
 ```bash
-uvx harness-cli status
+uvx hyh-cli status
 ```
 
 ### Traditional pip
 
 ```bash
-pip install harness-cli
+pip install hyh-cli
 ```
 
 ### From source (development)
 
 ```bash
-uv tool install git+https://github.com/pproenca/harness
+uv tool install git+https://github.com/pproenca/hyh
 ```
 
 ### Curl install script
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pproenca/harness/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/pproenca/hyh/master/install.sh | bash
 ```
 
 ## Quick Start
 
 ```bash
 # Check daemon is running
-harness ping
+hyh ping
 
 # Import a plan file
-harness plan import --file plan.md
+hyh plan import --file plan.md
 
 # Show workflow status
-harness status
+hyh status
 
 # Claim and execute tasks
-harness task claim
-harness task complete --id task-1
+hyh task claim
+hyh task complete --id task-1
 
 # Execute commands with mutex
-harness exec -- make test
+hyh exec -- make test
 
 # Safe git operations
-harness git -- status
+hyh git -- status
 ```
 
 ## Architecture
@@ -75,7 +75,7 @@ harness git -- status
 ```
 ┌─────────────┐     Unix Socket RPC     ┌──────────────┐
 │   Client    │ ──────────────────────► │    Daemon    │
-│  (harness)  │                         │  (per-project)│
+│  (hyh)  │                         │  (per-project)│
 └─────────────┘                         └──────┬───────┘
                                                │
                           ┌────────────────────┼────────────────────┐
@@ -96,8 +96,8 @@ harness git -- status
 
 ```bash
 # Clone and setup
-git clone https://github.com/pproenca/harness.git
-cd harness
+git clone https://github.com/pproenca/hyh.git
+cd hyh
 make install
 
 # Run tests

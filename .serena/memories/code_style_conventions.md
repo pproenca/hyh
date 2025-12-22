@@ -68,7 +68,7 @@ class TaskStatus(str, Enum):
 - Module-level docstrings for test files
 
 ## Test File Conventions
-- Tests in `tests/harness/` mirroring `src/harness/`
+- Tests in `tests/hyh/` mirroring `src/hyh/`
 - Fixtures in `conftest.py`
 - Use condition-based waiting (`wait_until`) instead of `time.sleep`
 - Thread isolation for free-threaded Python (3.14t)

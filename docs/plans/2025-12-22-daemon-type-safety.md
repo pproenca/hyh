@@ -24,15 +24,15 @@
 ### Task 1: Add Request Types to daemon.py
 
 **Files:**
-- Modify: `src/harness/daemon.py:1-30` (imports and new types)
-- Test: `tests/harness/test_daemon.py`
+- Modify: `src/hyh/daemon.py:1-30` (imports and new types)
+- Test: `tests/hyh/test_daemon.py`
 
 **Step 1: Write the failing test for request decoding** (2-5 min)
 
 ```python
-# tests/harness/test_daemon.py - add at top of file or in new test class
+# tests/hyh/test_daemon.py - add at top of file or in new test class
 import msgspec
-from harness.daemon import Request, TaskClaimRequest, ExecRequest
+from hyh.daemon import Request, TaskClaimRequest, ExecRequest
 
 def test_task_claim_request_decodes():
     raw = b'{"command": "task_claim", "worker_id": "worker-1"}'
@@ -59,10 +59,10 @@ def test_request_rejects_unknown_command():
 **Step 2: Run tests to verify they fail** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_daemon.py::test_task_claim_request_decodes -v
+uv run pytest tests/hyh/test_daemon.py::test_task_claim_request_decodes -v
 ```
 
-Expected: FAIL with `ImportError: cannot import name 'Request' from 'harness.daemon'`
+Expected: FAIL with `ImportError: cannot import name 'Request' from 'hyh.daemon'`
 
 **Step 3: Add imports and request types to daemon.py** (5 min)
 
@@ -137,7 +137,7 @@ type Request = (
 **Step 4: Run tests to verify they pass** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_daemon.py::test_task_claim_request_decodes tests/harness/test_daemon.py::test_task_claim_request_rejects_empty_worker_id tests/harness/test_daemon.py::test_exec_request_rejects_negative_timeout tests/harness/test_daemon.py::test_request_rejects_unknown_command -v
+uv run pytest tests/hyh/test_daemon.py::test_task_claim_request_decodes tests/hyh/test_daemon.py::test_task_claim_request_rejects_empty_worker_id tests/hyh/test_daemon.py::test_exec_request_rejects_negative_timeout tests/hyh/test_daemon.py::test_request_rejects_unknown_command -v
 ```
 
 Expected: PASS (4 passed)
@@ -145,7 +145,7 @@ Expected: PASS (4 passed)
 **Step 5: Commit** (30 sec)
 
 ```bash
-git add src/harness/daemon.py tests/harness/test_daemon.py
+git add src/hyh/daemon.py tests/hyh/test_daemon.py
 git commit -m "feat(daemon): add typed request structs with validation"
 ```
 
@@ -154,13 +154,13 @@ git commit -m "feat(daemon): add typed request structs with validation"
 ### Task 2: Add Response Types to daemon.py
 
 **Files:**
-- Modify: `src/harness/daemon.py` (after Request types)
-- Test: `tests/harness/test_daemon.py`
+- Modify: `src/hyh/daemon.py` (after Request types)
+- Test: `tests/hyh/test_daemon.py`
 
 **Step 1: Write the failing test for response types** (2-5 min)
 
 ```python
-from harness.daemon import Ok, Err, PingData, Result
+from hyh.daemon import Ok, Err, PingData, Result
 import msgspec
 
 def test_ok_response_serializes():
@@ -179,10 +179,10 @@ def test_err_response_serializes():
 **Step 2: Run tests to verify they fail** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_daemon.py::test_ok_response_serializes -v
+uv run pytest tests/hyh/test_daemon.py::test_ok_response_serializes -v
 ```
 
-Expected: FAIL with `ImportError: cannot import name 'Ok' from 'harness.daemon'`
+Expected: FAIL with `ImportError: cannot import name 'Ok' from 'hyh.daemon'`
 
 **Step 3: Add response types after request types** (5 min)
 
@@ -256,7 +256,7 @@ class PlanResetData(Struct, frozen=True):
 **Step 4: Run tests to verify they pass** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_daemon.py::test_ok_response_serializes tests/harness/test_daemon.py::test_err_response_serializes -v
+uv run pytest tests/hyh/test_daemon.py::test_ok_response_serializes tests/hyh/test_daemon.py::test_err_response_serializes -v
 ```
 
 Expected: PASS (2 passed)
@@ -264,7 +264,7 @@ Expected: PASS (2 passed)
 **Step 5: Commit** (30 sec)
 
 ```bash
-git add src/harness/daemon.py tests/harness/test_daemon.py
+git add src/hyh/daemon.py tests/hyh/test_daemon.py
 git commit -m "feat(daemon): add typed response structs with Result ADT"
 ```
 
@@ -273,8 +273,8 @@ git commit -m "feat(daemon): add typed response structs with Result ADT"
 ### Task 3: Refactor HarnessHandler.handle() and dispatch()
 
 **Files:**
-- Modify: `src/harness/daemon.py:29-76` (HarnessHandler.handle and dispatch)
-- Test: `tests/harness/test_daemon.py`
+- Modify: `src/hyh/daemon.py:29-76` (HarnessHandler.handle and dispatch)
+- Test: `tests/hyh/test_daemon.py`
 
 **Step 1: Write the failing test for typed dispatch** (2-5 min)
 
@@ -294,7 +294,7 @@ def test_dispatch_returns_typed_error_for_invalid_json():
 **Step 2: Run test to verify it fails** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_daemon.py::test_dispatch_returns_typed_error_for_invalid_json -v
+uv run pytest tests/hyh/test_daemon.py::test_dispatch_returns_typed_error_for_invalid_json -v
 ```
 
 Expected: FAIL (dispatch signature mismatch or different behavior)
@@ -356,7 +356,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
 **Step 4: Run test to verify it passes** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_daemon.py::test_dispatch_returns_typed_error_for_invalid_json -v
+uv run pytest tests/hyh/test_daemon.py::test_dispatch_returns_typed_error_for_invalid_json -v
 ```
 
 Expected: PASS
@@ -364,7 +364,7 @@ Expected: PASS
 **Step 5: Commit** (30 sec)
 
 ```bash
-git add src/harness/daemon.py tests/harness/test_daemon.py
+git add src/hyh/daemon.py tests/hyh/test_daemon.py
 git commit -m "refactor(daemon): type-safe dispatch with pattern matching"
 ```
 
@@ -373,8 +373,8 @@ git commit -m "refactor(daemon): type-safe dispatch with pattern matching"
 ### Task 4: Refactor All Handler Methods (Part 1: Simple Handlers)
 
 **Files:**
-- Modify: `src/harness/daemon.py` (handler methods)
-- Test: `tests/harness/test_daemon.py`
+- Modify: `src/hyh/daemon.py` (handler methods)
+- Test: `tests/hyh/test_daemon.py`
 
 **Step 1: Write tests for simple handlers** (2-5 min)
 
@@ -397,7 +397,7 @@ def test_ping_handler_returns_typed_response(daemon_server):
 **Step 2: Run test to verify behavior** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_daemon.py::test_ping_handler_returns_typed_response -v
+uv run pytest tests/hyh/test_daemon.py::test_ping_handler_returns_typed_response -v
 ```
 
 **Step 3: Refactor simple handler methods** (5 min)
@@ -436,7 +436,7 @@ def _handle_plan_reset(self, _request: PlanResetRequest, server: HarnessDaemon) 
 **Step 4: Run tests to verify** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_daemon.py -k "ping" -v
+uv run pytest tests/hyh/test_daemon.py -k "ping" -v
 ```
 
 Expected: PASS
@@ -444,7 +444,7 @@ Expected: PASS
 **Step 5: Commit** (30 sec)
 
 ```bash
-git add src/harness/daemon.py tests/harness/test_daemon.py
+git add src/hyh/daemon.py tests/hyh/test_daemon.py
 git commit -m "refactor(daemon): typed handlers for simple commands"
 ```
 
@@ -453,8 +453,8 @@ git commit -m "refactor(daemon): typed handlers for simple commands"
 ### Task 5: Refactor All Handler Methods (Part 2: Complex Handlers)
 
 **Files:**
-- Modify: `src/harness/daemon.py` (remaining handlers)
-- Test: `tests/harness/test_daemon.py`
+- Modify: `src/hyh/daemon.py` (remaining handlers)
+- Test: `tests/hyh/test_daemon.py`
 
 **Step 1: Write tests for complex handlers** (2-5 min)
 
@@ -478,7 +478,7 @@ def test_task_claim_returns_typed_response(daemon_with_plan):
 **Step 2: Run test to verify** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_daemon.py::test_task_claim_returns_typed_response -v
+uv run pytest tests/hyh/test_daemon.py::test_task_claim_returns_typed_response -v
 ```
 
 **Step 3: Refactor complex handlers** (5 min)
@@ -662,14 +662,14 @@ def _handle_plan_import(self, request: PlanImportRequest, server: HarnessDaemon)
     except ValueError as e:
         msg = str(e)
         if "No valid plan found" in msg:
-            msg += ". Run 'harness plan template' to see the required format."
+            msg += ". Run 'hyh plan template' to see the required format."
         return Err(message=msg)
 ```
 
 **Step 4: Run all daemon tests** (30 sec)
 
 ```bash
-uv run pytest tests/harness/test_daemon.py -v
+uv run pytest tests/hyh/test_daemon.py -v
 ```
 
 Expected: PASS
@@ -677,7 +677,7 @@ Expected: PASS
 **Step 5: Commit** (30 sec)
 
 ```bash
-git add src/harness/daemon.py tests/harness/test_daemon.py
+git add src/hyh/daemon.py tests/hyh/test_daemon.py
 git commit -m "refactor(daemon): typed handlers for all commands"
 ```
 
@@ -686,12 +686,12 @@ git commit -m "refactor(daemon): typed handlers for all commands"
 ### Task 6: Update client.py for New Wire Format
 
 **Files:**
-- Modify: `src/harness/client.py`
-- Test: `tests/harness/test_client.py` (if exists)
+- Modify: `src/hyh/client.py`
+- Test: `tests/hyh/test_client.py` (if exists)
 
 **Step 1: Review client's send_rpc function** (2 min)
 
-Read `src/harness/client.py` to understand current response handling.
+Read `src/hyh/client.py` to understand current response handling.
 
 **Step 2: Update send_rpc to use msgspec decoding** (5 min)
 
@@ -700,13 +700,13 @@ The client should decode responses and handle `Ok`/`Err` pattern. Update the res
 **Step 3: Run integration tests** (30 sec)
 
 ```bash
-uv run pytest tests/harness/ -v
+uv run pytest tests/hyh/ -v
 ```
 
 **Step 4: Commit** (30 sec)
 
 ```bash
-git add src/harness/client.py
+git add src/hyh/client.py
 git commit -m "refactor(client): decode typed responses"
 ```
 

@@ -1,1 +1,1 @@
-# Test suite for harness package
+# Test suite for hyh package

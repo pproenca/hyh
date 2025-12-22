@@ -20,11 +20,11 @@ Version lives **only** in `pyproject.toml`:
 
 ```toml
 [project]
-name = "harness-cli"
+name = "hyh-cli"
 version = "0.1.0a1"
 ```
 
-### 2. Dynamic Version Access: `src/harness/__init__.py`
+### 2. Dynamic Version Access: `src/hyh/__init__.py`
 
 Use `importlib.metadata` to read version at runtime:
 
@@ -32,7 +32,7 @@ Use `importlib.metadata` to read version at runtime:
 from importlib.metadata import version, PackageNotFoundError
 
 try:
-    __version__ = version("harness-cli")
+    __version__ = version("hyh-cli")
 except PackageNotFoundError:
     # Running from source without install
     __version__ = "0.0.0+dev"

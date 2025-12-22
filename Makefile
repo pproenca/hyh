@@ -41,27 +41,27 @@ install:  ## Install all dependencies (local dev)
 	@echo "Dependencies installed"
 
 .PHONY: install-global
-install-global:  ## Install harness globally (editable, uses repo code)
+install-global:  ## Install hyh globally (editable, uses repo code)
 	$(UV) tool install --editable . --force
 	@echo ""
-	@echo "Installed globally. Run 'harness --help' from anywhere."
+	@echo "Installed globally. Run 'hyh --help' from anywhere."
 	@echo "Changes to repo code take effect immediately."
 
 .PHONY: uninstall-global
-uninstall-global:  ## Remove global harness installation
-	$(UV) tool uninstall harness-cli || true
-	$(UV) tool uninstall harness || true
-	@echo "Uninstalled global harness"
+uninstall-global:  ## Remove global hyh installation
+	$(UV) tool uninstall hyh-cli || true
+	$(UV) tool uninstall hyh || true
+	@echo "Uninstalled global hyh"
 
 ##@ Development
 
 .PHONY: dev
 dev:  ## Start the daemon (development mode)
-	$(PYTHON) -m harness.daemon
+	$(PYTHON) -m hyh.daemon
 
 .PHONY: shell
 shell:  ## Open interactive Python shell with project loaded
-	$(PYTHON) -c "from harness import *; import code; code.interact(local=dict(globals()))"
+	$(PYTHON) -c "from hyh import *; import code; code.interact(local=dict(globals()))"
 
 ##@ Testing
 
@@ -74,7 +74,7 @@ test-fast:  ## Run tests without timeout (faster iteration)
 	$(PYTEST) -v --timeout=0
 
 .PHONY: test-file
-test-file:  ## Run specific test file: make test-file FILE=tests/harness/test_state.py
+test-file:  ## Run specific test file: make test-file FILE=tests/hyh/test_state.py
 	$(PYTEST) $(FILE) -v
 
 .PHONY: benchmark
@@ -119,14 +119,14 @@ publish-test: build  ## Publish to TestPyPI (for testing)
 	$(UV) publish --index testpypi
 	@echo ""
 	@echo "Published to TestPyPI. Test install with:"
-	@echo "  uv tool install harness-cli --index https://test.pypi.org/simple/"
+	@echo "  uv tool install hyh-cli --index https://test.pypi.org/simple/"
 
 .PHONY: publish
 publish: build  ## Publish to PyPI (manual release)
 	$(UV) publish
 	@echo ""
 	@echo "Published to PyPI. Install with:"
-	@echo "  uv tool install harness-cli"
+	@echo "  uv tool install hyh-cli"
 
 ##@ Release Automation
 
@@ -157,7 +157,7 @@ clean:  ## Remove build artifacts, caches, and venv
 	$(RM) -r build dist .venv
 	$(RM) -r *.egg-info src/*.egg-info .eggs
 	$(RM) -r .pytest_cache .ruff_cache .ty_cache .benchmarks
-	$(RM) -r __pycache__ src/harness/__pycache__ tests/__pycache__ tests/harness/__pycache__
+	$(RM) -r __pycache__ src/hyh/__pycache__ tests/__pycache__ tests/hyh/__pycache__
 	$(RM) -r .coverage htmlcov
 	@echo "Cleaned"
 

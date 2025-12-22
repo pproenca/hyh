@@ -1,5 +1,5 @@
 [project]
-name = "harness-cli"
+name = "hyh-cli"
 version = "0.1.0a1"
 description = "CLI orchestration tool for agentic workflows - coordinate tasks with claude-code and other AI agents"
 readme = "README.md"
@@ -26,11 +26,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/pproenca/harness"
-Documentation = "https://github.com/pproenca/harness#readme"
-Repository = "https://github.com/pproenca/harness.git"
-Issues = "https://github.com/pproenca/harness/issues"
-Changelog = "https://github.com/pproenca/harness/releases"
+Homepage = "https://github.com/pproenca/hyh"
+Documentation = "https://github.com/pproenca/hyh#readme"
+Repository = "https://github.com/pproenca/hyh.git"
+Issues = "https://github.com/pproenca/hyh/issues"
+Changelog = "https://github.com/pproenca/hyh/releases"
 
 # Development dependencies use PEP 735 dependency-groups (not optional-dependencies)
 # See: https://peps.python.org/pep-0735/
@@ -51,14 +51,14 @@ dev = [
 ]
 
 [project.scripts]
-harness = "harness.client:main"
+hyh = "hyh.client:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/harness"]
+packages = ["src/hyh"]
 
 # uv configuration - https://docs.astral.sh/uv/reference/settings/
 [tool.uv]
@@ -108,13 +108,13 @@ ignore = [
 "tests/*" = ["S101", "ANN", "ARG", "S603", "S607", "S108", "DTZ", "PTH", "RUF043", "B007", "RUF059", "RET503"]
 # Client prints to stdout (The Interface) and spawns daemon subprocess
 # S108: /tmp is standard Unix socket location per XDG
-"src/harness/client.py" = ["T201", "S603", "S607", "S108"]
+"src/hyh/client.py" = ["T201", "S603", "S607", "S108"]
 # Daemon executes commands through runtime - trusted subprocess execution
-"src/harness/daemon.py" = ["T201", "S603"]
+"src/hyh/daemon.py" = ["T201", "S603"]
 # Runtime is the subprocess execution layer - S603/S607 are intentional
-"src/harness/runtime.py" = ["S603", "S607"]
+"src/hyh/runtime.py" = ["S603", "S607"]
 # State uses **kwargs: Any for Pydantic model_copy (legitimate Any usage)
-"src/harness/state.py" = ["ANN401"]
+"src/hyh/state.py" = ["ANN401"]
 
 [tool.ty]
 # Target Python version

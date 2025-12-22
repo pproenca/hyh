@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Release automation script for harness-cli
+# Release automation script for hyh-cli
 # Usage: ./scripts/release.sh [major|minor|patch|alpha|beta|rc|stable]
 #
 
@@ -166,13 +166,13 @@ if [[ -f "CHANGELOG.md" ]]; then
     # Update comparison links at bottom
     if grep -q "\[Unreleased\]:" CHANGELOG.md; then
         # Update unreleased link
-        sed -i.bak "s|\[Unreleased\]:.*|\[Unreleased\]: https://github.com/pproenca/harness/compare/v$NEW_VERSION...HEAD|" CHANGELOG.md
+        sed -i.bak "s|\[Unreleased\]:.*|\[Unreleased\]: https://github.com/pproenca/hyh/compare/v$NEW_VERSION...HEAD|" CHANGELOG.md
         # Add new version link if not exists
         if ! grep -q "\[$NEW_VERSION\]:" CHANGELOG.md; then
             if [[ -n "$LAST_TAG" ]]; then
-                echo "[$NEW_VERSION]: https://github.com/pproenca/harness/compare/$LAST_TAG...v$NEW_VERSION" >> CHANGELOG.md
+                echo "[$NEW_VERSION]: https://github.com/pproenca/hyh/compare/$LAST_TAG...v$NEW_VERSION" >> CHANGELOG.md
             else
-                echo "[$NEW_VERSION]: https://github.com/pproenca/harness/releases/tag/v$NEW_VERSION" >> CHANGELOG.md
+                echo "[$NEW_VERSION]: https://github.com/pproenca/hyh/releases/tag/v$NEW_VERSION" >> CHANGELOG.md
             fi
         fi
         rm -f CHANGELOG.md.bak
@@ -218,5 +218,5 @@ echo ""
 log_success "Release v$NEW_VERSION complete!"
 echo ""
 echo "Next steps:"
-echo "  - Verify the release on PyPI: https://pypi.org/project/harness-cli/"
-echo "  - Create GitHub release: https://github.com/pproenca/harness/releases/new?tag=v$NEW_VERSION"
+echo "  - Verify the release on PyPI: https://pypi.org/project/hyh-cli/"
+echo "  - Create GitHub release: https://github.com/pproenca/hyh/releases/new?tag=v$NEW_VERSION"

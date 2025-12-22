@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Harness is an Autonomous Research Kernel with Thread-Safe Pull Engine - a daemon-based task orchestration system for managing workflow execution. It provides:
+Hyh is an Autonomous Research Kernel with Thread-Safe Pull Engine - a daemon-based task orchestration system for managing workflow execution. It provides:
 - Task state management with dependency-aware execution (DAG validation)
 - Thread-safe operations for concurrent task handling
 - Client-daemon architecture via Unix sockets
@@ -16,16 +16,16 @@ Harness is an Autonomous Research Kernel with Thread-Safe Pull Engine - a daemon
 ```bash
 # Setup
 make install              # Install dependencies (uv sync --dev)
-make install-global       # Install harness CLI globally (editable)
+make install-global       # Install hyh CLI globally (editable)
 
 # Development
 make dev                  # Start daemon
-make shell                # Python REPL with harness loaded
+make shell                # Python REPL with hyh loaded
 
 # Testing
 make test                 # Run all tests
 make test-fast            # Tests without timeout
-make test-file FILE=tests/harness/test_state.py  # Single file
+make test-file FILE=tests/hyh/test_state.py  # Single file
 
 # Run specific test by name
 uv run pytest -k "test_claim"
@@ -44,7 +44,7 @@ make memcheck             # Memory profiling (memray)
 ## Architecture
 
 ```
-src/harness/
+src/hyh/
 ├── client.py      # CLI client, sends RPC to daemon via Unix socket
 ├── daemon.py      # HarnessDaemon + HarnessHandler, processes RPC requests
 ├── state.py       # Task, WorkflowState, StateManager - core state machine
@@ -58,7 +58,7 @@ src/harness/
 
 ### Data Flow
 
-1. **Client** (`harness <cmd>`) → Unix socket RPC → **Daemon**
+1. **Client** (`hyh <cmd>`) → Unix socket RPC → **Daemon**
 2. **Daemon** dispatches to **HarnessHandler** methods
 3. **StateManager** handles atomic task state transitions with file locking
 4. **Runtime** executes commands (local subprocess or Docker container)
@@ -102,7 +102,7 @@ class TaskStatus(str, Enum):
 
 ## Testing Patterns
 
-Tests mirror source structure in `tests/harness/`. Key test categories:
+Tests mirror source structure in `tests/hyh/`. Key test categories:
 - `test_state*.py` - State machine transitions
 - `test_concurrency_audit.py`, `test_freethreading.py` - Thread safety
 - `test_security_audit.py` - Input validation, git safety

@@ -20,5 +20,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Dynamic versioning via `importlib.metadata`
 - Automated release workflow script
 
-[Unreleased]: https://github.com/pproenca/harness/compare/v0.1.0a1...HEAD
-[0.1.0a1]: https://github.com/pproenca/harness/releases/tag/v0.1.0a1
+[Unreleased]: https://github.com/pproenca/hyh/compare/v0.1.0a1...HEAD
+[0.1.0a1]: https://github.com/pproenca/hyh/releases/tag/v0.1.0a1
