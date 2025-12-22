@@ -69,11 +69,11 @@ def test_ok_response_serializes():
     """Ok response should serialize with status=ok."""
     from harness.daemon import Ok, PingData, Result
 
-    response: Result = Ok(data=PingData(message="pong", uptime=123.45))
+    response: Result = Ok(data=PingData(running=True, pid=12345))
     encoded = msgspec.json.encode(response)
     assert b'"status":"ok"' in encoded
-    assert b'"message":"pong"' in encoded
-    assert b'"uptime":123.45' in encoded
+    assert b'"running":true' in encoded
+    assert b'"pid":12345' in encoded
 
 
 def test_err_response_serializes():
@@ -142,9 +142,9 @@ def test_daemon_get_state(socket_path, worktree):
     try:
         response = send_command(socket_path, {"command": "get_state"})
         assert response["status"] == "ok"
-        assert "tasks" in response["data"]
-        assert "task-1" in response["data"]["tasks"]
-        assert response["data"]["tasks"]["task-1"]["status"] == "pending"
+        assert "tasks" in response["data"]["state"]
+        assert "task-1" in response["data"]["state"]["tasks"]
+        assert response["data"]["state"]["tasks"]["task-1"]["status"] == "pending"
     finally:
         daemon.shutdown()
         daemon.server_close()
@@ -700,7 +700,7 @@ Implementation details.
     assert resp["data"]["task_count"] == 2
 
     state = send_command(daemon.socket_path, {"command": "get_state"})
-    assert "1" in state["data"]["tasks"]
+    assert "1" in state["data"]["state"]["tasks"]
 
 
 def test_plan_import_preserves_instructions(daemon_manager):
@@ -723,7 +723,7 @@ Step by step guide here.
 """
     send_command(daemon.socket_path, {"command": "plan_import", "content": content})
     state = send_command(daemon.socket_path, {"command": "get_state"})
-    task = state["data"]["tasks"]["1"]
+    task = state["data"]["state"]["tasks"]["1"]
     assert task["description"] == "Do it"
     assert "Step by step guide here" in task["instructions"]
 

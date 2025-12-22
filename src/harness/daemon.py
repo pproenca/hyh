@@ -145,10 +145,10 @@ type Result = Ok | Err
 # -- Response Data Types --
 
 
-class StateData(Struct, forbid_unknown_fields=True, frozen=True):
+class GetStateData(Struct, forbid_unknown_fields=True, frozen=True):
     """Response data for get_state."""
 
-    state: dict[str, object]
+    state: dict[str, object] | None
 
 
 class UpdatedStateData(Struct, forbid_unknown_fields=True, frozen=True):
@@ -157,25 +157,25 @@ class UpdatedStateData(Struct, forbid_unknown_fields=True, frozen=True):
     updated: bool
 
 
-class GitResultData(Struct, forbid_unknown_fields=True, frozen=True):
+class GitData(Struct, forbid_unknown_fields=True, frozen=True):
     """Response data for git commands."""
 
+    returncode: int
     stdout: str
     stderr: str
-    returncode: int
 
 
 class PingData(Struct, forbid_unknown_fields=True, frozen=True):
     """Response data for ping."""
 
-    message: Literal["pong"]
-    uptime: float
+    running: Literal[True]
+    pid: int
 
 
 class ShutdownData(Struct, forbid_unknown_fields=True, frozen=True):
     """Response data for shutdown."""
 
-    message: Literal["Daemon shutting down"]
+    shutdown: Literal[True]
 
 
 class ClaimedTaskData(Struct, forbid_unknown_fields=True, frozen=True):
@@ -205,10 +205,10 @@ class PlanImportResultData(Struct, forbid_unknown_fields=True, frozen=True):
     task_count: int
 
 
-class PlanResetResultData(Struct, forbid_unknown_fields=True, frozen=True):
+class PlanResetData(Struct, forbid_unknown_fields=True, frozen=True):
     """Response data for plan_reset."""
 
-    reset: bool
+    message: str
 
 
 class StatusData(Struct, forbid_unknown_fields=True, frozen=True):
@@ -280,20 +280,21 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             case PlanResetRequest():
                 handler_result = self._handle_plan_reset(request, server)
 
-        # Handler methods still return dicts, so convert to Result
-        # Task 4/5 will update handler methods to return typed responses
-        if handler_result.get("status") == "ok":
-            result: Result = Ok(data=handler_result.get("data"))
+        # Handle both Result returns (Task 4 handlers) and dict returns (Task 5 handlers)
+        if isinstance(handler_result, (Ok, Err)):
+            result: Result = handler_result
+        elif handler_result.get("status") == "ok":
+            result = Ok(data=handler_result.get("data"))
         else:
             result = Err(message=handler_result.get("message", "Unknown error"))
 
         return msgspec.json.encode(result)
 
-    def _handle_get_state(self, _request: GetStateRequest, server: HarnessDaemon) -> dict[str, Any]:
+    def _handle_get_state(self, _request: GetStateRequest, server: HarnessDaemon) -> Result:
         state = server.state_manager.load()
         if state is None:
-            return {"status": "ok", "data": None}
-        return {"status": "ok", "data": msgspec.to_builtins(state)}
+            return Ok(data=GetStateData(state=None))
+        return Ok(data=GetStateData(state=msgspec.to_builtins(state)))
 
     def _handle_status(self, request: StatusRequest, server: HarnessDaemon) -> dict[str, Any]:
         from .state import TaskStatus
@@ -369,25 +370,24 @@ class HarnessHandler(socketserver.StreamRequestHandler):
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    def _handle_git(self, request: GitRequest, server: HarnessDaemon) -> dict[str, Any]:
+    def _handle_git(self, request: GitRequest, server: HarnessDaemon) -> Result:
         args = request.args
         cwd = request.cwd if request.cwd else str(server.worktree_root)
         result = safe_git_exec(args, cwd)
-        return {
-            "status": "ok",
-            "data": {
-                "returncode": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-            },
-        }
+        return Ok(
+            data=GitData(
+                returncode=result.returncode,
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
+        )
 
-    def _handle_ping(self, _request: PingRequest, _server: HarnessDaemon) -> dict[str, Any]:
-        return {"status": "ok", "data": {"running": True, "pid": os.getpid()}}
+    def _handle_ping(self, _request: PingRequest, _server: HarnessDaemon) -> Result:
+        return Ok(data=PingData(running=True, pid=os.getpid()))
 
-    def _handle_shutdown(self, _request: ShutdownRequest, server: HarnessDaemon) -> dict[str, Any]:
+    def _handle_shutdown(self, _request: ShutdownRequest, server: HarnessDaemon) -> Result:
         threading.Thread(target=server.shutdown, daemon=True).start()
-        return {"status": "ok", "data": {"shutdown": True}}
+        return Ok(data=ShutdownData(shutdown=True))
 
     def _handle_task_claim(
         self, request: TaskClaimRequest, server: HarnessDaemon
@@ -570,16 +570,14 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                 msg += ". Run 'harness plan template' to see the required format."
             return {"status": "error", "message": msg}
 
-    def _handle_plan_reset(
-        self, _request: PlanResetRequest, server: HarnessDaemon
-    ) -> dict[str, Any]:
+    def _handle_plan_reset(self, _request: PlanResetRequest, server: HarnessDaemon) -> Result:
         server.state_manager.reset()
 
         server.trajectory_logger.log({"event_type": "plan_reset"})
         if server.acp_emitter:
             server.acp_emitter.emit({"event_type": "plan_reset"})
 
-        return {"status": "ok", "data": {"message": "Workflow state cleared"}}
+        return Ok(data=PlanResetData(message="Workflow state cleared"))
 
 
 class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
