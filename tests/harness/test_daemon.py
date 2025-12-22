@@ -62,6 +62,30 @@ def test_request_rejects_unknown_command():
         msgspec.json.decode(raw, type=Request)
 
 
+# -- Response Type Validation Tests (Task 2) --
+
+
+def test_ok_response_serializes():
+    """Ok response should serialize with status=ok."""
+    from harness.daemon import Ok, PingData, Result
+
+    response: Result = Ok(data=PingData(message="pong", uptime=123.45))
+    encoded = msgspec.json.encode(response)
+    assert b'"status":"ok"' in encoded
+    assert b'"message":"pong"' in encoded
+    assert b'"uptime":123.45' in encoded
+
+
+def test_err_response_serializes():
+    """Err response should serialize with status=error."""
+    from harness.daemon import Err, Result
+
+    response: Result = Err(message="Something failed")
+    encoded = msgspec.json.encode(response)
+    assert b'"status":"error"' in encoded
+    assert b'"message":"Something failed"' in encoded
+
+
 def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
     """Send command to daemon and get response."""
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

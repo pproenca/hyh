@@ -11,7 +11,7 @@ import time
 from io import TextIOWrapper
 from pathlib import Path
 from types import FrameType
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, Literal
 
 import msgspec
 from msgspec import Meta, Struct, field
@@ -123,6 +123,106 @@ type Request = (
     | PlanImportRequest
     | PlanResetRequest
 )
+
+
+# -- Response Types (Result ADT) --
+
+
+class Ok(Struct, forbid_unknown_fields=True, frozen=True, tag="ok", tag_field="status"):
+    """Success response wrapper."""
+
+    data: object
+
+
+class Err(Struct, forbid_unknown_fields=True, frozen=True, tag="error", tag_field="status"):
+    """Error response wrapper."""
+
+    message: str
+
+
+type Result = Ok | Err
+
+
+# -- Response Data Types --
+
+
+class StateData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for get_state."""
+
+    state: dict[str, object]
+
+
+class UpdatedStateData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for update_state."""
+
+    updated: bool
+
+
+class GitResultData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for git commands."""
+
+    stdout: str
+    stderr: str
+    returncode: int
+
+
+class PingData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for ping."""
+
+    message: Literal["pong"]
+    uptime: float
+
+
+class ShutdownData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for shutdown."""
+
+    message: Literal["Daemon shutting down"]
+
+
+class ClaimedTaskData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for task_claim."""
+
+    task_id: str | None
+
+
+class TaskCompletedData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for task_complete."""
+
+    completed: bool
+
+
+class ExecResultData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for exec commands."""
+
+    stdout: str
+    stderr: str
+    returncode: int
+    signal: str | None
+
+
+class PlanImportResultData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for plan_import."""
+
+    task_count: int
+
+
+class PlanResetResultData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for plan_reset."""
+
+    reset: bool
+
+
+class StatusData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for status command."""
+
+    state: dict[str, object]
+    last_events: list[dict[str, object]]
+
+
+class UnknownCommandData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for unknown commands."""
+
+    command: str | None
 
 
 class HarnessHandler(socketserver.StreamRequestHandler):
