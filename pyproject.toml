@@ -102,7 +102,7 @@ python-version = "3.13"
 include = ["src"]
 
 [tool.ty.rules]
-# Match mypy's default strictness
+# Default strictness level
 # All rules enabled by default, customize only if needed
 
 
