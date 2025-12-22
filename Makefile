@@ -117,18 +117,13 @@ build:  ## Build wheel for distribution
 ##@ Cleanup
 
 .PHONY: clean
-clean:  ## Remove build artifacts and caches
-	$(RM) -r build dist
-	$(RM) -r *.egg-info src/*.egg-info
-	$(RM) -r .pytest_cache .ruff_cache .mypy_cache
+clean:  ## Remove build artifacts, caches, and venv
+	$(RM) -r build dist .venv
+	$(RM) -r *.egg-info src/*.egg-info .eggs
+	$(RM) -r .pytest_cache .ruff_cache .mypy_cache .benchmarks
 	$(RM) -r __pycache__ src/harness/__pycache__ tests/__pycache__ tests/harness/__pycache__
 	$(RM) -r .coverage htmlcov
 	@echo "Cleaned"
-
-.PHONY: clean-all
-clean-all: clean  ## Remove everything including venv
-	$(RM) -r .venv
-	@echo "Cleaned all (including .venv)"
 
 ##@ Help
 
