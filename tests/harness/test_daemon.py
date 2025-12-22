@@ -14,11 +14,52 @@ import sys
 import threading
 from pathlib import Path
 
+import msgspec
 import pytest
 
 from tests.harness.conftest import wait_for_socket
 
 # socket_path and worktree fixtures are imported from conftest.py
+
+
+# -- Request Type Validation Tests (Task 1) --
+
+
+def test_task_claim_request_decodes():
+    """TaskClaimRequest should decode from JSON with tagged union."""
+    from harness.daemon import Request, TaskClaimRequest
+
+    raw = b'{"command": "task_claim", "worker_id": "worker-1"}'
+    req = msgspec.json.decode(raw, type=Request)
+    assert isinstance(req, TaskClaimRequest)
+    assert req.worker_id == "worker-1"
+
+
+def test_task_claim_request_rejects_empty_worker_id():
+    """TaskClaimRequest should reject empty/whitespace worker_id."""
+    from harness.daemon import Request
+
+    raw = b'{"command": "task_claim", "worker_id": "  "}'
+    with pytest.raises(msgspec.ValidationError):
+        msgspec.json.decode(raw, type=Request)
+
+
+def test_exec_request_rejects_negative_timeout():
+    """ExecRequest should reject negative timeout values."""
+    from harness.daemon import Request
+
+    raw = b'{"command": "exec", "args": ["ls"], "timeout": -5}'
+    with pytest.raises(msgspec.ValidationError):
+        msgspec.json.decode(raw, type=Request)
+
+
+def test_request_rejects_unknown_command():
+    """Request union should reject unknown command values."""
+    from harness.daemon import Request
+
+    raw = b'{"command": "unknown_cmd"}'
+    with pytest.raises(msgspec.ValidationError):
+        msgspec.json.decode(raw, type=Request)
 
 
 def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:

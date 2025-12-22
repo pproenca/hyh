@@ -11,9 +11,10 @@ import time
 from io import TextIOWrapper
 from pathlib import Path
 from types import FrameType
-from typing import Any, Final
+from typing import Annotated, Any, Final
 
 import msgspec
+from msgspec import Meta, Struct, field
 
 from .acp import ACPEmitter
 from .git import safe_git_exec
@@ -24,6 +25,104 @@ from .state import WorkflowStateStore
 from .trajectory import TrajectoryLogger
 
 TRUNCATE_LIMIT: Final[int] = 4096
+
+
+# -- Request Types (Tagged Union) --
+
+
+class GetStateRequest(
+    Struct, forbid_unknown_fields=True, frozen=True, tag="get_state", tag_field="command"
+):
+    pass
+
+
+class StatusRequest(
+    Struct, forbid_unknown_fields=True, frozen=True, tag="status", tag_field="command"
+):
+    event_count: int = 10
+
+
+class UpdateStateRequest(
+    Struct, forbid_unknown_fields=True, frozen=True, tag="update_state", tag_field="command"
+):
+    updates: dict[str, object]
+
+
+class GitRequest(Struct, forbid_unknown_fields=True, frozen=True, tag="git", tag_field="command"):
+    args: list[str] = field(default_factory=list)
+    cwd: str | None = None
+
+
+class PingRequest(Struct, forbid_unknown_fields=True, frozen=True, tag="ping", tag_field="command"):
+    pass
+
+
+class ShutdownRequest(
+    Struct, forbid_unknown_fields=True, frozen=True, tag="shutdown", tag_field="command"
+):
+    pass
+
+
+class TaskClaimRequest(
+    Struct, forbid_unknown_fields=True, frozen=True, tag="task_claim", tag_field="command"
+):
+    worker_id: str
+
+    def __post_init__(self) -> None:
+        if not self.worker_id or not self.worker_id.strip():
+            raise msgspec.ValidationError("worker_id cannot be empty or whitespace")
+
+
+class TaskCompleteRequest(
+    Struct, forbid_unknown_fields=True, frozen=True, tag="task_complete", tag_field="command"
+):
+    task_id: str
+    worker_id: str
+
+    def __post_init__(self) -> None:
+        if not self.task_id or not self.task_id.strip():
+            raise msgspec.ValidationError("task_id cannot be empty or whitespace")
+        if not self.worker_id or not self.worker_id.strip():
+            raise msgspec.ValidationError("worker_id cannot be empty or whitespace")
+
+
+class ExecRequest(Struct, forbid_unknown_fields=True, frozen=True, tag="exec", tag_field="command"):
+    args: list[str]
+    cwd: str | None = None
+    env: dict[str, str] | None = None
+    timeout: Annotated[float, Meta(gt=0)] | None = None
+    exclusive: bool = False
+
+
+class PlanImportRequest(
+    Struct, forbid_unknown_fields=True, frozen=True, tag="plan_import", tag_field="command"
+):
+    content: str
+
+    def __post_init__(self) -> None:
+        if not self.content or not self.content.strip():
+            raise msgspec.ValidationError("content cannot be empty or whitespace")
+
+
+class PlanResetRequest(
+    Struct, forbid_unknown_fields=True, frozen=True, tag="plan_reset", tag_field="command"
+):
+    pass
+
+
+type Request = (
+    GetStateRequest
+    | StatusRequest
+    | UpdateStateRequest
+    | GitRequest
+    | PingRequest
+    | ShutdownRequest
+    | TaskClaimRequest
+    | TaskCompleteRequest
+    | ExecRequest
+    | PlanImportRequest
+    | PlanResetRequest
+)
 
 
 class HarnessHandler(socketserver.StreamRequestHandler):
