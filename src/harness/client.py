@@ -611,10 +611,10 @@ def _cmd_get_state(socket_path: str, worktree_root: str) -> None:
     if response["status"] != "ok":
         print(f"Error: {response.get('message')}", file=sys.stderr)
         sys.exit(1)
-    if response["data"] is None:
+    if response["data"]["state"] is None:
         print("No active workflow")
         sys.exit(1)
-    print(json.dumps(response["data"], indent=2))
+    print(json.dumps(response["data"]["state"], indent=2))
 
 
 def _cmd_update_state(socket_path: str, worktree_root: str, fields: list[list[str]]) -> None:
@@ -655,11 +655,11 @@ def _cmd_session_start(socket_path: str, worktree_root: str) -> None:
         print("{}")
         return
 
-    if response["status"] != "ok" or response["data"] is None:
+    if response["status"] != "ok" or response["data"]["state"] is None:
         print("{}")
         return
 
-    state = response["data"]
+    state = response["data"]["state"]
     tasks = state.get("tasks", {})
     if not tasks:
         print("{}")
@@ -684,11 +684,11 @@ def _cmd_check_state(socket_path: str, worktree_root: str) -> None:
         print("allow")
         return
 
-    if response["status"] != "ok" or response["data"] is None:
+    if response["status"] != "ok" or response["data"]["state"] is None:
         print("allow")
         return
 
-    state = response["data"]
+    state = response["data"]["state"]
     tasks = state.get("tasks", {})
     if not tasks:
         print("allow")
@@ -710,11 +710,11 @@ def _cmd_check_commit(socket_path: str, worktree_root: str) -> None:
         print("allow")
         return
 
-    if response["status"] != "ok" or response["data"] is None:
+    if response["status"] != "ok" or response["data"]["state"] is None:
         print("allow")
         return
 
-    state = response["data"]
+    state = response["data"]["state"]
 
     git_response = send_rpc(
         socket_path,
