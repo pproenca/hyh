@@ -73,7 +73,21 @@ jobs:
         run: uv sync --frozen
 
       - name: Run tests
-        run: uv run pytest -v
+        env:
+          CI: "true"
+        run: |
+          uv run pytest -v \
+            -p no:testmon \
+            --cov=src/hyh \
+            --cov-report=xml \
+            --timeout=120
+
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
 
   build:
     runs-on: ubuntu-latest

@@ -19,6 +19,32 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from hypothesis import Verbosity, settings
+
+# =============================================================================
+# Hypothesis Profiles - CI vs Local Development
+# =============================================================================
+
+# CI profile: relaxed deadlines for slower CI runners
+settings.register_profile(
+    "ci",
+    max_examples=100,
+    deadline=5000,  # 5 seconds (default is 200ms)
+    verbosity=Verbosity.normal,
+)
+
+# Local dev profile: faster feedback
+settings.register_profile(
+    "default",
+    max_examples=100,
+    deadline=1000,  # 1 second
+)
+
+# Auto-select profile based on CI environment variable
+if os.environ.get("CI"):
+    settings.load_profile("ci")
+else:
+    settings.load_profile("default")
 
 # =============================================================================
 # Free-Threading Compatibility
