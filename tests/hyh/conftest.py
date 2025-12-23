@@ -82,6 +82,17 @@ def isolate_git_config(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_project_registry(tmp_path, monkeypatch):
+    """Isolate tests from the global project registry.
+
+    Prevents tests from polluting ~/.hyh/registry.json with
+    temp directory paths that become stale after pytest cleanup.
+    """
+    registry_file = tmp_path / "test-registry.json"
+    monkeypatch.setenv("HYH_REGISTRY_FILE", str(registry_file))
+
+
+@pytest.fixture(autouse=True)
 def thread_isolation():
     """Ensure no threads leak between tests.
 

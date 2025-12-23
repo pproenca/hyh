@@ -460,7 +460,7 @@ def step_07_task_workflow() -> None:
     print_step("Final state")
     print()
 
-    run_command(r"hyh get-state | jq -r '.tasks | to_entries[] | \"\(.key): \(.value.status)\"'")
+    run_command("hyh get-state | jq -r '.tasks | to_entries[] | \"\\(.key): \\(.value.status)\"'")
 
     print_explanation("Every task is now 'completed' - workflow finished!")
 
