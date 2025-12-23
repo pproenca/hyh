@@ -418,3 +418,15 @@ def fast_worktree(tmp_path: Path, git_template_dir: Path) -> Path:
         check=True,
     )
     return worktree
+
+
+@pytest.fixture(scope="session")
+def worker_id(request: pytest.FixtureRequest) -> str:
+    """Return xdist worker id or 'master' for non-parallel runs.
+
+    Useful for creating worker-specific resources when running
+    tests in parallel with pytest-xdist.
+    """
+    if hasattr(request.config, "workerinput"):
+        return request.config.workerinput["workerid"]
+    return "master"
