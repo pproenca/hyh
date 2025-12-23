@@ -201,7 +201,7 @@ def step_01_intro() -> None:
     print(f"    {GREEN}3.{NC} {BOLD}Crash Recovery{NC} - Atomic writes survive power failures")
     print()
     print(f"  {DIM}Architecture: Dumb client (stdlib only) + Smart daemon (msgspec validation){NC}")
-    print(f"  {DIM}Runtime: Python 3.13t free-threaded (true parallelism, no GIL){NC}")
+    print(f"  {DIM}Runtime: Python 3.13 free-threaded (true parallelism, no GIL){NC}")
 
     wait_for_user()
 
