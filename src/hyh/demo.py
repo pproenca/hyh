@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import shutil
@@ -570,6 +571,85 @@ def step_09_hooks(demo_dir: Path) -> None:
     wait_for_user()
 
 
+def step_10_multi_project(demo_dir: Path) -> None:
+    """Demonstrate multi-project isolation."""
+    print_header("Step 9: Multi-Project Isolation")
+
+    print_step("Each project gets an isolated daemon")
+    print_info("Socket paths are hashed from the git worktree root")
+    print()
+
+    print_explanation("This demo project has its own daemon socket at:")
+    print()
+
+    # Calculate socket hash
+    socket_hash = hashlib.sha256(str(demo_dir).encode()).hexdigest()[:12]
+    print(f"  {DIM}~/.hyh/sockets/{socket_hash}.sock{NC}")
+    print()
+
+    print_step("View all registered projects")
+    print()
+
+    run_command("hyh status --all")
+
+    print_explanation("Multiple hyh daemons can run simultaneously")
+    print_explanation("Use --project <path> to target a specific project")
+
+    wait_for_user()
+
+
+def step_11_exec(demo_dir: Path) -> None:
+    """Demonstrate command execution and observability."""
+    print_header("Step 10: Command Execution and Observability")
+
+    print_step("Execute arbitrary commands")
+    print_info("The 'exec' command runs any shell command through the daemon")
+    print()
+
+    run_command("hyh exec -- echo 'Hello from hyh!'")
+    run_command("hyh exec -- python3 -c 'print(2 + 2)'")
+
+    print_explanation("Commands can optionally acquire the exclusive lock (--exclusive)")
+    print_explanation("Useful for operations that need serialization")
+
+    wait_for_user()
+
+    print_step("View the trajectory log")
+    print_info("Every operation is logged to .claude/trajectory.jsonl")
+    print()
+
+    state_dir = demo_dir / ".claude"
+    trajectory_file = state_dir / "trajectory.jsonl"
+    if trajectory_file.exists():
+        run_command(f"cat '{trajectory_file}' | jq -s '.[0:3]' | head -60")
+    else:
+        print(f"  {DIM}(No trajectory log yet){NC}")
+        print()
+
+    print_explanation("JSONL format: append-only, crash-safe")
+    print_explanation("O(1) tail retrieval - reads from end of file")
+    print_explanation("Each event has timestamp, duration, reason for debugging")
+
+    wait_for_user()
+
+
+def step_12_state_update() -> None:
+    """Demonstrate direct state updates."""
+    print_header("Step 11: Direct State Updates")
+
+    print_step("Update state fields directly")
+    print_info("Useful for orchestration metadata")
+    print()
+
+    run_command("hyh update-state --field current_phase 'deployment' --field parallel_workers 3")
+    run_command("hyh get-state | jq 'del(.tasks)'")
+
+    print_explanation("State updates are atomic and validated by msgspec")
+    print_explanation("Unknown fields are allowed for flexibility")
+
+    wait_for_user()
+
+
 def _run_all_steps(demo_dir: Path) -> None:
     """Run all demo steps."""
     step_01_intro()
@@ -581,6 +661,9 @@ def _run_all_steps(demo_dir: Path) -> None:
     step_07_task_workflow()
     step_08_git_mutex()
     step_09_hooks(demo_dir)
+    step_10_multi_project(demo_dir)
+    step_11_exec(demo_dir)
+    step_12_state_update()
 
 
 def run() -> None:
