@@ -44,3 +44,4 @@ htmlcov/
 *.local.md
 .claude/dev-workflow-state.local.md
 .claude/
+.worktrees/
