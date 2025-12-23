@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.hyh.conftest import wait_for_socket, wait_until
+from tests.hyh.conftest import send_command_with_retry, wait_for_socket, wait_until
 
 
 @pytest.fixture
@@ -393,7 +393,6 @@ def test_cli_shutdown(integration_worktree):
 @pytest.fixture
 def workflow_with_tasks(integration_worktree):
     """Set up workflow state with DAG tasks."""
-    import socket as socket_module
     import threading
 
     from hyh.daemon import HarnessDaemon
@@ -433,38 +432,15 @@ def workflow_with_tasks(integration_worktree):
     server_thread.start()
     wait_for_socket(socket_path)
 
-    def send_command(cmd, max_retries=3):
-        """Send command to daemon and return response with retry on connection refused."""
-        for attempt in range(max_retries):
-            sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
-            sock.settimeout(10.0)
-            try:
-                sock.connect(socket_path)
-                sock.sendall(json.dumps(cmd).encode() + b"\n")
-                response = b""
-                while True:
-                    chunk = sock.recv(4096)
-                    if not chunk:
-                        break
-                    response += chunk
-                    if b"\n" in response:
-                        break
-                return json.loads(response.decode().strip())
-            except ConnectionRefusedError:
-                # Socket backlog full - retry after brief delay
-                if attempt < max_retries - 1:
-                    time.sleep(0.1 * (attempt + 1))
-                    continue
-                raise
-            finally:
-                sock.close()
+    def send_cmd(cmd, max_retries=3):
+        return send_command_with_retry(socket_path, cmd, max_retries)
 
     yield {
         "worktree": worktree,
         "socket": socket_path,
         "manager": manager,
         "daemon": daemon,
-        "send_command": send_command,
+        "send_command": send_cmd,
     }
 
     # Cleanup
@@ -615,7 +591,6 @@ def test_lease_renewal_on_reclaim(workflow_with_tasks):
 @pytest.fixture
 def workflow_with_short_timeout(integration_worktree):
     """Set up workflow with very short task timeout for reclaim testing."""
-    import socket as socket_module
     import threading
 
     from hyh.daemon import HarnessDaemon
@@ -644,36 +619,15 @@ def workflow_with_short_timeout(integration_worktree):
     server_thread.start()
     wait_for_socket(socket_path)
 
-    def send_command(cmd, max_retries=3):
-        for attempt in range(max_retries):
-            sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
-            sock.settimeout(10.0)
-            try:
-                sock.connect(socket_path)
-                sock.sendall(json.dumps(cmd).encode() + b"\n")
-                response = b""
-                while True:
-                    chunk = sock.recv(4096)
-                    if not chunk:
-                        break
-                    response += chunk
-                    if b"\n" in response:
-                        break
-                return json.loads(response.decode().strip())
-            except ConnectionRefusedError:
-                if attempt < max_retries - 1:
-                    time.sleep(0.1 * (attempt + 1))
-                    continue
-                raise
-            finally:
-                sock.close()
+    def send_cmd(cmd, max_retries=3):
+        return send_command_with_retry(socket_path, cmd, max_retries)
 
     yield {
         "worktree": worktree,
         "socket": socket_path,
         "manager": manager,
         "daemon": daemon,
-        "send_command": send_command,
+        "send_command": send_cmd,
     }
 
     daemon.shutdown()
@@ -720,7 +674,6 @@ def test_ownership_validation_on_complete(workflow_with_tasks):
 @pytest.fixture
 def workflow_with_parallel_tasks(integration_worktree):
     """Set up workflow with multiple independent tasks for parallel claiming."""
-    import socket as socket_module
     import threading
 
     from hyh.daemon import HarnessDaemon
@@ -760,36 +713,15 @@ def workflow_with_parallel_tasks(integration_worktree):
     server_thread.start()
     wait_for_socket(socket_path)
 
-    def send_command(cmd, max_retries=3):
-        for attempt in range(max_retries):
-            sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
-            sock.settimeout(10.0)
-            try:
-                sock.connect(socket_path)
-                sock.sendall(json.dumps(cmd).encode() + b"\n")
-                response = b""
-                while True:
-                    chunk = sock.recv(4096)
-                    if not chunk:
-                        break
-                    response += chunk
-                    if b"\n" in response:
-                        break
-                return json.loads(response.decode().strip())
-            except ConnectionRefusedError:
-                if attempt < max_retries - 1:
-                    time.sleep(0.1 * (attempt + 1))
-                    continue
-                raise
-            finally:
-                sock.close()
+    def send_cmd(cmd, max_retries=3):
+        return send_command_with_retry(socket_path, cmd, max_retries)
 
     yield {
         "worktree": worktree,
         "socket": socket_path,
         "manager": manager,
         "daemon": daemon,
-        "send_command": send_command,
+        "send_command": send_cmd,
     }
 
     daemon.shutdown()

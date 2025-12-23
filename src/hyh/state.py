@@ -1,8 +1,7 @@
 import json
 import os
 import threading
-from collections import deque
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -13,7 +12,7 @@ from msgspec import Meta, Struct, field
 from msgspec.structs import replace as struct_replace
 
 
-def detect_cycle(graph: dict[str, list[str]]) -> str | None:
+def detect_cycle(graph: dict[str, Sequence[str]]) -> str | None:
     white: Final = 0
     gray: Final = 1
     black: Final = 2
@@ -65,7 +64,7 @@ class TaskStatus(str, Enum):
 TimeoutSeconds = Annotated[int, Meta(ge=1, le=86400)]
 
 
-class Task(Struct, forbid_unknown_fields=True):
+class Task(Struct, frozen=True, forbid_unknown_fields=True):
     id: str
     description: str
 
@@ -112,14 +111,10 @@ class Task(Struct, forbid_unknown_fields=True):
         return elapsed.total_seconds() > self.timeout_seconds
 
 
-class WorkflowState(Struct, forbid_unknown_fields=True, omit_defaults=True, dict=True):
+class WorkflowState(Struct, frozen=True, forbid_unknown_fields=True, omit_defaults=True):
     tasks: dict[str, Task] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        self._pending_deque: deque[str] = deque()
-        self._pending_set: set[str] = set()
-        self._worker_index: dict[str, str] = {}
-
         if isinstance(self.tasks, list):
             tasks_dict: dict[str, Task] = {}
             for item in self.tasks:
@@ -134,32 +129,6 @@ class WorkflowState(Struct, forbid_unknown_fields=True, omit_defaults=True, dict
                         raise TypeError(f"Invalid task type: {type(item).__name__}")
             object.__setattr__(self, "tasks", tasks_dict)
 
-        self.rebuild_indexes()
-
-    def rebuild_indexes(self) -> None:
-        if not hasattr(self, "_pending_deque"):
-            self._pending_deque = deque()
-        if not hasattr(self, "_pending_set"):
-            self._pending_set = set()
-        if not hasattr(self, "_worker_index"):
-            self._worker_index = {}
-
-        pending: list[str] = []
-        self._worker_index.clear()
-
-        for task in self.tasks.values():
-            if task.status == TaskStatus.PENDING:
-                pending.append(task.id)
-            elif task.status == TaskStatus.RUNNING and task.claimed_by:
-                self._worker_index[task.claimed_by] = task.id
-
-        pending.sort(key=lambda tid: len(self.tasks[tid].dependencies))
-
-        self._pending_deque.clear()
-        self._pending_deque.extend(pending)
-        self._pending_set.clear()
-        self._pending_set.update(pending)
-
     def validate_dag(self) -> None:
         task_ids = set(self.tasks.keys())
 
@@ -173,32 +142,13 @@ class WorkflowState(Struct, forbid_unknown_fields=True, omit_defaults=True, dict
             raise ValueError(f"Dependency cycle detected at: {cycle_node}")
 
     def get_claimable_task(self) -> Task | None:
-        rotations = 0
-        max_rotations = len(self._pending_deque)
-
-        while self._pending_deque and rotations <= max_rotations:
-            task_id = self._pending_deque[0]
-
-            if task_id not in self.tasks:
-                self._pending_deque.popleft()
-                self._pending_set.discard(task_id)
-                max_rotations = len(self._pending_deque)
-                continue
-
-            task = self.tasks[task_id]
-            if task.status != TaskStatus.PENDING:
-                self._pending_deque.popleft()
-                self._pending_set.discard(task_id)
-                max_rotations = len(self._pending_deque)
-                continue
-
-            if self._are_deps_satisfied(task):
+        """Find first pending task with satisfied dependencies."""
+        # First pass: find pending tasks with satisfied deps
+        for task in self.tasks.values():
+            if task.status == TaskStatus.PENDING and self._are_deps_satisfied(task):
                 return task
 
-            self._pending_deque.popleft()
-            self._pending_deque.append(task_id)
-            rotations += 1
-
+        # Second pass: find timed-out running tasks to reclaim
         for task in self.tasks.values():
             if (
                 task.status == TaskStatus.RUNNING
@@ -219,13 +169,10 @@ class WorkflowState(Struct, forbid_unknown_fields=True, omit_defaults=True, dict
         return True
 
     def get_task_for_worker(self, worker_id: str) -> Task | None:
-        if existing_tid := self._worker_index.get(worker_id):
-            task = self.tasks.get(existing_tid)
-            if task and task.status == TaskStatus.RUNNING and task.claimed_by == worker_id:
+        """Find task owned by worker, or get a new claimable task."""
+        for task in self.tasks.values():
+            if task.status == TaskStatus.RUNNING and task.claimed_by == worker_id:
                 return task
-
-            del self._worker_index[worker_id]
-
         return self.get_claimable_task()
 
 
@@ -286,7 +233,6 @@ class WorkflowStateStore:
     def save(self, state: WorkflowState) -> None:
         with self._state_lock:
             state.validate_dag()
-            state.rebuild_indexes()
             self._write_atomic(state)
             self._state = state
 
@@ -308,7 +254,6 @@ class WorkflowStateStore:
                     kwargs["tasks"] = validated
 
             new_state = struct_replace(state, **kwargs)
-            new_state.rebuild_indexes()
             self._write_atomic(new_state)
             self._state = new_state
             return new_state
@@ -337,7 +282,6 @@ class WorkflowStateStore:
 
             new_tasks = {**state.tasks, updated_task.id: updated_task}
             new_state = struct_replace(state, tasks=new_tasks)
-            new_state.rebuild_indexes()
 
             self._write_atomic(new_state)
             self._state = new_state
@@ -366,7 +310,6 @@ class WorkflowStateStore:
 
             new_tasks = {**state.tasks, task_id: updated_task}
             new_state = struct_replace(state, tasks=new_tasks)
-            new_state.rebuild_indexes()
 
             self._write_atomic(new_state)
             self._state = new_state
