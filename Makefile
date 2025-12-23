@@ -67,35 +67,48 @@ shell:  ## Open interactive Python shell with project loaded
 ##@ Testing
 
 .PHONY: test
-test:  ## Run all tests
+test:  ## Run affected tests only (fast dev feedback via testmon)
+	$(PYTEST) -v
+
+.PHONY: test-all
+test-all:  ## Run full test suite in parallel (4 workers, tight timeout)
+	$(PYTEST) -v --testmon-noselect -n 4 --timeout=10 --cov=hyh --cov-report=term-missing
+
+.PHONY: test-seq
+test-seq:  ## Run full suite sequentially (for debugging flaky tests)
+	$(PYTEST) -v --testmon-noselect --timeout=30 --cov=hyh --cov-report=term-missing
+
+.PHONY: test-reset
+test-reset:  ## Reset testmon database (run after major refactors)
+	$(RM) -f .testmondata
 	$(PYTEST) -v
 
 .PHONY: coverage
 coverage:  ## Run tests with coverage reporting
-	$(PYTEST) -v --cov=hyh --cov-report=html --cov-report=term-missing
+	$(PYTEST) -v --testmon-noselect --cov=hyh --cov-report=html --cov-report=term-missing
 	@echo "Coverage report generated in htmlcov/index.html"
 
 .PHONY: test-fast
-test-fast:  ## Run tests without timeout (faster iteration)
+test-fast:  ## Run affected tests without timeout (faster iteration)
 	$(PYTEST) -v --timeout=0
 
 .PHONY: test-file
 test-file:  ## Run specific test file: make test-file FILE=tests/hyh/test_state.py
-	$(PYTEST) $(FILE) -v
+	$(PYTEST) $(FILE) -v --testmon-noselect
 
 .PHONY: benchmark
 benchmark:  ## Run benchmark tests
-	$(PYTEST) -v -m benchmark --benchmark-enable --benchmark-autosave --benchmark-disable-gc --benchmark-warmup=on --benchmark-min-rounds=5
+	$(PYTEST) -v -m benchmark --testmon-noselect --benchmark-enable --benchmark-autosave --benchmark-disable-gc --benchmark-warmup=on --benchmark-min-rounds=5
 
 .PHONY: memcheck
 memcheck:  ## Run memory profiling tests
-	$(PYTEST) -v -m memcheck --memray
+	$(PYTEST) -v -m memcheck --testmon-noselect --memray
 
 .PHONY: perf
 perf: benchmark memcheck  ## Run all performance tests (benchmark + memory)
 
 .PHONY: check
-check: lint typecheck test  ## Run all checks (lint + typecheck + test)
+check: lint typecheck test-all  ## Run all checks (lint + typecheck + full test suite)
 
 ##@ Code Quality
 
