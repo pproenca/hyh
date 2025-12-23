@@ -1,0 +1,165 @@
+# Release workflow - manual dispatch with version input
+# Creates GitHub Release with changelog and publishes to PyPI
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g., 0.2.0)"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+
+      - name: Validate version matches pyproject.toml
+        run: |
+          PYPROJECT_VERSION=$(grep -E '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          if [[ "$PYPROJECT_VERSION" != "${{ inputs.version }}" ]]; then
+            echo "::error::Version mismatch: input=${{ inputs.version }}, pyproject.toml=$PYPROJECT_VERSION"
+            exit 1
+          fi
+          echo "Version validated: ${{ inputs.version }}"
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867
+        with:
+          enable-cache: false
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Build distributions
+        run: uv build --no-sources
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: dist
+          path: dist/
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        python-version: ["3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867
+        with:
+          enable-cache: false
+
+      - name: Download artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: dist
+          path: dist/
+
+      - name: Smoke test (wheel)
+        run: |
+          uv run --isolated --no-project --python ${{ matrix.python-version }} \
+            --with dist/*.whl -- python -c "from hyh.client import main; print('wheel ok')"
+
+      - name: Smoke test (sdist)
+        run: |
+          uv run --isolated --no-project --python ${{ matrix.python-version }} \
+            --with dist/*.tar.gz -- python -c "from hyh.client import main; print('sdist ok')"
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/hyh/
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867
+        with:
+          enable-cache: false
+
+      - name: Download artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        run: uv publish --attestations
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+
+      - name: Extract changelog section
+        run: |
+          VERSION="${{ inputs.version }}"
+          sed -n '/^## \['"${VERSION}"'\]/,/^## \[/{ /^## \['"${VERSION}"'\]/d; /^## \[/d; p; }' CHANGELOG.md > release_notes.md
+          echo "Release notes:"
+          cat release_notes.md
+
+      - name: Determine prerelease status
+        id: prerelease
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ "$VERSION" =~ (a|b|rc)[0-9]+ ]]; then
+            echo "flag=--prerelease" >> $GITHUB_OUTPUT
+            echo "Detected prerelease version"
+          else
+            echo "flag=" >> $GITHUB_OUTPUT
+            echo "Detected stable version"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            --title "v${{ inputs.version }}" \
+            --notes-file release_notes.md \
+            ${{ steps.prerelease.outputs.flag }}
