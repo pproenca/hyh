@@ -4,16 +4,17 @@
 
 The following versions of `hyh` are currently being supported with security updates.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x   | ✅ Yes             |
-| < 0.1   | ❌ No              |
+| Version | Supported |
+| ------- | --------- |
+| 0.1.x   | ✅ Yes    |
+| < 0.1   | ❌ No     |
 
 ## Reporting a Vulnerability
 
-We take the security of `hyh` seriously. If you believe you have found a security vulnerability, please report it to us by emailing security@10xengs.com.
+We take the security of `hyh` seriously. If you believe you have found a security vulnerability, please report it to us by emailing <security@10xengs.com>.
 
 Please include:
+
 - A description of the vulnerability.
 - Steps to reproduce the issue.
 - Potential impact.

@@ -37,9 +37,10 @@ TEST_FILES := $(shell find $(TEST_DIR) -name '*.py' 2>/dev/null)
 all: install  ## Default: bootstrap project for development
 
 .PHONY: install
-install:  ## Install all dependencies (local dev)
+install:  ## Install all dependencies and setup pre-commit hooks
 	$(UV) sync --dev
-	@echo "Dependencies installed"
+	$(UV) run pre-commit install
+	@echo "Dependencies installed and pre-commit hooks setup"
 
 .PHONY: install-global
 install-global:  ## Install hyh globally (editable, uses repo code)

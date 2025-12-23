@@ -5,6 +5,7 @@ exclude: |
     .github/workflows/release.yml
     | ruff/.*
     | docs/reference/(cli|configuration|rules|environment).md
+    | docs/plans/.*
   )$
 
 repos:
@@ -52,7 +53,7 @@ repos:
     rev: v3.19.1
     hooks:
       - id: pyupgrade
-        args: [--py314-plus]
+        args: [--py313-plus]
 
   - repo: https://github.com/rbubley/mirrors-prettier
     rev: v3.7.3

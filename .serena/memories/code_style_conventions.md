@@ -4,7 +4,7 @@
 
 Use **msgspec.Struct** instead of dataclasses or Pydantic:
 
-```python
+````python
 from msgspec import Struct
 
 class Task(Struct, forbid_unknown_fields=True):
@@ -13,9 +13,9 @@ class Task(Struct, forbid_unknown_fields=True):
     status: TaskStatus = TaskStatus.PENDING
     dependencies: tuple[str, ...] = ()
     timeout_seconds: int = 600
-```
-
+```text
 Key patterns:
+
 - Use `forbid_unknown_fields=True` for strict validation
 - Use tuples for immutable collections (not lists)
 - Provide sensible defaults
@@ -33,8 +33,7 @@ def send_rpc(method: str, params: dict[str, Any] | None = None) -> dict[str, Any
 class ACPEmitter:
     _host: Final[str]
     _clock: ClassVar[Callable[[], datetime]]
-```
-
+```text
 - Use `Final` for immutable instance attributes
 - Use `ClassVar` for class-level attributes
 - Use `X | None` syntax (not `Optional[X]`)
@@ -47,8 +46,7 @@ Use `__slots__` for performance in non-Struct classes:
 ```python
 class ACPEmitter:
     __slots__ = ("_disabled_event", "_host", "_port", "_queue", "_thread", "_warned_event")
-```
-
+```text
 ## Datetime Handling
 
 Always use UTC and timezone-aware datetimes:
@@ -57,8 +55,7 @@ Always use UTC and timezone-aware datetimes:
 from datetime import UTC, datetime
 
 now = datetime.now(UTC)
-```
-
+```text
 ## Naming
 
 - **snake_case** for functions and variables
@@ -70,9 +67,10 @@ now = datetime.now(UTC)
 ## Imports
 
 Order enforced by ruff isort:
+
 1. Standard library
-2. Third-party packages
-3. Local imports
+1. Third-party packages
+1. Local imports
 
 ## Error Handling
 
@@ -84,8 +82,7 @@ import contextlib
 
 with contextlib.suppress(OSError):
     sock.close()
-```
-
+```text
 ## Testing Conventions
 
 - Use pytest with fixtures
@@ -104,14 +101,14 @@ def test_task_model_basic_validation():
         dependencies=[],
     )
     assert task.id == "task-1"
-```
-
+```text
 ## Ruff Configuration
 
 Line length: 100 characters
 Target: Python 3.14
 
 Enabled rule sets:
+
 - E (pycodestyle), F (Pyflakes), UP (pyupgrade)
 - B (bugbear), SIM (simplify), I (isort)
 - N (pep8-naming), ANN (annotations), S (bandit security)
@@ -124,3 +121,4 @@ Enabled rule sets:
 - Use type hints as primary documentation
 - Module-level comments for complex logic
 - Section comments with `# ===...===` separators
+````

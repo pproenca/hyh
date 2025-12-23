@@ -2,7 +2,7 @@
 
 ## Setup
 
-```bash
+````bash
 # Install all dependencies (first time setup)
 make install
 
@@ -11,8 +11,7 @@ make install-global
 
 # Uninstall global installation
 make uninstall-global
-```
-
+```text
 ## Development
 
 ```bash
@@ -21,8 +20,7 @@ make dev
 
 # Open interactive Python shell with project loaded
 make shell
-```
-
+```text
 ## Testing
 
 ```bash
@@ -43,8 +41,7 @@ make memcheck
 
 # Run all performance tests (benchmark + memory)
 make perf
-```
-
+```text
 ## Code Quality
 
 ```bash
@@ -59,8 +56,7 @@ make format
 
 # Run all checks (lint + typecheck + test)
 make check
-```
-
+```text
 ## Build & Publish
 
 ```bash
@@ -72,8 +68,7 @@ make publish-test
 
 # Publish to PyPI
 make publish
-```
-
+```text
 ## Release
 
 ```bash
@@ -84,15 +79,13 @@ make release TYPE=patch   # or: major, minor, alpha, beta, rc, stable
 make release-alpha
 make release-patch
 make release-minor
-```
-
+```text
 ## Cleanup
 
 ```bash
 # Remove build artifacts, caches, and venv
 make clean
-```
-
+```text
 ## CLI Usage
 
 ```bash
@@ -117,14 +110,14 @@ hyh git -- status
 
 # Get worker ID
 hyh worker-id
-```
-
+```text
 ## Quick Reference
 
-| Task | Command |
-|------|---------|
-| Setup project | `make install` |
-| Run tests | `make test` |
-| Check everything | `make check` |
-| Format code | `make format` |
-| Start daemon | `make dev` |
+| Task             | Command        |
+| ---------------- | -------------- |
+| Setup project    | `make install` |
+| Run tests        | `make test`    |
+| Check everything | `make check`   |
+| Format code      | `make format`  |
+| Start daemon     | `make dev`     |
+````

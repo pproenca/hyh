@@ -25,7 +25,7 @@ CLI orchestration tool for agentic workflows. Coordinates tasks with claude-code
 
 ## Architecture
 
-```
+````text
 ┌─────────────┐     Unix Socket RPC     ┌──────────────┐
 │   Client    │ ──────────────────────► │    Daemon    │
 │    (hyh)    │                         │ (per-project)│
@@ -37,11 +37,10 @@ CLI orchestration tool for agentic workflows. Coordinates tasks with claude-code
                     │   State   │       │   Runtime   │      │  Trajectory │
                     │  Manager  │       │(Local/Docker)│     │   Logger    │
                     └───────────┘       └─────────────┘      └─────────────┘
-```
-
+```text
 ## Source Structure
 
-```
+```text
 src/hyh/
 ├── __init__.py      # Package init with version
 ├── __main__.py      # Entry point for `python -m hyh`
@@ -54,11 +53,10 @@ src/hyh/
 ├── trajectory.py    # Event/action trajectory logging
 ├── registry.py      # Worker registry for task claiming
 └── acp.py           # Agent Communication Protocol emitter
-```
-
+```text
 ## Tests Structure
 
-```
+```text
 tests/
 └── hyh/
     ├── conftest.py               # Shared fixtures
@@ -72,9 +70,9 @@ tests/
     ├── test_*_audit.py           # Security/concurrency/boundary audits
     ├── test_integration*.py      # Integration tests
     └── test_performance.py       # Performance benchmarks
-```
-
+```text
 ## Requirements
 
 - Python 3.13+ (macOS or Linux)
 - uv for package management
+````

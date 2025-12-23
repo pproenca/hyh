@@ -20,34 +20,29 @@ CLI orchestration tool for agentic workflows. Coordinate tasks with claude-code,
 
 ### Recommended: uv tool (persistent installation)
 
-```bash
+````bash
 uv tool install hyh
-```
-
+```text
 ### One-off execution
 
 ```bash
 uvx hyh status
-```
-
+```text
 ### Traditional pip
 
 ```bash
 pip install hyh
-```
-
+```text
 ### From source (development)
 
 ```bash
 uv tool install git+https://github.com/pproenca/hyh
-```
-
+```text
 ### Curl install script
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/pproenca/hyh/master/install.sh | bash
-```
-
+```text
 ## Quick Start
 
 ```bash
@@ -69,11 +64,10 @@ hyh exec -- make test
 
 # Safe git operations
 hyh git -- status
-```
-
+```text
 ## Architecture
 
-```
+```text
 ┌─────────────┐     Unix Socket RPC     ┌──────────────┐
 │   Client    │ ──────────────────────► │    Daemon    │
 │  (hyh)  │                         │  (per-project)│
@@ -85,8 +79,7 @@ hyh git -- status
                     │   State   │       │   Runtime   │      │  Trajectory │
                     │  Manager  │       │ (Local/Docker)│    │   Logger    │
                     └───────────┘       └─────────────┘      └─────────────┘
-```
-
+```text
 ## Requirements
 
 - Python 3.13+
@@ -106,8 +99,7 @@ make test
 
 # Start development daemon
 make dev
-```
-
+```text
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
@@ -115,3 +107,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Documentation
 
 See [CLAUDE.md](CLAUDE.md) for detailed architecture and code style documentation.
+````

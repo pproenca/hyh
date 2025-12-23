@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-```bash
+````bash
 make install          # Install dependencies
 make test             # Run all tests
 make test-file FILE=tests/hyh/test_state.py  # Run single test file
@@ -17,20 +17,19 @@ make typecheck        # Run ty type checker
 make format           # Auto-format code
 make check            # Run lint + typecheck + test
 make dev              # Start daemon in development mode
-```
-
+```text
 ## Architecture
 
-```
+```text
 Client (hyh CLI) ──Unix Socket RPC──► Daemon (per-project)
                                            │
                     ┌──────────────────────┼──────────────────────┐
                     │                      │                      │
               WorkflowStateStore      Runtime              ACPEmitter
               (atomic task ops)    (cmd execution)      (agent protocol)
-```
-
+```text
 **Key modules:**
+
 - `client.py` - CLI entry point, RPC client, daemon spawning
 - `daemon.py` - Unix socket server handling RPC requests
 - `state.py` - `Task` and `WorkflowState` structs, `WorkflowStateStore` for atomic operations
@@ -42,13 +41,13 @@ Client (hyh CLI) ──Unix Socket RPC──► Daemon (per-project)
 ## Code Conventions
 
 Use **msgspec.Struct** (not dataclasses):
+
 ```python
 class Task(Struct, forbid_unknown_fields=True):
     id: str
     status: TaskStatus = TaskStatus.PENDING
     dependencies: tuple[str, ...] = ()  # tuples, not lists
-```
-
+```text
 Type hints mandatory everywhere. Use `Final` for immutable attributes, `ClassVar` for class-level. Always use `datetime.now(UTC)` for timezone-aware datetimes.
 
 ## Tech Stack
@@ -58,3 +57,4 @@ Type hints mandatory everywhere. Use `Final` for immutable attributes, `ClassVar
 - msgspec for serialization
 - ruff for linting/formatting
 - ty for type checking
+````

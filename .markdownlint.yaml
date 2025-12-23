@@ -33,3 +33,6 @@ MD046: false
 # Link text should be descriptive
 # Disallows link text like *here* which is annoying.
 MD059: false
+
+# Table column style - conflicts with mdformat
+MD060: false
