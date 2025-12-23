@@ -1,7 +1,7 @@
 import re
 from typing import Final
 
-from msgspec import Struct, field
+from msgspec import Struct
 
 from .state import Task, TaskStatus, WorkflowState, detect_cycle
 
@@ -20,21 +20,21 @@ def _validate_task_id(task_id: str) -> None:
         )
 
 
-class _TaskData(Struct):
+class _TaskData(Struct, frozen=True, forbid_unknown_fields=True):
     description: str
     instructions: str
-    dependencies: list[str]
+    dependencies: tuple[str, ...]
 
 
-class PlanTaskDefinition(Struct, omit_defaults=True):
+class PlanTaskDefinition(Struct, frozen=True, forbid_unknown_fields=True, omit_defaults=True):
     description: str
-    dependencies: list[str] = field(default_factory=list)
+    dependencies: tuple[str, ...] = ()
     timeout_seconds: int = 600
     instructions: str | None = None
     role: str | None = None
 
 
-class PlanDefinition(Struct):
+class PlanDefinition(Struct, frozen=True, forbid_unknown_fields=True):
     goal: str
     tasks: dict[str, PlanTaskDefinition]
 
@@ -98,18 +98,18 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
         tasks_data[t_id] = _TaskData(
             description=t_desc if t_desc else f"Task {t_id}",
             instructions=t_body,
-            dependencies=[],
+            dependencies=(),
         )
 
+    # Build dependency mapping: task_id -> tuple of dependency task_ids
+    task_dependencies: dict[str, tuple[str, ...]] = {}
     sorted_group_ids = sorted(groups.keys())
     for i, group_id in enumerate(sorted_group_ids):
         if i > 0:
             prev_group_id = sorted_group_ids[i - 1]
-            prev_tasks = groups[prev_group_id]
-
+            prev_tasks = tuple(groups[prev_group_id])
             for t_id in groups[group_id]:
-                if t_id in tasks_data:
-                    tasks_data[t_id].dependencies = prev_tasks
+                task_dependencies[t_id] = prev_tasks
 
     all_grouped_tasks = {t for tasks in groups.values() for t in tasks}
 
@@ -132,7 +132,7 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
         final_tasks[t_id] = PlanTaskDefinition(
             description=t_data.description,
             instructions=t_data.instructions,
-            dependencies=t_data.dependencies,
+            dependencies=task_dependencies.get(t_id, ()),
             timeout_seconds=600,
             role=None,
         )

@@ -1,7 +1,7 @@
 import json
 import os
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -12,7 +12,7 @@ from msgspec import Meta, Struct, field
 from msgspec.structs import replace as struct_replace
 
 
-def detect_cycle(graph: dict[str, list[str]]) -> str | None:
+def detect_cycle(graph: dict[str, Sequence[str]]) -> str | None:
     white: Final = 0
     gray: Final = 1
     black: Final = 2
