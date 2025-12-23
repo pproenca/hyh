@@ -6,6 +6,7 @@ Centralizes daemon management to ensure proper resource cleanup
 and eliminate ResourceWarning issues.
 """
 
+import asyncio
 import json
 import os
 import socket as socket_module
@@ -222,6 +223,37 @@ def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
         return json.loads(response.decode().strip())
     finally:
         sock.close()
+
+
+async def async_send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
+    """Async version of send_command using asyncio streams.
+
+    Use this in async tests for non-blocking socket communication
+    with the daemon.
+
+    Args:
+        socket_path: Path to Unix socket.
+        command: Command dict to send.
+        timeout: Timeout in seconds.
+
+    Returns:
+        Response dict from daemon.
+
+    Raises:
+        asyncio.TimeoutError: If connection or response times out.
+    """
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_unix_connection(socket_path),
+        timeout=timeout,
+    )
+    try:
+        writer.write(json.dumps(command).encode() + b"\n")
+        await writer.drain()
+        response = await asyncio.wait_for(reader.readline(), timeout=timeout)
+        return json.loads(response.decode().strip())
+    finally:
+        writer.close()
+        await writer.wait_closed()
 
 
 def send_command_with_retry(socket_path: str, cmd: dict, max_retries: int = 3) -> dict:
