@@ -17,7 +17,7 @@ from pathlib import Path
 import msgspec
 import pytest
 
-from tests.hyh.conftest import wait_for_socket
+from tests.hyh.conftest import send_command, wait_for_socket
 
 # socket_path and worktree fixtures are imported from conftest.py
 
@@ -84,26 +84,6 @@ def test_err_response_serializes():
     encoded = msgspec.json.encode(response)
     assert b'"status":"error"' in encoded
     assert b'"message":"Something failed"' in encoded
-
-
-def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
-    """Send command to daemon and get response."""
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(timeout)
-    try:
-        sock.connect(socket_path)
-        sock.sendall(json.dumps(command).encode() + b"\n")
-        response = b""
-        while True:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            response += chunk
-            if b"\n" in response:
-                break
-        return json.loads(response.decode().strip())
-    finally:
-        sock.close()
 
 
 def test_daemon_get_state(socket_path, worktree):
@@ -675,7 +655,6 @@ def test_exec_trajectory_log_truncation_limit(daemon_with_state, socket_path, wo
 def test_plan_import_handler(daemon_manager):
     """plan_import should parse Markdown and seed state."""
     daemon, _ = daemon_manager
-    from tests.hyh.conftest import send_command
 
     content = """
 **Goal:** Test
@@ -706,7 +685,6 @@ Implementation details.
 def test_plan_import_preserves_instructions(daemon_manager):
     """plan_import should preserve task body as instructions."""
     daemon, _ = daemon_manager
-    from tests.hyh.conftest import send_command
 
     content = """
 **Goal:** Test
@@ -731,7 +709,6 @@ Step by step guide here.
 def test_plan_import_missing_content(daemon_manager):
     """plan_import should error when content is missing."""
     daemon, _ = daemon_manager
-    from tests.hyh.conftest import send_command
 
     resp = send_command(daemon.socket_path, {"command": "plan_import"})
     assert resp["status"] == "error"

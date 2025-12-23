@@ -9,8 +9,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from hyh.client import get_socket_path, get_worker_id
 
 
@@ -126,17 +124,3 @@ class TestSocketPathLength:
 
             # macOS AF_UNIX limit is 104 characters
             assert len(socket_path) < 104, f"Socket path too long: {len(socket_path)} chars"
-
-
-class TestDaemonSpawning:
-    """Test daemon spawning behavior."""
-
-    def test_spawn_creates_socket(self) -> None:
-        """Spawning daemon should create socket file."""
-        # This is an integration test - skip if no daemon available
-        pytest.skip("Integration test - requires daemon infrastructure")
-
-    def test_daemon_crash_during_spawn(self) -> None:
-        """Daemon crash during spawn should be handled gracefully."""
-        # This is an integration test
-        pytest.skip("Integration test - requires process control")
