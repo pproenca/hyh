@@ -4,8 +4,9 @@ version = "0.1.0a1"
 description = "CLI orchestration tool for agentic workflows - coordinate tasks with claude-code and other AI agents"
 readme = "README.md"
 requires-python = ">=3.13"
-license = { text = "MIT" }
-authors = [{ name = "Pedro Proenca" }]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Pedro Proenca", email = "pedro@10xengs.com" }]
 keywords = ["cli", "orchestration", "workflow", "tasks", "agents", "claude-code", "daemon", "unix-socket"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -31,6 +32,7 @@ Documentation = "https://github.com/pproenca/hyh#readme"
 Repository = "https://github.com/pproenca/hyh.git"
 Issues = "https://github.com/pproenca/hyh/issues"
 Changelog = "https://github.com/pproenca/hyh/releases"
+Funding = "https://github.com/sponsors/pproenca"
 
 # Development dependencies use PEP 735 dependency-groups (not optional-dependencies)
 # See: https://peps.python.org/pep-0735/
@@ -53,8 +55,12 @@ dev = [
 [project.scripts]
 hyh = "hyh.client:main"
 
+# pipx run optimization - https://packaging.python.org/en/latest/guides/creating-command-line-tools/
+[project.entry-points."pipx.run"]
+hyh = "hyh.client:main"
+
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling >= 1.27.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
@@ -70,7 +76,7 @@ default-groups = ["dev"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "--timeout=30 --benchmark-disable"
+addopts = "--timeout=30 --benchmark-disable --cov=hyh --cov-report=term-missing"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "benchmark: marks benchmark tests (run with 'make benchmark')",
