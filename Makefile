@@ -177,7 +177,7 @@ clean:  ## Remove build artifacts, caches, and venv
 	$(RM) -r *.egg-info src/*.egg-info .eggs
 	$(RM) -r .pytest_cache .ruff_cache .ty_cache .benchmarks
 	$(RM) -r __pycache__ src/hyh/__pycache__ tests/__pycache__ tests/hyh/__pycache__
-	$(RM) -r .coverage htmlcov
+	$(RM) -r .coverage htmlcov .testmondata
 	@echo "Cleaned"
 
 ##@ Help
