@@ -1,0 +1,10 @@
+# Issue template configuration
+# Provides helpful links and allows blank issues
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/pproenca/hyh#readme
+    about: Please consult the README before creating an issue.
+  - name: Discussions
+    url: https://github.com/pproenca/hyh/discussions
+    about: Ask questions and discuss ideas in GitHub Discussions.
