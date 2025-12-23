@@ -1,48 +1,76 @@
 # Contributing to hyh
 
-First off, thank you for considering contributing to `hyh`! It's people like you that make the agentic tool space better for everyone.
+Thank you for your interest in contributing to hyh!
 
-## Development Setup
+## Getting started
 
-`hyh` uses `uv` for dependency management and development.
+### Prerequisites
 
-1. Clone the repository:
+- Python 3.13+ (3.14 freethreaded supported)
+- [uv](https://docs.astral.sh/uv/) for package management
+- [git-cliff](https://git-cliff.org/) for changelog generation (optional)
 
-```bash
+### Setup
+
+Clone the repository and install dependencies:
+
+```shell
 git clone https://github.com/pproenca/hyh.git
 cd hyh
+make install
 ```
 
-1. Install dependencies:
+This installs all dependencies and sets up pre-commit hooks.
 
-```bash
-uv sync
+### Running tests
+
+```shell
+make test        # Run affected tests (fast, via testmon)
+make test-all    # Run full test suite in parallel
+make check       # Run lint + typecheck + tests
 ```
 
-1. Install pre-commit hooks:
+### Code quality
 
-```bash
-uv run pre-commit install
+```shell
+make lint        # Check code style
+make typecheck   # Run ty type checker
+make format      # Auto-format code
 ```
 
-## Workflow
+## Submitting changes
 
-1. Create a new branch for your feature or bugfix.
-1. Write tests for your changes.
-1. Ensure all tests pass: `make test`
-1. Lint your code: `make lint`
-1. Submit a Pull Request.
+### Commit messages
 
-## Code Style
+We use [Conventional Commits](https://www.conventionalcommits.org/) for automatic changelog generation via git-cliff.
 
-- We use `ruff` for linting and formatting.
-- Type hints are required for all public APIs.
-- We follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) and other standard Python practices.
+| Prefix      | Description                                             |
+| ----------- | ------------------------------------------------------- |
+| `feat:`     | New feature                                             |
+| `fix:`      | Bug fix                                                 |
+| `docs:`     | Documentation only                                      |
+| `refactor:` | Code change that neither fixes a bug nor adds a feature |
+| `perf:`     | Performance improvement                                 |
+| `test:`     | Adding or updating tests                                |
+| `ci:`       | CI/CD changes                                           |
+| `chore:`    | Other changes                                           |
 
-## Commit Messages
+Example: `feat: add support for Docker runtime`
 
-We encourage the use of [Conventional Commits](https://www.conventionalcommits.org/).
+### Pull requests
+
+1. Create a branch for your changes
+1. Write tests for new functionality
+1. Ensure `make check` passes
+1. Submit a pull request with a clear description
+
+## Code style
+
+- Type hints are required for all public APIs
+- We use `ruff` for linting and formatting
+- We use `msgspec.Struct` instead of dataclasses
+- See [CLAUDE.md](CLAUDE.md) for detailed conventions
 
 ## Questions?
 
-Feel free to open an issue for questions or join our community discussions.
+Open an [issue](https://github.com/pproenca/hyh/issues) for questions or discussion.
