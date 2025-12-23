@@ -68,7 +68,7 @@ class TestNoDoubleAssignment:
             claimed_by: dict[str, str] = {}  # task_id -> first_worker_id
             claim_lock = threading.Lock()
             violations: list[str] = []
-            barrier = threading.Barrier(num_threads, timeout=30.0)
+            barrier = threading.Barrier(num_threads, timeout=5.0)
 
             def worker(worker_id: str) -> None:
                 barrier.wait()  # Synchronized start for maximum contention
@@ -158,7 +158,7 @@ class TestHighContentionSerialization:
             complete_counts: Counter[str] = Counter()  # task_id -> complete count
             count_lock = threading.Lock()
             errors: list[str] = []
-            barrier = threading.Barrier(num_threads, timeout=30.0)
+            barrier = threading.Barrier(num_threads, timeout=5.0)
 
             def worker(worker_id: str) -> None:
                 try:
@@ -317,6 +317,7 @@ class TestLockContention:
         """Document lock contention behavior - not a pass/fail test."""
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = WorkflowStateStore(Path(tmpdir))
+            num_threads = 20
 
             # Create single task - maximum contention
             tasks = {
@@ -324,14 +325,14 @@ class TestLockContention:
                     id="task-1",
                     description="Test",
                     status=TaskStatus.PENDING,
-                    dependencies=[],
+                    dependencies=(),
                 )
             }
             manager.save(WorkflowState(tasks=tasks))
 
             acquisition_times: list[float] = []
             times_lock = threading.Lock()
-            barrier = threading.Barrier(20, timeout=30.0)
+            barrier = threading.Barrier(num_threads, timeout=5.0)
 
             def contending_claimer(worker_id: str) -> None:
                 barrier.wait()
@@ -343,7 +344,7 @@ class TestLockContention:
 
             threads = [
                 threading.Thread(target=contending_claimer, args=(f"worker-{i}",))
-                for i in range(20)
+                for i in range(num_threads)
             ]
             for t in threads:
                 t.start()
@@ -351,7 +352,7 @@ class TestLockContention:
                 t.join()
 
             # Verify we got measurements from all threads
-            assert len(acquisition_times) == 20
+            assert len(acquisition_times) == num_threads
 
             # Under contention, later acquisitions take longer (serialization)
             # This documents expected behavior, not a correctness check

@@ -54,19 +54,23 @@ class TestDetectCycleComplexity:
     @pytest.mark.slow
     def test_detect_cycle_linear_chain(self) -> None:
         """detect_cycle on linear chain (V nodes, V-1 edges) should be O(V)."""
+        # Pre-build graphs at each size to exclude construction from timing
+        sizes = [100, 500, 1000, 2000, 3000, 4000, 5000]
+        prebuilt_graphs: dict[int, dict[str, list[str]]] = {}
 
-        def create_chain(n: int) -> dict[str, list[str]]:
-            n = int(n)
+        for n in sizes:
             graph: dict[str, list[str]] = {}
             for i in range(n):
                 if i == 0:
                     graph[f"node-{i}"] = []
                 else:
                     graph[f"node-{i}"] = [f"node-{i - 1}"]
-            return graph
+            prebuilt_graphs[n] = graph
 
         def measure_func(n: int) -> None:
-            graph = create_chain(n)
+            n = int(n)
+            closest = min(sizes, key=lambda s: abs(s - n))
+            graph = prebuilt_graphs[closest]
             detect_cycle(graph)
 
         best, _ = big_o.big_o(
@@ -159,7 +163,7 @@ class TestWorkflowStateComplexity:
                 id="my-task",
                 description="My task",
                 status=TaskStatus.RUNNING,
-                dependencies=[],
+                dependencies=(),
                 claimed_by="worker-1",
                 started_at=datetime.now(UTC),
             )
@@ -169,7 +173,7 @@ class TestWorkflowStateComplexity:
                     id=f"other-{i}",
                     description=f"Other task {i}",
                     status=TaskStatus.PENDING,
-                    dependencies=[],
+                    dependencies=(),
                 )
             state = WorkflowState(tasks=tasks)
             state.get_task_for_worker("worker-1")
@@ -208,7 +212,7 @@ class TestValidateDagComplexity:
             tasks = {}
             for i in range(n):
                 # Each task depends only on previous (sparse: E = V - 1)
-                deps = [f"task-{i - 1}"] if i > 0 else []
+                deps = (f"task-{i - 1}",) if i > 0 else ()
                 tasks[f"task-{i}"] = Task(
                     id=f"task-{i}",
                     description=f"Task {i}",

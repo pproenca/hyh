@@ -23,7 +23,7 @@ class TestConcurrentRegistration:
             registered: list[str] = []
             lock = threading.Lock()
             errors: list[str] = []
-            barrier = threading.Barrier(10, timeout=30.0)
+            barrier = threading.Barrier(10, timeout=5.0)
 
             def register_project(project_id: int) -> None:
                 project_path = Path(tmpdir) / f"project-{project_id}"

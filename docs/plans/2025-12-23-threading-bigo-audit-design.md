@@ -186,6 +186,6 @@ make check  # Full suite
 
 ## References
 
-- Python Free-Threading Guide: https://py-free-threading.github.io/
-- big_O library: https://github.com/pberkes/big_O
-- Hypothesis thread-safety: https://github.com/HypothesisWorks/hypothesis/issues/4451
+- [Python Free-Threading Guide](https://py-free-threading.github.io/)
+- [big_O library](https://github.com/pberkes/big_O)
+- [Hypothesis thread-safety](https://github.com/HypothesisWorks/hypothesis/issues/4451)
