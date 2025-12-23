@@ -1,0 +1,30 @@
+// Renovate configuration for hyh
+// See: https://docs.renovatebot.com/configuration-options/
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:recommended", ":semanticCommitTypeAll(chore)"],
+  // Run Monday mornings UTC
+  schedule: ["before 3am on Monday"],
+  // Disable semantic commits (we use conventional commits manually)
+  semanticCommits: "disabled",
+  // GitHub Actions: pin to SHA with semver comments
+  packageRules: [
+    {
+      matchManagers: ["github-actions"],
+      pinDigests: true,
+      semanticCommitType: "ci",
+    },
+    // Group all dev dependencies
+    {
+      matchDepTypes: ["devDependencies"],
+      groupName: "dev dependencies",
+    },
+    // Group Python dependencies
+    {
+      matchManagers: ["pip_requirements", "pep621"],
+      groupName: "python dependencies",
+    },
+  ],
+  // Enable dependency dashboard
+  dependencyDashboard: true,
+}
