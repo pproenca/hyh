@@ -90,16 +90,18 @@ class TestWorkflowStateComplexity:
     @pytest.mark.slow
     def test_get_claimable_task_with_satisfied_deps(self) -> None:
         """get_claimable_task should be O(1) when first task is claimable."""
+        # Pre-build states at each size to exclude construction from timing
+        sizes = [100, 500, 1000, 2000, 3000, 4000, 5000]
+        prebuilt_states: dict[int, WorkflowState] = {}
 
-        def measure_func(n: int) -> None:
-            n = int(n)
+        for n in sizes:
             tasks = {}
             # First task has no deps - immediately claimable
             tasks["claimable"] = Task(
                 id="claimable",
                 description="Claimable task",
                 status=TaskStatus.PENDING,
-                dependencies=[],
+                dependencies=(),
             )
             # Rest have deps on first task (will be blocked)
             for i in range(n):
@@ -107,12 +109,18 @@ class TestWorkflowStateComplexity:
                     id=f"blocked-{i}",
                     description=f"Blocked task {i}",
                     status=TaskStatus.PENDING,
-                    dependencies=["claimable"],
+                    dependencies=("claimable",),
                 )
-            state = WorkflowState(tasks=tasks)
+            prebuilt_states[n] = WorkflowState(tasks=tasks)
+
+        def measure_func(n: int) -> None:
+            n = int(n)
+            # Find closest prebuilt size
+            closest = min(sizes, key=lambda s: abs(s - n))
+            state = prebuilt_states[closest]
             state.get_claimable_task()
 
-        best, _ = big_o.big_o(
+        best, others = big_o.big_o(
             measure_func,
             big_o.datagen.n_,
             min_n=100,
@@ -121,14 +129,15 @@ class TestWorkflowStateComplexity:
             n_repeats=50,
         )
 
-        # Should be linearithmic or better (includes state creation overhead)
+        # Should be constant or logarithmic - the actual lookup is O(1)
         acceptable = (
             big_o.complexities.Constant,
             big_o.complexities.Logarithmic,
-            big_o.complexities.Linear,
-            big_o.complexities.Linearithmic,
         )
-        assert isinstance(best, acceptable), f"Expected O(n log n) or better, got {best}"
+        assert isinstance(best, acceptable), (
+            f"Expected O(1) or O(log n), got {best}. "
+            f"Residuals: {[(type(c).__name__, r) for c, r in sorted(others.items(), key=lambda x: x[1])[:3]]}"
+        )
 
     @pytest.mark.slow
     def test_get_task_for_worker_linear(self) -> None:
