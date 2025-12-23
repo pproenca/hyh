@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
+from hyh import demo
+
 
 def get_worker_id() -> str:
     worker_id_path = os.getenv("HYH_WORKER_ID_FILE")
@@ -517,6 +519,8 @@ def main() -> None:
 
     subparsers.add_parser("worker-id", help="Print stable worker ID")
 
+    subparsers.add_parser("demo", help="Interactive tour of hyh features")
+
     status_parser = subparsers.add_parser("status", help="Show workflow status and recent events")
     status_parser.add_argument("--json", action="store_true", help="Output raw JSON")
     status_parser.add_argument(
@@ -589,6 +593,8 @@ def main() -> None:
             _cmd_shutdown(socket_path, worktree_root)
         case "worker-id":
             _cmd_worker_id()
+        case "demo":
+            demo.run()
         case "status":
             _cmd_status(args, socket_path, worktree_root)
 
