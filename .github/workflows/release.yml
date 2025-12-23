@@ -135,11 +135,19 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
         with:
           persist-credentials: false
+          fetch-depth: 0 # Full history for git-cliff
 
-      - name: Extract changelog section
+      - name: Install git-cliff
+        uses: taiki-e/install-action@735e5933943122c5ac182670a935f54a949265c6 # v2
+        with:
+          tool: git-cliff
+
+      - name: Generate release notes
         run: |
-          VERSION="${{ inputs.version }}"
-          sed -n '/^## \['"${VERSION}"'\]/,/^## \[/{ /^## \['"${VERSION}"'\]/d; /^## \[/d; p; }' CHANGELOG.md > release_notes.md
+          # Create tag temporarily for git-cliff to detect range
+          git tag "v${{ inputs.version }}"
+          # Generate changelog for just this release
+          git-cliff --current --strip header --output release_notes.md
           echo "Release notes:"
           cat release_notes.md
 
@@ -159,6 +167,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Delete local tag (gh release create will create it on remote)
+          git tag -d "v${{ inputs.version }}" || true
           gh release create "v${{ inputs.version }}" \
             --title "v${{ inputs.version }}" \
             --notes-file release_notes.md \

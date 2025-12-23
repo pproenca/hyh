@@ -150,6 +150,11 @@ publish: build  ## Publish to PyPI (manual release)
 
 ##@ Release Automation
 
+.PHONY: changelog
+changelog:  ## Generate CHANGELOG.md from conventional commits
+	git-cliff --output CHANGELOG.md
+	@echo "CHANGELOG.md updated"
+
 .PHONY: release
 release:  ## Release with version bump (Usage: make release TYPE=patch)
 	@if [ -z "$(TYPE)" ]; then \
