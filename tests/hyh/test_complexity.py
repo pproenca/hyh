@@ -88,43 +88,6 @@ class TestWorkflowStateComplexity:
     """Verify WorkflowState operations meet complexity guarantees."""
 
     @pytest.mark.slow
-    def test_rebuild_indexes_linearithmic(self) -> None:
-        """rebuild_indexes should be O(n log n) due to sort."""
-
-        def create_state(n: int) -> WorkflowState:
-            n = int(n)
-            tasks = {}
-            for i in range(n):
-                tasks[f"task-{i}"] = Task(
-                    id=f"task-{i}",
-                    description=f"Task {i}",
-                    status=TaskStatus.PENDING,
-                    dependencies=[],
-                )
-            return WorkflowState(tasks=tasks)
-
-        def measure_func(n: int) -> None:
-            state = create_state(n)
-            state.rebuild_indexes()
-
-        best, _ = big_o.big_o(
-            measure_func,
-            big_o.datagen.n_,
-            min_n=100,
-            max_n=10000,
-            n_measures=10,
-            n_repeats=3,
-        )
-
-        # Should be linearithmic or better (linear, constant)
-        acceptable = (
-            big_o.complexities.Constant,
-            big_o.complexities.Linear,
-            big_o.complexities.Linearithmic,
-        )
-        assert isinstance(best, acceptable), f"Expected O(n log n) or better, got {best}"
-
-    @pytest.mark.slow
     def test_get_claimable_task_with_satisfied_deps(self) -> None:
         """get_claimable_task should be O(1) when first task is claimable."""
 
@@ -168,8 +131,8 @@ class TestWorkflowStateComplexity:
         assert isinstance(best, acceptable), f"Expected O(n log n) or better, got {best}"
 
     @pytest.mark.slow
-    def test_worker_index_lookup_constant(self) -> None:
-        """Worker index lookup should be O(1) regardless of task count."""
+    def test_get_task_for_worker_linear(self) -> None:
+        """get_task_for_worker should be O(n) via simple iteration."""
 
         def measure_func(n: int) -> None:
             n = int(n)
@@ -192,7 +155,6 @@ class TestWorkflowStateComplexity:
                     dependencies=[],
                 )
             state = WorkflowState(tasks=tasks)
-            # This should be O(1) via _worker_index
             state.get_task_for_worker("worker-1")
 
         best, _ = big_o.big_o(
@@ -204,8 +166,7 @@ class TestWorkflowStateComplexity:
             n_repeats=3,
         )
 
-        # Includes state creation overhead, so expect linearithmic
-        # Polynomial with exponent <= 1.5 is acceptable (essentially linear)
+        # Includes state creation overhead, so expect linearithmic or better
         acceptable = (
             big_o.complexities.Constant,
             big_o.complexities.Linear,
