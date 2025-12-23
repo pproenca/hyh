@@ -121,6 +121,8 @@ ignore = [
 "src/hyh/runtime.py" = ["S603", "S607"]
 # State uses **kwargs: Any for Pydantic model_copy (legitimate Any usage)
 "src/hyh/state.py" = ["ANN401"]
+# Scripts: libcst visitor methods require specific naming (leave_Module, etc.) and unused args
+"scripts/*" = ["N802", "ARG002"]
 
 [tool.ty]
 # Target Python version

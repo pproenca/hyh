@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
+from hyh import demo
+
 
 def get_worker_id() -> str:
     worker_id_path = os.getenv("HYH_WORKER_ID_FILE")
@@ -244,16 +246,20 @@ def _cmd_status_all() -> int:
         print("No projects registered.")
         return 0
 
-    print("Projects:")
-    for hash_id, info in projects.items():
-        path = info["path"]
+    # Filter out stale entries (paths that no longer exist)
+    valid_projects = {
+        hash_id: info for hash_id, info in projects.items() if Path(info["path"]).exists()
+    }
 
+    if not valid_projects:
+        print("No projects registered.")
+        return 0
+
+    print("Projects:")
+    for hash_id, info in valid_projects.items():
+        path = info["path"]
         sock_path = str(Path.home() / ".hyh" / "sockets" / f"{hash_id}.sock")
         status = "[running]" if Path(sock_path).exists() else "[stopped]"
-
-        if not Path(path).exists():
-            status = "[stale - path not found]"
-
         print(f"  {path}  {status}")
 
     return 0
@@ -517,6 +523,8 @@ def main() -> None:
 
     subparsers.add_parser("worker-id", help="Print stable worker ID")
 
+    subparsers.add_parser("demo", help="Interactive tour of hyh features")
+
     status_parser = subparsers.add_parser("status", help="Show workflow status and recent events")
     status_parser.add_argument("--json", action="store_true", help="Output raw JSON")
     status_parser.add_argument(
@@ -589,6 +597,8 @@ def main() -> None:
             _cmd_shutdown(socket_path, worktree_root)
         case "worker-id":
             _cmd_worker_id()
+        case "demo":
+            demo.run()
         case "status":
             _cmd_status(args, socket_path, worktree_root)
 

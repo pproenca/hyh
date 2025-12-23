@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# ============================================================================
+# DEPRECATED: This script has been ported to Python.
+# Use `hyh demo` instead for the interactive tour.
+# This file is kept for reference only.
+# ============================================================================
 #
 # Hyh Demo Script
 # An interactive tour for developers to understand the project

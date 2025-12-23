@@ -18,6 +18,7 @@ PYUPGRADE := $(UV) run pyupgrade
 # Source directories
 SRC_DIR := src
 TEST_DIR := tests
+SCRIPTS_DIR := scripts
 
 # ============================================================================
 # Computed Variables (use := for shell commands)
@@ -100,8 +101,8 @@ check: lint typecheck test  ## Run all checks (lint + typecheck + test)
 
 .PHONY: lint
 lint:  ## Check code style and quality (no auto-fix)
-	@find $(SRC_DIR) $(TEST_DIR) -name '*.py' -exec $(PYUPGRADE) --py313-plus {} +
-	$(UV) run ruff check $(SRC_DIR) $(TEST_DIR)
+	@find $(SRC_DIR) $(TEST_DIR) $(SCRIPTS_DIR) -name '*.py' -exec $(PYUPGRADE) --py314-plus {} +
+	$(UV) run ruff check $(SRC_DIR) $(TEST_DIR) $(SCRIPTS_DIR)
 	UV_PREVIEW=1 $(UV) format --check
 
 .PHONY: typecheck
