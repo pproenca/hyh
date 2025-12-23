@@ -29,9 +29,6 @@ from pathlib import Path
 
 import pytest
 
-# Hypothesis stateful tests removed - they run single-threaded and don't test
-# true concurrency. See docs/plans/2025-12-23-threading-bigo-audit-design.md
-
 from hyh.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
 
