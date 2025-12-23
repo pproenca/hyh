@@ -4,6 +4,7 @@ Integration tests for the complete hyh system.
 Tests daemon + client + state + git working together.
 """
 
+import contextlib
 import json
 import os
 import subprocess
@@ -172,7 +173,9 @@ def test_state_persistence_across_daemon_restart(integration_worktree):
     )
     assert resp["status"] == "ok"
 
-    send_rpc(socket_path, {"command": "shutdown"}, None)
+    # Shutdown may complete before response is sent - that's expected
+    with contextlib.suppress(json.JSONDecodeError):
+        send_rpc(socket_path, {"command": "shutdown"}, None)
 
     # Wait for daemon to shut down (socket should disappear)
     wait_until(

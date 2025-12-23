@@ -25,15 +25,22 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def aggressive_thread_switching():
+def aggressive_thread_switching(request):
     """Force frequent context switches to expose races on GIL-enabled builds.
 
     On free-threaded Python (3.13t/3.14t), this is a no-op since there's no GIL.
     On standard Python, setting switch interval to 1 microsecond forces the GIL
     to release frequently, making race conditions more likely to manifest.
 
+    SKIPPED for 'slow' tests (complexity benchmarks) which need stable timing.
+
     See: https://py-free-threading.github.io/testing/
     """
+    # Skip for slow tests - complexity benchmarks need stable timing
+    if request.node.get_closest_marker("slow"):
+        yield
+        return
+
     old_interval = sys.getswitchinterval()
     sys.setswitchinterval(0.000001)  # 1 microsecond
     yield
