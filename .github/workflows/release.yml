@@ -126,7 +126,7 @@ jobs:
           path: dist/
 
       - name: Publish to PyPI
-        run: uv publish --attestations
+        run: uv publish
 
   release:
     needs: publish
