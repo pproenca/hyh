@@ -21,7 +21,7 @@ CLI orchestration tool for agentic workflows. Coordinates tasks with claude-code
 - **pytest** - Testing framework with hypothesis for property-based testing
 - **ruff** - Linting and formatting
 - **ty** - Type checking
-- **pre-commit** - Git hooks for pyupgrade (py313+)
+- **pre-commit** - Git hooks for pyupgrade (py314+)
 
 ## Architecture
 
