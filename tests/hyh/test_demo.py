@@ -94,8 +94,8 @@ def test_cleanup_removes_temp_directory(tmp_path: Path) -> None:
     assert not demo_dir.exists()
 
 
-def test_run_restores_cwd(tmp_path: Path, monkeypatch: object) -> None:
-    """Test run() restores original cwd even on error."""
+def test_run_restores_cwd(monkeypatch: object) -> None:
+    """Test run() restores original cwd on success."""
     from hyh.demo import run
 
     original = os.getcwd()
@@ -103,5 +103,24 @@ def test_run_restores_cwd(tmp_path: Path, monkeypatch: object) -> None:
     monkeypatch.setattr("hyh.demo._run_all_steps", lambda d: None)  # type: ignore[attr-defined]
 
     run()
+
+    assert os.getcwd() == original
+
+
+def test_run_restores_cwd_on_error(monkeypatch: object) -> None:
+    """Test run() restores original cwd when _run_all_steps raises."""
+    import pytest
+
+    from hyh.demo import run
+
+    original = os.getcwd()
+
+    def raise_error(d: Path) -> None:
+        raise RuntimeError("Demo failed")
+
+    monkeypatch.setattr("hyh.demo._run_all_steps", raise_error)  # type: ignore[attr-defined]
+
+    with pytest.raises(RuntimeError):
+        run()
 
     assert os.getcwd() == original
