@@ -71,8 +71,10 @@ def test_parallel_git_operations_no_race(integration_worktree):
     server_thread.start()
     wait_for_socket(socket_path)
 
-    def send_command(cmd, max_retries=3):
-        """Send command to daemon and return response with retry on connection refused."""
+    def send_command(cmd, max_retries=5):
+        """Send command to daemon and return response with retry on transient errors."""
+        import errno
+
         for attempt in range(max_retries):
             sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
             sock.settimeout(10.0)
@@ -88,9 +90,15 @@ def test_parallel_git_operations_no_race(integration_worktree):
                     if b"\n" in response:
                         break
                 return json.loads(response.decode().strip())
-            except ConnectionRefusedError:
-                # Socket backlog full - retry after brief delay
+            except (ConnectionRefusedError, BlockingIOError):
+                # Socket backlog full or EAGAIN - retry after brief delay
                 if attempt < max_retries - 1:
+                    time.sleep(0.1 * (attempt + 1))
+                    continue
+                raise
+            except OSError as e:
+                # Handle EAGAIN/EWOULDBLOCK which may come as OSError
+                if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK) and attempt < max_retries - 1:
                     time.sleep(0.1 * (attempt + 1))
                     continue
                 raise
