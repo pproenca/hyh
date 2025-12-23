@@ -34,7 +34,7 @@ class LockHierarchyError(Exception):
         self.attempted_lock = attempted_lock
 
 
-class LockInfo(Struct):
+class LockInfo(Struct, frozen=True, forbid_unknown_fields=True):
     """Information about a tracked lock."""
 
     name: str
