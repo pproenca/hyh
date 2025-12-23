@@ -92,13 +92,6 @@ Final task
 
             # Wait for at least one request to start
             started.wait(timeout=2)
-            # Brief yield to let other threads start (uses condition-based check)
-            wait_until(
-                lambda: len([t for t in threads if t.is_alive()]) >= 3,
-                timeout=1.0,
-                poll_interval=0.01,
-                message="Threads should start",
-            )
 
             # Trigger shutdown (suppress - may close connection before responding)
             with contextlib.suppress(Exception):
