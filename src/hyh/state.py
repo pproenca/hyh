@@ -65,7 +65,7 @@ class TaskStatus(str, Enum):
 TimeoutSeconds = Annotated[int, Meta(ge=1, le=86400)]
 
 
-class Task(Struct, forbid_unknown_fields=True):
+class Task(Struct, frozen=True, forbid_unknown_fields=True):
     id: str
     description: str
 
