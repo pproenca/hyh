@@ -44,7 +44,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: dist
           path: dist/
@@ -76,7 +76,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: dist
           path: dist/
