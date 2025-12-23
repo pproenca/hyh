@@ -71,7 +71,7 @@ class TestNoDoubleAssignment:
             claimed_by: dict[str, str] = {}  # task_id -> first_worker_id
             claim_lock = threading.Lock()
             violations: list[str] = []
-            barrier = threading.Barrier(num_threads)
+            barrier = threading.Barrier(num_threads, timeout=30.0)
 
             def worker(worker_id: str) -> None:
                 barrier.wait()  # Synchronized start for maximum contention
@@ -161,7 +161,7 @@ class TestHighContentionSerialization:
             complete_counts: Counter[str] = Counter()  # task_id -> complete count
             count_lock = threading.Lock()
             errors: list[str] = []
-            barrier = threading.Barrier(num_threads)
+            barrier = threading.Barrier(num_threads, timeout=30.0)
 
             def worker(worker_id: str) -> None:
                 try:
@@ -337,7 +337,7 @@ class TestLockContention:
 
             acquisition_times: list[float] = []
             times_lock = threading.Lock()
-            barrier = threading.Barrier(20)
+            barrier = threading.Barrier(20, timeout=30.0)
 
             def contending_claimer(worker_id: str) -> None:
                 barrier.wait()
