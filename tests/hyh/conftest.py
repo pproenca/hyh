@@ -10,6 +10,7 @@ import json
 import os
 import socket as socket_module
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -17,6 +18,27 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+
+# =============================================================================
+# Free-Threading Compatibility
+# =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def aggressive_thread_switching():
+    """Force frequent context switches to expose races on GIL-enabled builds.
+
+    On free-threaded Python (3.13t/3.14t), this is a no-op since there's no GIL.
+    On standard Python, setting switch interval to 1 microsecond forces the GIL
+    to release frequently, making race conditions more likely to manifest.
+
+    See: https://py-free-threading.github.io/testing/
+    """
+    old_interval = sys.getswitchinterval()
+    sys.setswitchinterval(0.000001)  # 1 microsecond
+    yield
+    sys.setswitchinterval(old_interval)
+
 
 # =============================================================================
 # Test Utilities - Condition-based waiting (replaces raw time.sleep polling)
