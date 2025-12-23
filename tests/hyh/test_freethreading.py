@@ -454,36 +454,6 @@ class StateManagerStateMachine(RuleBasedStateMachine):
         )
 
     @invariant()
-    def indexes_consistent(self) -> None:
-        """Verify internal indexes match task dict."""
-        state = self.manager.load()
-        assert state is not None
-
-        # Pending deque and set must match
-        assert set(state._pending_deque) == state._pending_set, (
-            f"Deque/set mismatch: deque={set(state._pending_deque)}, set={state._pending_set}"
-        )
-
-        # All pending entries must be PENDING tasks
-        for tid in state._pending_deque:
-            task = state.tasks.get(tid)
-            assert task is not None, f"Deque contains missing task {tid}"
-            assert task.status == TaskStatus.PENDING, (
-                f"Deque contains non-pending task {tid} with status {task.status}"
-            )
-
-        # Worker index must point to valid RUNNING tasks
-        for worker_id, tid in state._worker_index.items():
-            task = state.tasks.get(tid)
-            assert task is not None, f"Worker index points to missing task {tid}"
-            assert task.status == TaskStatus.RUNNING, (
-                f"Worker index points to non-running task {tid}"
-            )
-            assert task.claimed_by == worker_id, (
-                f"Worker index mismatch: {worker_id} -> {tid} but task.claimed_by={task.claimed_by}"
-            )
-
-    @invariant()
     def completed_stays_completed(self) -> None:
         """Completed tasks cannot become uncompleted."""
         state = self.manager.load()

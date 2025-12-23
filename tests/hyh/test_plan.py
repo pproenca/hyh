@@ -9,7 +9,7 @@ def test_plan_task_definition_basic():
     """PlanTaskDefinition should validate required fields."""
     task = PlanTaskDefinition(description="Implement feature X")
     assert task.description == "Implement feature X"
-    assert task.dependencies == []
+    assert task.dependencies == ()
     assert task.instructions is None
     assert task.role is None
 
@@ -37,8 +37,8 @@ def test_plan_validate_dag_rejects_cycle():
     plan = PlanDefinition(
         goal="Test",
         tasks={
-            "a": PlanTaskDefinition(description="A", dependencies=["b"]),
-            "b": PlanTaskDefinition(description="B", dependencies=["a"]),
+            "a": PlanTaskDefinition(description="A", dependencies=("b",)),
+            "b": PlanTaskDefinition(description="B", dependencies=("a",)),
         },
     )
     with pytest.raises(ValueError, match="[Cc]ycle"):
@@ -50,7 +50,7 @@ def test_plan_validate_dag_rejects_missing_dep():
     plan = PlanDefinition(
         goal="Test",
         tasks={
-            "a": PlanTaskDefinition(description="A", dependencies=["ghost"]),
+            "a": PlanTaskDefinition(description="A", dependencies=("ghost",)),
         },
     )
     with pytest.raises(ValueError, match="[Mm]issing"):

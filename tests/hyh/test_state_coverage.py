@@ -132,59 +132,8 @@ class TestWorkflowStateListInput:
             WorkflowState(tasks=[123, 456])  # type: ignore[arg-type]
 
 
-class TestGetClaimableTaskDequeCleanup:
-    """Cover deque cleanup branches in get_claimable_task."""
-
-    def test_stale_task_id_removed_from_deque(self) -> None:
-        """Task ID in deque that no longer exists should be cleaned up."""
-        state = WorkflowState(
-            tasks={
-                "task-1": Task(
-                    id="task-1",
-                    description="Task 1",
-                    status=TaskStatus.PENDING,
-                    dependencies=[],
-                ),
-            }
-        )
-
-        # Manually corrupt the deque by adding nonexistent ID
-        state._pending_deque.appendleft("nonexistent")
-        state._pending_set.add("nonexistent")
-
-        # Should clean up stale entry and return task-1
-        result = state.get_claimable_task()
-        assert result is not None
-        assert result.id == "task-1"
-        assert "nonexistent" not in state._pending_set
-
-    def test_status_changed_task_removed_from_deque(self) -> None:
-        """Task whose status changed from PENDING should be removed from deque."""
-        state = WorkflowState(
-            tasks={
-                "task-1": Task(
-                    id="task-1",
-                    description="Task 1",
-                    status=TaskStatus.COMPLETED,  # Not PENDING anymore
-                    dependencies=[],
-                ),
-                "task-2": Task(
-                    id="task-2",
-                    description="Task 2",
-                    status=TaskStatus.PENDING,
-                    dependencies=[],
-                ),
-            }
-        )
-
-        # Manually add completed task to deque (simulating stale state)
-        state._pending_deque.appendleft("task-1")
-        state._pending_set.add("task-1")
-
-        # Should skip task-1 (not PENDING) and return task-2
-        result = state.get_claimable_task()
-        assert result is not None
-        assert result.id == "task-2"
+class TestGetClaimableTaskEdgeCases:
+    """Cover edge cases in get_claimable_task."""
 
     def test_all_pending_tasks_blocked_returns_none(self) -> None:
         """When all pending tasks have unsatisfied deps, should return None."""
@@ -215,40 +164,6 @@ class TestGetClaimableTaskDequeCleanup:
 
         result = state.get_claimable_task()
         assert result is None  # No claimable tasks
-
-
-class TestGetTaskForWorkerStaleIndex:
-    """Cover stale worker index cleanup in get_task_for_worker."""
-
-    def test_stale_worker_index_cleaned_up(self) -> None:
-        """Worker index pointing to completed task should be cleaned and new task returned."""
-        state = WorkflowState(
-            tasks={
-                "old-task": Task(
-                    id="old-task",
-                    description="Completed task",
-                    status=TaskStatus.COMPLETED,  # No longer RUNNING
-                    dependencies=[],
-                    claimed_by="worker-1",
-                    completed_at=datetime.now(UTC),
-                ),
-                "new-task": Task(
-                    id="new-task",
-                    description="New claimable task",
-                    status=TaskStatus.PENDING,
-                    dependencies=[],
-                ),
-            }
-        )
-
-        # Manually set stale worker index
-        state._worker_index["worker-1"] = "old-task"
-
-        # Should clean stale index and return new-task
-        result = state.get_task_for_worker("worker-1")
-        assert result is not None
-        assert result.id == "new-task"
-        assert "worker-1" not in state._worker_index  # Cleaned up
 
 
 class TestStateManagerUpdateEdgeCases:
