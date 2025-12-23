@@ -13,10 +13,11 @@ Tests cover:
 import os
 import subprocess
 import threading
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from tests.hyh.conftest import wait_until
 
 
 class TestSignalDecoding:
@@ -260,10 +261,14 @@ class TestLocalRuntime:
             thread = threading.Thread(target=run_command)
             thread.start()
 
-            # Give thread a moment to start and block on lock
-            time.sleep(0.1)
+            # Wait for thread to start and block on lock
+            wait_until(
+                lambda: thread.is_alive(),
+                timeout=1.0,
+                message="Thread should start",
+            )
 
-            # Thread should be blocked waiting for lock
+            # Thread should be blocked waiting for lock (still alive because it's waiting)
             assert thread.is_alive(), "Command should block waiting for lock"
 
             GLOBAL_EXEC_LOCK.release()
@@ -407,19 +412,13 @@ class TestDockerRuntime:
     def test_docker_runtime_exclusive_lock_acquired(self, mock_run):
         """DockerRuntime should acquire GLOBAL_EXEC_LOCK when exclusive=True."""
         import threading
-        import time
 
         from hyh.runtime import GLOBAL_EXEC_LOCK, DockerRuntime, VolumeMapper
 
         mapper = VolumeMapper("/host", "/container")
         runtime = DockerRuntime("test-container", mapper)
 
-        # Make subprocess.run slow enough to ensure lock is held during execution
-        def slow_run(*args, **kwargs):
-            time.sleep(0.1)
-            return MagicMock(returncode=0, stdout="", stderr="")
-
-        mock_run.side_effect = slow_run
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
         GLOBAL_EXEC_LOCK.acquire()
 
@@ -433,10 +432,14 @@ class TestDockerRuntime:
             thread = threading.Thread(target=run_command)
             thread.start()
 
-            # Give thread a moment to start and block on lock
-            time.sleep(0.05)
+            # Wait for thread to start and block on lock
+            wait_until(
+                lambda: thread.is_alive(),
+                timeout=1.0,
+                message="Thread should start",
+            )
 
-            # Thread should be blocked waiting for lock
+            # Thread should be blocked waiting for lock (still alive because it's waiting)
             assert thread.is_alive(), "Command should block waiting for lock when exclusive=True"
 
             GLOBAL_EXEC_LOCK.release()
