@@ -171,9 +171,6 @@ class TestHighContentionSerialization:
                         with count_lock:
                             claim_counts[result.task.id] += 1
 
-                        # Simulate work
-                        time.sleep(0.001)
-
                         # Complete the task
                         manager.complete_task(result.task.id, worker_id)
                         with count_lock:
