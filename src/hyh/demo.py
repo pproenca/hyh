@@ -650,6 +650,147 @@ def step_12_state_update() -> None:
     wait_for_user()
 
 
+def step_13_architecture() -> None:
+    """Show architecture overview."""
+    print_header("Step 12: Architecture Overview")
+
+    print(f"  {BOLD}Client-Daemon Split{NC}")
+    print()
+    print("    ┌──────────────────────────────────────────────────────────────────┐")
+    print("    │                        CLIENT (client.py)                        │")
+    print("    │  • Imports ONLY stdlib (sys, json, socket, argparse)             │")
+    print("    │  • <50ms startup time                                            │")
+    print("    │  • Zero validation logic                                         │")
+    print("    │  • Hash-based socket path for multi-project isolation            │")
+    print("    └──────────────────────────────────────────────────────────────────┘")
+    print("                                   │")
+    print("                           Unix Domain Socket")
+    print("                                   │")
+    print("                                   ▼")
+    print("    ┌──────────────────────────────────────────────────────────────────┐")
+    print("    │                        DAEMON (daemon.py)                        │")
+    print("    │  • ThreadingMixIn for parallel request handling                  │")
+    print("    │  • msgspec validation at the boundary                            │")
+    print("    │  • StateManager with thread-safe locking                         │")
+    print("    │  • TrajectoryLogger for observability                            │")
+    print("    │  • Runtime abstraction (Local or Docker)                         │")
+    print("    └──────────────────────────────────────────────────────────────────┘")
+    print()
+
+    wait_for_user()
+
+    print(f"  {BOLD}Lock Hierarchy (Deadlock Prevention){NC}")
+    print()
+    print("    Acquire locks in this order ONLY:")
+    print()
+    print("    ┌───────────────────────────────────────┐")
+    print("    │  1. StateManager._lock     (highest)  │  Protects DAG state")
+    print("    ├───────────────────────────────────────┤")
+    print("    │  2. TrajectoryLogger._lock            │  Protects event log")
+    print("    ├───────────────────────────────────────┤")
+    print("    │  3. GLOBAL_EXEC_LOCK       (lowest)   │  Protects git index")
+    print("    └───────────────────────────────────────┘")
+    print()
+    print(f"  {DIM}Release-then-Log Pattern: Release state lock BEFORE logging{NC}")
+    print(f"  {DIM}This prevents lock convoy (threads waiting on I/O){NC}")
+    print()
+
+    wait_for_user()
+
+    print(f"  {BOLD}Atomic Persistence Pattern{NC}")
+    print()
+    print("    ┌─────────────────────────────────────────────────────────────┐")
+    print("    │  1. Write to state.json.tmp                                 │")
+    print("    │  2. fsync() - ensure bytes hit disk                         │")
+    print("    │  3. rename(tmp, state.json) - POSIX atomic operation        │")
+    print("    └─────────────────────────────────────────────────────────────┘")
+    print()
+    print(f"  {DIM}If power fails during write: tmp file is corrupt, original intact{NC}")
+    print(f"  {DIM}If power fails during rename: atomic, so either old or new state{NC}")
+    print()
+
+    wait_for_user()
+
+
+def step_14_recap() -> None:
+    """Show command recap."""
+    print_header("Recap: Key Commands")
+
+    print(f"  {BOLD}Daemon Control{NC}")
+    print(f"    {YELLOW}hyh ping{NC}              Check if daemon is running")
+    print(f"    {YELLOW}hyh shutdown{NC}          Stop the daemon")
+    print()
+    print(f"  {BOLD}Worker Identity{NC}")
+    print(f"    {YELLOW}hyh worker-id{NC}         Print stable worker ID")
+    print()
+    print(f"  {BOLD}Plan Management{NC}")
+    print(f"    {YELLOW}hyh plan import --file{NC}  Import LLM-generated plan")
+    print(f"    {YELLOW}hyh plan template{NC}       Show Markdown plan format")
+    print(f"    {YELLOW}hyh plan reset{NC}          Clear workflow state")
+    print()
+    print(f"  {BOLD}Status Dashboard{NC}")
+    print(f"    {YELLOW}hyh status{NC}            Show workflow dashboard")
+    print(f"    {YELLOW}hyh status --json{NC}     Machine-readable output")
+    print(f"    {YELLOW}hyh status --watch{NC}    Auto-refresh mode")
+    print(f"    {YELLOW}hyh status --all{NC}      List all projects")
+    print()
+    print(f"  {BOLD}State Management{NC}")
+    print(f"    {YELLOW}hyh get-state{NC}         Get current workflow state")
+    print(f"    {YELLOW}hyh update-state{NC}      Update state fields")
+    print()
+    print(f"  {BOLD}Task Workflow{NC}")
+    print(f"    {YELLOW}hyh task claim{NC}        Claim next available task")
+    print(f"    {YELLOW}hyh task complete{NC}     Mark task as completed")
+    print()
+    print(f"  {BOLD}Command Execution{NC}")
+    print(f"    {YELLOW}hyh git -- <cmd>{NC}      Git with mutex")
+    print(f"    {YELLOW}hyh exec -- <cmd>{NC}     Arbitrary command")
+    print()
+    print(f"  {BOLD}Hook Integration{NC}")
+    print(f"    {YELLOW}hyh session-start{NC}     SessionStart hook output")
+    print(f"    {YELLOW}hyh check-state{NC}       Stop hook (deny if incomplete)")
+    print(f"    {YELLOW}hyh check-commit{NC}      SubagentStop hook (deny if no commit)")
+    print()
+
+    wait_for_user()
+
+
+def step_15_next_steps() -> None:
+    """Show next steps and wrap up."""
+    print_header("Next Steps")
+
+    print(f"  {BOLD}1. Explore the codebase{NC}")
+    print("     src/hyh/client.py    - Dumb CLI client")
+    print("     src/hyh/daemon.py    - ThreadingMixIn server")
+    print("     src/hyh/state.py     - msgspec models + StateManager")
+    print("     src/hyh/trajectory.py - JSONL logging")
+    print("     src/hyh/runtime.py   - Local/Docker execution")
+    print("     src/hyh/plan.py      - Markdown plan parser → WorkflowState")
+    print("     src/hyh/git.py       - Git operations via runtime")
+    print("     src/hyh/acp.py       - Background event emitter")
+    print("     src/hyh/registry.py  - Multi-project registry")
+    print()
+    print(f"  {BOLD}2. Run the tests{NC}")
+    print("     make test                           # All tests (30s timeout)")
+    print("     make test-fast                      # No timeout (faster iteration)")
+    print("     make check                          # lint + typecheck + test")
+    print()
+    print(f"  {BOLD}3. Read the architecture docs{NC}")
+    print("     docs/plans/                         # Design documents")
+    print()
+    print(f"  {BOLD}4. Try parallel workers{NC}")
+    print("     Open multiple terminals and run 'hyh task claim'")
+    print("     Watch them coordinate via the shared state")
+    print()
+
+    print_header("Demo Complete!")
+
+    print("  Thanks for taking the tour!")
+    print()
+    print(f"  {DIM}Demo directory will be cleaned up on exit.{NC}")
+    print()
+
+
 def _run_all_steps(demo_dir: Path) -> None:
     """Run all demo steps."""
     step_01_intro()
@@ -664,6 +805,9 @@ def _run_all_steps(demo_dir: Path) -> None:
     step_10_multi_project(demo_dir)
     step_11_exec(demo_dir)
     step_12_state_update()
+    step_13_architecture()
+    step_14_recap()
+    step_15_next_steps()
 
 
 def run() -> None:
