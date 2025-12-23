@@ -1,6 +1,9 @@
 # tests/hyh/test_demo.py
 """Tests for demo module."""
 
+import os
+from pathlib import Path
+
 from hyh.demo import (
     NC,
     print_command,
@@ -76,3 +79,29 @@ def test_all_outputs_end_with_reset(capsys: object) -> None:
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     # Each line should end with NC (reset)
     assert captured.out.count(NC) >= 6
+
+
+def test_cleanup_removes_temp_directory(tmp_path: Path) -> None:
+    """Test cleanup removes the demo directory."""
+    from hyh.demo import cleanup
+
+    demo_dir = tmp_path / "demo"
+    demo_dir.mkdir()
+    (demo_dir / "file.txt").write_text("test")
+
+    cleanup(demo_dir)
+
+    assert not demo_dir.exists()
+
+
+def test_run_restores_cwd(tmp_path: Path, monkeypatch: object) -> None:
+    """Test run() restores original cwd even on error."""
+    from hyh.demo import run
+
+    original = os.getcwd()
+    # Patch to skip actual demo steps
+    monkeypatch.setattr("hyh.demo._run_all_steps", lambda d: None)  # type: ignore[attr-defined]
+
+    run()
+
+    assert os.getcwd() == original

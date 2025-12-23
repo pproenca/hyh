@@ -3,7 +3,12 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
+import shutil
 import subprocess
+import tempfile
+from pathlib import Path
 
 # ANSI color constants
 RED = "\033[0;31m"
@@ -70,3 +75,36 @@ def run_command(cmd: str) -> None:
     for line in (result.stdout + result.stderr).splitlines():
         print(f"    {line}")
     print()
+
+
+def cleanup(demo_dir: Path) -> None:
+    """Clean up demo environment."""
+    print()
+    print_step("Cleaning up demo environment...")
+
+    # Shutdown daemon if running
+    with contextlib.suppress(Exception):
+        subprocess.run(["hyh", "shutdown"], capture_output=True, timeout=5)  # noqa: S607
+
+    # Remove demo directory
+    shutil.rmtree(demo_dir, ignore_errors=True)
+
+    print_success("Demo environment cleaned up")
+    print()
+
+
+def _run_all_steps(demo_dir: Path) -> None:
+    """Run all demo steps. Placeholder for now."""
+    pass
+
+
+def run() -> None:
+    """Run the interactive demo."""
+    original_cwd = Path.cwd()
+    demo_dir = Path(tempfile.mkdtemp())
+
+    try:
+        _run_all_steps(demo_dir)
+    finally:
+        os.chdir(original_cwd)
+        cleanup(demo_dir)
