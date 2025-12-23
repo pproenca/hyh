@@ -750,6 +750,9 @@ def _cmd_shutdown(socket_path: str, _worktree_root: str) -> None:
         print("Shutdown requested")
     except (FileNotFoundError, ConnectionRefusedError):
         print("Daemon not running")
+    except json.JSONDecodeError:
+        # Daemon may shut down before sending response - this is expected
+        print("Shutdown requested")
 
 
 def _cmd_task_claim(socket_path: str, worktree_root: str) -> None:

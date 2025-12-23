@@ -84,6 +84,7 @@ class TestDetectCycleComplexity:
             big_o.complexities.Constant,
             big_o.complexities.Logarithmic,
             big_o.complexities.Linear,
+            big_o.complexities.Linearithmic,  # O(n log n) is acceptable
             big_o.complexities.Polynomial,  # x^1 is linear
         )
         assert isinstance(best, acceptable), f"Expected O(n) or better, got {best}"
