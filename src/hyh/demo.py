@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import shutil
 import subprocess
@@ -349,6 +350,122 @@ def step_05_basic_commands() -> None:
     wait_for_user()
 
 
+def step_06_status_dashboard() -> None:
+    """Demonstrate status dashboard."""
+    print_header("Step 5: Status Dashboard")
+
+    print_step("View workflow status at a glance")
+    print_info("The 'status' command provides a real-time dashboard")
+    print()
+
+    run_command("hyh status")
+
+    print_explanation("Progress bar shows completion percentage")
+    print_explanation("Task table shows status, worker, and blocking dependencies")
+    print_explanation("Recent events show what happened and when")
+
+    wait_for_user()
+
+    print_step("Machine-readable output for scripting")
+    print()
+
+    run_command("hyh status --json | jq '.summary'")
+
+    print_explanation("Use --json for CI/CD integration")
+    print_explanation("Use --watch for live updates (e.g., hyh status --watch 2)")
+
+    wait_for_user()
+
+
+def step_07_task_workflow() -> None:
+    """Demonstrate task claiming and completion."""
+    print_header("Step 6: Task Claiming and Completion")
+
+    print_step("Claim the first available task")
+    print_info("Each worker gets a unique ID and claims tasks atomically")
+    print()
+
+    run_command("hyh task claim")
+
+    print_explanation("We got 'setup-db' - the only task with no dependencies")
+    print_explanation("The task is now 'running' and locked to our worker ID")
+
+    wait_for_user()
+
+    print_step("Try to claim again (idempotency)")
+    print_info("Claiming again returns the same task - lease renewal pattern")
+    print()
+
+    run_command("hyh task claim")
+
+    print_explanation("Same task returned - this is intentional!")
+    print_explanation("It renews the lease timestamp, preventing task theft on retries")
+
+    wait_for_user()
+
+    print_step("Complete the setup-db task")
+    print()
+
+    run_command("hyh task complete --id setup-db")
+
+    print_success("Task completed!")
+    print()
+
+    print_step("What tasks are claimable now?")
+    print()
+
+    jq_filter = (
+        r"'.tasks as $tasks | $tasks | to_entries[] | .key as $tid | "
+        r".value.status as $status | .value.dependencies as $deps | "
+        r'(if $status == "pending" and ([$deps[] | $tasks[.].status] | '
+        r'all(. == "completed")) then " <- CLAIMABLE" else "" end) as $marker | '
+        r'"\($tid): \($status)\($marker)"'
+        "'"
+    )
+    run_command(f"hyh get-state | jq -r {jq_filter}")
+
+    print_explanation("'auth-endpoints' is now claimable (depends on completed 'setup-db')")
+    print_explanation("'api-tests' is still blocked (depends on 'auth-endpoints')")
+
+    wait_for_user()
+
+    print_step("Complete the remaining tasks")
+    print()
+
+    # Complete remaining tasks programmatically
+    for _ in range(2):
+        print_command("hyh task claim")
+        result = subprocess.run(
+            ["hyh", "task", "claim"],  # noqa: S607
+            capture_output=True,
+            text=True,
+        )
+        claim_data = json.loads(result.stdout)
+        task_id = claim_data.get("task", {}).get("id", "unknown")
+        print(f"    Claimed: {task_id}")
+        print()
+
+        print_command(f"hyh task complete --id {task_id}")
+        subprocess.run(  # noqa: S603
+            ["hyh", "task", "complete", "--id", task_id],  # noqa: S607
+            capture_output=True,
+        )
+        print()
+
+    print_success("All tasks completed!")
+
+    wait_for_user()
+
+    print_step("Final state")
+    print()
+
+    run_command(r"hyh get-state | jq -r '.tasks | to_entries[] | \"\(.key): \(.value.status)\"'")
+
+    print_explanation("Every task is now 'completed' - workflow finished!")
+
+    wait_for_user()
+
+
 def _run_all_steps(demo_dir: Path) -> None:
     """Run all demo steps."""
     step_01_intro()
@@ -356,6 +473,8 @@ def _run_all_steps(demo_dir: Path) -> None:
     step_03_worker_identity()
     step_04_plan_import(demo_dir)
     step_05_basic_commands()
+    step_06_status_dashboard()
+    step_07_task_workflow()
 
 
 def run() -> None:
