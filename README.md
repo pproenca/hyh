@@ -1,110 +1,100 @@
 # hyh
 
-[![PyPI version](https://img.shields.io/pypi/v/hyh.svg)](https://pypi.org/project/hyh/)
-[![Python versions](https://img.shields.io/pypi/pyversions/hyh.svg)](https://pypi.org/project/hyh/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Coverage](https://img.shields.io/badge/coverage-80%25-green)](https://github.com/pproenca/hyh)
+[![PyPI](https://img.shields.io/pypi/v/hyh.svg)](https://pypi.org/project/hyh/)
+[![Python](https://img.shields.io/pypi/pyversions/hyh.svg)](https://pypi.org/project/hyh/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/pproenca/hyh/actions/workflows/ci.yml/badge.svg)](https://github.com/pproenca/hyh/actions/workflows/ci.yml)
 
-CLI orchestration tool for agentic workflows. Coordinate tasks with claude-code, AI agents, and development tools through a daemon-based task management system.
+A CLI orchestration tool for agentic workflows. Coordinate tasks with AI agents through a daemon-based task management system.
 
-## Features
+hyh (hold your horses) provides DAG-based task orchestration with atomic state transitions, designed for coordinating claude-code and other AI agents in development workflows.
 
-- **Task orchestration** - DAG-based dependency resolution with cycle detection
-- **Thread-safe operations** - Concurrent task claiming with atomic state transitions
-- **Client-daemon architecture** - Unix socket RPC for fast, reliable communication
-- **Pull-based task claiming** - Workers claim tasks atomically via `hyh task claim`
-- **Command execution** - Run commands with mutex protection (local or Docker)
+## Highlights
+
+- **DAG-based orchestration** - Dependency resolution with cycle detection and topological validation
+- **Thread-safe operations** - Concurrent task claiming with atomic state transitions via mutex protection
+- **Client-daemon architecture** - Unix socket RPC for fast, reliable inter-process communication
+- **Pull-based task claiming** - Workers claim tasks atomically, preventing race conditions
+- **Command execution** - Run commands with mutex protection (local or Docker runtimes)
 - **Git integration** - Safe git operations with dangerous option validation
+- **Python 3.13+ / 3.14 freethreaded** - Modern Python with full type annotations
+
+## Getting started
+
+Run hyh with [uvx](https://docs.astral.sh/uv/guides/tools/#running-tools) to get started quickly:
+
+```shell
+uvx hyh status
+```
+
+Or start a workflow from a plan file:
+
+```shell
+uvx hyh plan import --file plan.md
+uvx hyh status
+```
 
 ## Installation
 
-### Recommended: uv tool (persistent installation)
+Install hyh as a persistent tool:
 
-````bash
+```shell
 uv tool install hyh
-```text
-### One-off execution
+```
 
-```bash
-uvx hyh status
-```text
-### Traditional pip
+Or with pip:
 
-```bash
+```shell
 pip install hyh
-```text
-### From source (development)
+```
 
-```bash
-uv tool install git+https://github.com/pproenca/hyh
-```text
-### Curl install script
+For development installation, see [Contributing](#contributing).
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/pproenca/hyh/master/install.sh | bash
-```text
-## Quick Start
+## Usage
 
-```bash
-# Check daemon is running
+```shell
+# Check daemon status
 hyh ping
 
-# Import a plan file
+# Import and manage plans
 hyh plan import --file plan.md
-
-# Show workflow status
 hyh status
 
-# Claim and execute tasks
+# Claim and complete tasks
 hyh task claim
 hyh task complete --id task-1
 
-# Execute commands with mutex
+# Execute commands with mutex protection
 hyh exec -- make test
 
 # Safe git operations
 hyh git -- status
-```text
-## Architecture
+```
 
-```text
-┌─────────────┐     Unix Socket RPC     ┌──────────────┐
-│   Client    │ ──────────────────────► │    Daemon    │
-│  (hyh)  │                         │  (per-project)│
-└─────────────┘                         └──────┬───────┘
-                                               │
-                          ┌────────────────────┼────────────────────┐
-                          │                    │                    │
-                    ┌─────▼─────┐       ┌──────▼──────┐      ┌──────▼──────┐
-                    │   State   │       │   Runtime   │      │  Trajectory │
-                    │  Manager  │       │ (Local/Docker)│    │   Logger    │
-                    └───────────┘       └─────────────┘      └─────────────┘
-```text
 ## Requirements
 
-- Python 3.13+
+- Python 3.13+ (3.14 freethreaded supported)
 - macOS or Linux
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 
-## Development
+## Getting help
 
-```bash
-# Clone and setup
+If you have questions or want to report a bug, please open an
+[issue](https://github.com/pproenca/hyh/issues) in this repository.
+
+## Contributing
+
+We welcome contributions! To get started:
+
+```shell
 git clone https://github.com/pproenca/hyh.git
 cd hyh
 make install
-
-# Run tests
 make test
+```
 
-# Start development daemon
-make dev
-```text
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
-## Documentation
-
-See [CLAUDE.md](CLAUDE.md) for detailed architecture and code style documentation.
-````
