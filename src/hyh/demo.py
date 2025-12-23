@@ -1,8 +1,6 @@
 # src/hyh/demo.py
 """Interactive demo of hyh features."""
 
-from __future__ import annotations
-
 import contextlib
 import hashlib
 import json

@@ -54,7 +54,7 @@ class PlanDefinition(Struct, frozen=True, forbid_unknown_fields=True):
                 id=tid,
                 description=t.description,
                 status=TaskStatus.PENDING,
-                dependencies=tuple(t.dependencies),
+                dependencies=t.dependencies,
                 started_at=None,
                 completed_at=None,
                 claimed_by=None,

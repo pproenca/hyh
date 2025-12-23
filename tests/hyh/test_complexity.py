@@ -174,7 +174,7 @@ class TestWorkflowStateComplexity:
         )
         if isinstance(best, big_o.complexities.Polynomial):
             # Check that the exponent is <= 1.5 (essentially linear or sublinear)
-            assert best.coeff <= 1.5, f"Expected O(n) or better, got O(n^{best.coeff:.2f})"
+            assert best.exponent <= 1.5, f"Expected O(n) or better, got O(n^{best.exponent:.2f})"
         else:
             assert isinstance(best, acceptable), f"Expected O(n log n) or better, got {best}"
 
