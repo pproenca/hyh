@@ -71,6 +71,8 @@ packages = ["src/hyh"]
 
 # uv configuration - https://docs.astral.sh/uv/reference/settings/
 [tool.uv]
+# Pin uv version to avoid GitHub API rate limits in CI
+required-version = ">=0.9"
 # Explicitly mark as a package (builds and installs in editable mode)
 package = true
 # Default groups to sync (dev is already default, but explicit is better)
