@@ -246,16 +246,20 @@ def _cmd_status_all() -> int:
         print("No projects registered.")
         return 0
 
-    print("Projects:")
-    for hash_id, info in projects.items():
-        path = info["path"]
+    # Filter out stale entries (paths that no longer exist)
+    valid_projects = {
+        hash_id: info for hash_id, info in projects.items() if Path(info["path"]).exists()
+    }
 
+    if not valid_projects:
+        print("No projects registered.")
+        return 0
+
+    print("Projects:")
+    for hash_id, info in valid_projects.items():
+        path = info["path"]
         sock_path = str(Path.home() / ".hyh" / "sockets" / f"{hash_id}.sock")
         status = "[running]" if Path(sock_path).exists() else "[stopped]"
-
-        if not Path(path).exists():
-            status = "[stale - path not found]"
-
         print(f"  {path}  {status}")
 
     return 0
