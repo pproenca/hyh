@@ -37,7 +37,7 @@ class TestDetectCycleComplexity:
             min_n=100,
             max_n=10000,
             n_measures=10,
-            n_repeats=3,
+            n_repeats=50,
         )
 
         # Should be linear or better, not quadratic
@@ -72,7 +72,7 @@ class TestDetectCycleComplexity:
             min_n=100,
             max_n=5000,
             n_measures=10,
-            n_repeats=3,
+            n_repeats=50,
         )
 
         # Linear chain should be O(V) = O(n)
@@ -118,7 +118,7 @@ class TestWorkflowStateComplexity:
             min_n=100,
             max_n=5000,
             n_measures=10,
-            n_repeats=3,
+            n_repeats=50,
         )
 
         # Should be linearithmic or better (includes state creation overhead)
@@ -163,7 +163,7 @@ class TestWorkflowStateComplexity:
             min_n=100,
             max_n=10000,
             n_measures=10,
-            n_repeats=3,
+            n_repeats=50,
         )
 
         # Includes state creation overhead, so expect linearithmic or better
@@ -210,7 +210,7 @@ class TestValidateDagComplexity:
             min_n=100,
             max_n=5000,
             n_measures=10,
-            n_repeats=3,
+            n_repeats=50,
         )
 
         acceptable = (
