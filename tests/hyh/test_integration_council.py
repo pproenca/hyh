@@ -2,32 +2,14 @@
 """Integration tests verifying Council Amendments A, B, C work together."""
 
 import json
-import socket as socket_module
 import threading
 import time
 
 import pytest
 
+from tests.hyh.conftest import send_command
+
 # socket_path and worktree fixtures are imported from conftest.py
-
-
-def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
-    sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
-    sock.settimeout(timeout)
-    try:
-        sock.connect(socket_path)
-        sock.sendall(json.dumps(command).encode() + b"\n")
-        response = b""
-        while True:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            response += chunk
-            if b"\n" in response:
-                break
-        return json.loads(response.decode().strip())
-    finally:
-        sock.close()
 
 
 def test_amendments_work_together(socket_path, worktree):
