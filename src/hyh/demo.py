@@ -466,6 +466,110 @@ def step_07_task_workflow() -> None:
     wait_for_user()
 
 
+def step_08_git_mutex() -> None:
+    """Demonstrate git operations with mutex."""
+    print_header("Step 7: Git Operations with Mutex")
+
+    print_step("The problem: parallel git operations corrupt .git/index")
+    print_info("Two workers running 'git add' simultaneously = data loss")
+    print()
+
+    print_step("The solution: hyh git -- <command>")
+    print_info("All git operations go through a global mutex")
+    print()
+
+    # Create a demo file
+    Path("demo.txt").write_text("demo content\n")
+
+    run_command("hyh git -- add demo.txt")
+    run_command("hyh git -- status")
+    run_command("hyh git -- commit -m 'Add demo file'")
+
+    print_explanation("Each git command acquires an exclusive lock")
+    print_explanation("Parallel workers block until the lock is free")
+    print_explanation("Result: safe git operations, no corruption")
+
+    wait_for_user()
+
+
+def step_09_hooks(demo_dir: Path) -> None:
+    """Demonstrate Claude Code hook integration."""
+    print_header("Step 8: Claude Code Hook Integration")
+
+    print_step("hyh provides hooks for Claude Code plugins")
+    print_info("Three hooks: session-start, check-state, check-commit")
+    print()
+
+    print(f"  {BOLD}1. SessionStart Hook{NC} - Shows workflow progress on session resume")
+    print()
+    run_command("hyh session-start | jq .")
+
+    print_explanation("This output gets injected into Claude's context at session start")
+    print()
+
+    print_step("2. Stop Hook (check-state)")
+    print_info("Prevents ending session while workflow is incomplete")
+    print()
+
+    # Reset to fresh workflow with pending task
+    state_dir = demo_dir / ".claude"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "dev-workflow-state.json").write_text("""{
+  "tasks": {
+    "incomplete-task": {
+      "id": "incomplete-task",
+      "description": "This task is not done",
+      "status": "pending",
+      "dependencies": []
+    }
+  }
+}""")
+
+    print(f"  {DIM}Created workflow with 1 pending task{NC}")
+    print()
+    run_command("hyh check-state || true")
+
+    print_explanation("Exit code 1 + 'deny' = Claude Code blocks the session end")
+    print()
+
+    # Complete the task
+    subprocess.run(["hyh", "task", "claim"], capture_output=True)  # noqa: S607
+    subprocess.run(
+        ["hyh", "task", "complete", "--id", "incomplete-task"],  # noqa: S607
+        capture_output=True,
+    )
+    print(f"  {DIM}Task completed...{NC}")
+    print()
+
+    run_command("hyh check-state")
+
+    print_explanation("Exit code 0 + 'allow' = Session can end")
+    print()
+
+    print_step("3. SubagentStop Hook (check-commit)")
+    print_info("Requires agents to make git commits after work")
+    print()
+
+    # Set up last_commit in state
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],  # noqa: S607
+        capture_output=True,
+        text=True,
+    )
+    current_head = result.stdout.strip()
+    subprocess.run(  # noqa: S603
+        ["hyh", "update-state", "--field", "last_commit", current_head],  # noqa: S607
+        capture_output=True,
+    )
+
+    run_command("hyh check-commit || true")
+
+    print_explanation("If HEAD matches last_commit, agent hasn't committed new work")
+    print_explanation("Useful to ensure code changes are persisted")
+
+    wait_for_user()
+
+
 def _run_all_steps(demo_dir: Path) -> None:
     """Run all demo steps."""
     step_01_intro()
@@ -475,6 +579,8 @@ def _run_all_steps(demo_dir: Path) -> None:
     step_05_basic_commands()
     step_06_status_dashboard()
     step_07_task_workflow()
+    step_08_git_mutex()
+    step_09_hooks(demo_dir)
 
 
 def run() -> None:
