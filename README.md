@@ -3,6 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/hyh.svg)](https://pypi.org/project/hyh/)
 [![Python versions](https://img.shields.io/pypi/pyversions/hyh.svg)](https://pypi.org/project/hyh/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Coverage](https://img.shields.io/badge/coverage-80%25-green)](https://github.com/pproenca/hyh)
 
 CLI orchestration tool for agentic workflows. Coordinate tasks with claude-code, AI agents, and development tools through a daemon-based task management system.
 

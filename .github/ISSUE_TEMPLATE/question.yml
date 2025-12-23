@@ -1,0 +1,27 @@
+name: Question
+description: Ask a question about hyh
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question about hyh? Check the [README](https://github.com/pproenca/hyh#readme) first.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Describe your question in detail.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "What version of hyh are you using? (run: hyh --version)"
+      placeholder: "e.g., 0.1.0a1"
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Your OS and architecture
+      placeholder: "e.g., macOS 14 arm64, Ubuntu 24.04 amd64"

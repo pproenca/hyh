@@ -1,0 +1,61 @@
+name: Bug Report
+description: File a bug report to help us improve hyh
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+        Please include a minimal reproducible example if possible.
+  - type: textarea
+    id: description
+    attributes:
+      label: Summary
+      description: A clear and concise description of the bug, including a minimal reproducible example.
+      placeholder: |
+        When I run `hyh start`, I get the following error:
+        ```
+        Error: ...
+        ```
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Run `hyh daemon start`
+        2. Run `hyh task add "test"`
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: "Your OS and architecture (run: uname -orsm)"
+      placeholder: "e.g., macOS 14 arm64, Ubuntu 24.04 amd64"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: hyh Version
+      description: "What version of hyh are you using? (run: hyh --version)"
+      placeholder: "e.g., 0.1.0a1"
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python Version
+      description: "What Python version are you using? (run: python --version)"
+      placeholder: "e.g., Python 3.13.1"

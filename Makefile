@@ -69,6 +69,11 @@ shell:  ## Open interactive Python shell with project loaded
 test:  ## Run all tests
 	$(PYTEST) -v
 
+.PHONY: coverage
+coverage:  ## Run tests with coverage reporting
+	$(PYTEST) -v --cov=hyh --cov-report=html --cov-report=term-missing
+	@echo "Coverage report generated in htmlcov/index.html"
+
 .PHONY: test-fast
 test-fast:  ## Run tests without timeout (faster iteration)
 	$(PYTEST) -v --timeout=0
