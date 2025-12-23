@@ -86,6 +86,33 @@ SAMPLE_WORKFLOW_JSON = """{
   }
 }"""
 
+SAMPLE_LLM_PLAN = """I'll create a plan for building the API:
+
+**Goal:** Build REST API with authentication
+
+## Task Groups
+
+| Task Group | Tasks | Rationale |
+|------------|-------|-----------|
+| Group 1    | setup-db | Core infrastructure |
+| Group 2    | auth-endpoints | Depends on DB |
+| Group 3    | api-tests | Integration tests |
+
+---
+
+### Task setup-db: Initialize database schema
+
+Create tables for users and sessions using SQLAlchemy.
+
+### Task auth-endpoints: Implement login/logout endpoints
+
+Use JWT tokens with 24h expiry. Create /login and /logout routes.
+
+### Task api-tests: Write integration tests
+
+Test full authentication flow with pytest.
+"""
+
 
 def print_header(title: str) -> None:
     """Print a section header with magenta borders."""
@@ -240,10 +267,95 @@ def step_02_setup(demo_dir: Path) -> None:
     wait_for_user()
 
 
+def step_03_worker_identity() -> None:
+    """Demonstrate worker identity."""
+    print_header("Step 2: Worker Identity")
+
+    print_step("Each worker has a stable identity")
+    print_info("Worker IDs persist across CLI invocations using atomic writes")
+    print()
+
+    run_command("hyh worker-id")
+
+    print_explanation("This ID is used for task ownership (lease renewal)")
+    print_explanation("Multiple invocations return the same ID")
+
+    wait_for_user()
+
+
+def step_04_plan_import(demo_dir: Path) -> None:
+    """Demonstrate plan import from LLM output."""
+    print_header("Step 3: Importing Plans from LLM Output")
+
+    print_step("LLM orchestrators emit plans in structured Markdown format")
+    print_info("The 'plan import' command parses and validates the DAG")
+    print()
+
+    # Create sample plan file
+    plan_file = demo_dir / "llm-output.md"
+    plan_file.write_text(SAMPLE_LLM_PLAN)
+
+    print(f"  {BOLD}Sample LLM output file:{NC}")
+    print()
+    run_command(f"cat '{plan_file}'")
+
+    print_step("Import the plan")
+    print()
+    run_command(f"hyh plan import --file '{plan_file}'")
+
+    print_step("View the imported state")
+    print()
+    jq_filter = (
+        ".tasks | to_entries[] | {id: .key, status: .value.status, deps: .value.dependencies}"
+    )
+    run_command(f"hyh get-state | jq '{jq_filter}'")
+
+    print_explanation("Dependencies are inferred from Task Groups (Group N depends on Group N-1)")
+    print_explanation("Task instructions come from the Markdown body under each ### Task header")
+    print()
+
+    print_step("Get the plan template (shows format documentation)")
+    print()
+    run_command("hyh plan template | head -50")
+
+    print_explanation("Use 'plan template' to see the full Markdown format for LLM prompting")
+
+    wait_for_user()
+
+
+def step_05_basic_commands() -> None:
+    """Demonstrate basic daemon commands."""
+    print_header("Step 4: Basic Daemon Commands")
+
+    print_step("Ping the daemon")
+    print_info("The daemon auto-spawns on first command if not running")
+    print()
+
+    run_command("hyh ping")
+
+    print_explanation("The daemon is now running as a background process")
+    print_explanation("It listens on a Unix socket for client requests")
+
+    wait_for_user()
+
+    print_step("View the current workflow state")
+    print()
+
+    run_command("hyh get-state | jq . | head -40")
+
+    print_explanation("All 3 tasks are 'pending' - none have been claimed yet")
+    print_explanation("Only 'setup-db' is claimable (it has no dependencies)")
+
+    wait_for_user()
+
+
 def _run_all_steps(demo_dir: Path) -> None:
     """Run all demo steps."""
     step_01_intro()
     step_02_setup(demo_dir)
+    step_03_worker_identity()
+    step_04_plan_import(demo_dir)
+    step_05_basic_commands()
 
 
 def run() -> None:
