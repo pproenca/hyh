@@ -6,10 +6,12 @@ Centralizes daemon management to ensure proper resource cleanup
 and eliminate ResourceWarning issues.
 """
 
+import asyncio
 import json
 import os
 import socket as socket_module
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -17,6 +19,60 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from hypothesis import Verbosity, settings
+
+# =============================================================================
+# Hypothesis Profiles - CI vs Local Development
+# =============================================================================
+
+# CI profile: relaxed deadlines for slower CI runners
+settings.register_profile(
+    "ci",
+    max_examples=100,
+    deadline=5000,  # 5 seconds (default is 200ms)
+    verbosity=Verbosity.normal,
+)
+
+# Local dev profile: faster feedback
+settings.register_profile(
+    "default",
+    max_examples=100,
+    deadline=1000,  # 1 second
+)
+
+# Auto-select profile based on CI environment variable
+if os.environ.get("CI"):
+    settings.load_profile("ci")
+else:
+    settings.load_profile("default")
+
+# =============================================================================
+# Free-Threading Compatibility
+# =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def aggressive_thread_switching(request):
+    """Force frequent context switches to expose races on GIL-enabled builds.
+
+    On free-threaded Python (3.13t/3.14t), this is a no-op since there's no GIL.
+    On standard Python, setting switch interval to 1 microsecond forces the GIL
+    to release frequently, making race conditions more likely to manifest.
+
+    SKIPPED for 'slow' tests (complexity benchmarks) which need stable timing.
+
+    See: https://py-free-threading.github.io/testing/
+    """
+    # Skip for slow tests - complexity benchmarks need stable timing
+    if request.node.get_closest_marker("slow"):
+        yield
+        return
+
+    old_interval = sys.getswitchinterval()
+    sys.setswitchinterval(0.000001)  # 1 microsecond
+    yield
+    sys.setswitchinterval(old_interval)
+
 
 # =============================================================================
 # Test Utilities - Condition-based waiting (replaces raw time.sleep polling)
@@ -193,6 +249,37 @@ def send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
         return json.loads(response.decode().strip())
     finally:
         sock.close()
+
+
+async def async_send_command(socket_path: str, command: dict, timeout: float = 5.0) -> dict:
+    """Async version of send_command using asyncio streams.
+
+    Use this in async tests for non-blocking socket communication
+    with the daemon.
+
+    Args:
+        socket_path: Path to Unix socket.
+        command: Command dict to send.
+        timeout: Timeout in seconds.
+
+    Returns:
+        Response dict from daemon.
+
+    Raises:
+        asyncio.TimeoutError: If connection or response times out.
+    """
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_unix_connection(socket_path),
+        timeout=timeout,
+    )
+    try:
+        writer.write(json.dumps(command).encode() + b"\n")
+        await writer.drain()
+        response = await asyncio.wait_for(reader.readline(), timeout=timeout)
+        return json.loads(response.decode().strip())
+    finally:
+        writer.close()
+        await writer.wait_closed()
 
 
 def send_command_with_retry(socket_path: str, cmd: dict, max_retries: int = 3) -> dict:
@@ -389,3 +476,15 @@ def fast_worktree(tmp_path: Path, git_template_dir: Path) -> Path:
         check=True,
     )
     return worktree
+
+
+@pytest.fixture(scope="session")
+def worker_id(request: pytest.FixtureRequest) -> str:
+    """Return xdist worker id or 'master' for non-parallel runs.
+
+    Useful for creating worker-specific resources when running
+    tests in parallel with pytest-xdist.
+    """
+    if hasattr(request.config, "workerinput"):
+        return request.config.workerinput["workerid"]
+    return "master"

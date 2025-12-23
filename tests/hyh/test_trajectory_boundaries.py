@@ -122,7 +122,7 @@ class TestConcurrentBoundaryWrites:
 
             errors: list[str] = []
             errors_lock = threading.Lock()
-            barrier = threading.Barrier(num_threads)
+            barrier = threading.Barrier(num_threads, timeout=5.0)
 
             def writer(thread_id: int) -> None:
                 barrier.wait()
@@ -167,7 +167,7 @@ class TestConcurrentBoundaryWrites:
 
             errors: list[str] = []
             errors_lock = threading.Lock()
-            barrier = threading.Barrier(num_threads)
+            barrier = threading.Barrier(num_threads, timeout=5.0)
 
             def writer(thread_id: int) -> None:
                 barrier.wait()
@@ -217,7 +217,7 @@ class TestMixedSizes:
 
             errors: list[str] = []
             errors_lock = threading.Lock()
-            barrier = threading.Barrier(num_threads)
+            barrier = threading.Barrier(num_threads, timeout=5.0)
 
             def writer(thread_id: int) -> None:
                 barrier.wait()
@@ -316,7 +316,7 @@ class TestLargeEvents:
 
             errors: list[str] = []
             errors_lock = threading.Lock()
-            barrier = threading.Barrier(num_threads)
+            barrier = threading.Barrier(num_threads, timeout=5.0)
 
             def writer(thread_id: int) -> None:
                 barrier.wait()

@@ -348,7 +348,7 @@ def test_log_does_not_hold_lock_during_fsync(tmp_path):
 
     try:
         threads = []
-        start_barrier = threading.Barrier(5)
+        start_barrier = threading.Barrier(5, timeout=5.0)
         start_time = [0.0]
 
         def log_event(thread_id):

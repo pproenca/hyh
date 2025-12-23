@@ -126,7 +126,7 @@ class TestClaimCompleteReclaimInterleave:
 
                 # Two workers race to reclaim
                 results: dict[str, object] = {}
-                barrier = threading.Barrier(2)
+                barrier = threading.Barrier(2, timeout=5.0)
 
                 def reclaimer(worker_id: str) -> None:
                     barrier.wait()
@@ -286,7 +286,7 @@ class TestDagTraversalUnderMutation:
             claimed_tasks: list[str] = []
             claim_lock = threading.Lock()
             errors: list[str] = []
-            barrier = threading.Barrier(10)
+            barrier = threading.Barrier(10, timeout=5.0)
 
             def claimer(worker_id: str) -> None:
                 barrier.wait()
@@ -360,7 +360,7 @@ class TestAllTasksCompletedInvariant:
 
             results: list[object] = []
             results_lock = threading.Lock()
-            barrier = threading.Barrier(20)
+            barrier = threading.Barrier(20, timeout=5.0)
 
             def claimer(worker_id: str) -> None:
                 barrier.wait()

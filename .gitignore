@@ -39,6 +39,7 @@ htmlcov/
 .nox/
 .benchmarks/
 .hypothesis/
+.testmondata
 
 # Local development
 *.local.md

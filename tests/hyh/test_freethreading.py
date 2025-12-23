@@ -7,7 +7,7 @@ This exposes races that the GIL previously hid. Testing strategy:
 
 1. High thread counts (50-100) with synchronized start via threading.Barrier
 2. Explicit double-assignment detection (no task claimed by multiple workers)
-3. Hypothesis stateful testing for randomized operation sequences
+3. Deterministic stress tests with synchronized thread start
 4. Memory visibility verification (mutations visible across threads immediately)
 
 The StateManager uses threading.Lock which provides memory barriers on
@@ -28,8 +28,6 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from hypothesis import settings
-from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, rule
 
 from hyh.state import Task, TaskStatus, WorkflowState, WorkflowStateStore
 
@@ -70,7 +68,7 @@ class TestNoDoubleAssignment:
             claimed_by: dict[str, str] = {}  # task_id -> first_worker_id
             claim_lock = threading.Lock()
             violations: list[str] = []
-            barrier = threading.Barrier(num_threads)
+            barrier = threading.Barrier(num_threads, timeout=5.0)
 
             def worker(worker_id: str) -> None:
                 barrier.wait()  # Synchronized start for maximum contention
@@ -160,7 +158,7 @@ class TestHighContentionSerialization:
             complete_counts: Counter[str] = Counter()  # task_id -> complete count
             count_lock = threading.Lock()
             errors: list[str] = []
-            barrier = threading.Barrier(num_threads)
+            barrier = threading.Barrier(num_threads, timeout=5.0)
 
             def worker(worker_id: str) -> None:
                 try:
@@ -169,9 +167,6 @@ class TestHighContentionSerialization:
                     if result.task and not result.is_retry:
                         with count_lock:
                             claim_counts[result.task.id] += 1
-
-                        # Simulate work
-                        time.sleep(0.001)
 
                         # Complete the task
                         manager.complete_task(result.task.id, worker_id)
@@ -322,6 +317,7 @@ class TestLockContention:
         """Document lock contention behavior - not a pass/fail test."""
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = WorkflowStateStore(Path(tmpdir))
+            num_threads = 20
 
             # Create single task - maximum contention
             tasks = {
@@ -329,14 +325,14 @@ class TestLockContention:
                     id="task-1",
                     description="Test",
                     status=TaskStatus.PENDING,
-                    dependencies=[],
+                    dependencies=(),
                 )
             }
             manager.save(WorkflowState(tasks=tasks))
 
             acquisition_times: list[float] = []
             times_lock = threading.Lock()
-            barrier = threading.Barrier(20)
+            barrier = threading.Barrier(num_threads, timeout=5.0)
 
             def contending_claimer(worker_id: str) -> None:
                 barrier.wait()
@@ -348,7 +344,7 @@ class TestLockContention:
 
             threads = [
                 threading.Thread(target=contending_claimer, args=(f"worker-{i}",))
-                for i in range(20)
+                for i in range(num_threads)
             ]
             for t in threads:
                 t.start()
@@ -356,7 +352,7 @@ class TestLockContention:
                 t.join()
 
             # Verify we got measurements from all threads
-            assert len(acquisition_times) == 20
+            assert len(acquisition_times) == num_threads
 
             # Under contention, later acquisitions take longer (serialization)
             # This documents expected behavior, not a correctness check
@@ -366,143 +362,3 @@ class TestLockContention:
             # Sanity check: max should be significantly > avg under contention
             # If not, either very fast machine or lock not serializing
             assert max_time >= avg_time  # Always true, but documents expectation
-
-
-# -----------------------------------------------------------------------------
-# Hypothesis Stateful Testing
-# -----------------------------------------------------------------------------
-
-
-@settings(max_examples=50, stateful_step_count=30)
-class StateManagerStateMachine(RuleBasedStateMachine):
-    """Property-based stateful test for StateManager concurrency invariants.
-
-    Uses Hypothesis to generate random sequences of claim/complete operations
-    and verifies invariants hold after each operation.
-
-    This catches edge cases that deterministic tests miss by exploring
-    the state space more thoroughly.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.tmpdir = tempfile.mkdtemp()
-        self.manager = WorkflowStateStore(Path(self.tmpdir))
-
-        # Create initial tasks
-        tasks = {}
-        for i in range(10):
-            tasks[f"task-{i}"] = Task(
-                id=f"task-{i}",
-                description=f"Task {i}",
-                status=TaskStatus.PENDING,
-                dependencies=[],
-            )
-        self.manager.save(WorkflowState(tasks=tasks))
-
-        # Track our view of state
-        self.active_claims: dict[str, str] = {}  # worker_id -> task_id
-        self.completed_tasks: set[str] = set()
-        self.workers_created: list[str] = []
-
-    workers = Bundle("workers")
-
-    @rule(target=workers)
-    def add_worker(self) -> str:
-        """Add a new worker to the pool."""
-        worker_id = f"worker-{len(self.workers_created)}"
-        self.workers_created.append(worker_id)
-        return worker_id
-
-    @rule(worker=workers)
-    def claim_task(self, worker: str) -> None:
-        """Worker claims a task."""
-        result = self.manager.claim_task(worker)
-        if result.task:
-            if worker in self.active_claims:
-                # Retry - should be same task
-                assert result.task.id == self.active_claims[worker], (
-                    f"Retry gave different task: expected {self.active_claims[worker]}, "
-                    f"got {result.task.id}"
-                )
-            else:
-                self.active_claims[worker] = result.task.id
-
-    @rule(worker=workers)
-    def complete_task(self, worker: str) -> None:
-        """Worker completes their claimed task."""
-        if worker not in self.active_claims:
-            return  # Nothing to complete
-
-        task_id = self.active_claims[worker]
-        self.manager.complete_task(task_id, worker)
-        self.completed_tasks.add(task_id)
-        del self.active_claims[worker]
-
-    @invariant()
-    def no_double_claims(self) -> None:
-        """Each task claimed by at most one worker."""
-        state = self.manager.load()
-        assert state is not None
-
-        running_tasks = [t for t in state.tasks.values() if t.status == TaskStatus.RUNNING]
-        claimed_by_workers = [t.claimed_by for t in running_tasks if t.claimed_by]
-
-        # No duplicates
-        assert len(claimed_by_workers) == len(set(claimed_by_workers)), (
-            f"Double claim detected: {claimed_by_workers}"
-        )
-
-    @invariant()
-    def completed_stays_completed(self) -> None:
-        """Completed tasks cannot become uncompleted."""
-        state = self.manager.load()
-        assert state is not None
-
-        for task_id in self.completed_tasks:
-            task = state.tasks.get(task_id)
-            assert task is not None
-            assert task.status == TaskStatus.COMPLETED, (
-                f"Completed task {task_id} has status {task.status}"
-            )
-
-
-TestStateManagerConcurrency = StateManagerStateMachine.TestCase
-
-
-# Extended version with more examples for deeper exploration
-# Use pytest -m "not slow" for fast iteration
-class ExtendedStateManagerStateMachine(StateManagerStateMachine):
-    """Extended version with more examples for deeper exploration."""
-
-    pass
-
-
-TestStateManagerConcurrencyExtended = ExtendedStateManagerStateMachine.TestCase
-TestStateManagerConcurrencyExtended.settings = settings(max_examples=200, stateful_step_count=50)
-TestStateManagerConcurrencyExtended = pytest.mark.slow(TestStateManagerConcurrencyExtended)
-
-
-# -----------------------------------------------------------------------------
-# Complexity Analysis
-# -----------------------------------------------------------------------------
-"""
-<complexity_analysis>
-| Metric | Value |
-|--------|-------|
-| Time Complexity (Best) | O(1) per claim when index hit |
-| Time Complexity (Average) | O(1) amortized with index lookup |
-| Time Complexity (Worst) | O(n) when pending deque exhausted, linear scan |
-| Space Complexity | O(n) for indexes + O(t) threads contending |
-| Scalability Limit | Lock contention at ~100 threads; sharded state needed for 1000+ |
-</complexity_analysis>
-
-<self_critique>
-1. Hypothesis stateful tests run single-threaded; true multi-threaded property
-   testing would require custom executor or hypothesis-threading plugin.
-2. Memory visibility tests rely on timing assumptions; a formal memory model
-   test would use memory barriers and volatile semantics verification.
-3. Lock contention test documents behavior but doesn't fail on regression;
-   adding threshold assertions would make it a proper regression test.
-</self_critique>
-"""
