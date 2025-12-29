@@ -274,9 +274,13 @@ def parse_speckit_tasks(content: str) -> SpecTaskList:
     - [ ] = pending, [x] = completed
     - [P] = parallel (can run concurrently)
     - [US1] = user story reference
+
+    Dependencies:
+    - Tasks in Phase N automatically depend on ALL tasks in Phase N-1
     """
     tasks: dict[str, SpecTaskDefinition] = {}
     phases: list[str] = []
+    phase_tasks: dict[str, list[str]] = {}
     current_phase: str | None = None
 
     for line in content.split("\n"):
@@ -284,6 +288,7 @@ def parse_speckit_tasks(content: str) -> SpecTaskList:
         if phase_match:
             current_phase = phase_match.group(1)
             phases.append(current_phase)
+            phase_tasks[current_phase] = []
             continue
 
         checkbox_match = _CHECKBOX_PATTERN.match(line.strip())
@@ -304,5 +309,27 @@ def parse_speckit_tasks(content: str) -> SpecTaskList:
                 phase=current_phase,
                 file_path=file_path,
             )
+
+            # Track which tasks belong to which phase
+            if current_phase is not None:
+                phase_tasks[current_phase].append(task_id)
+
+    # Set phase-based dependencies: tasks in Phase N depend on ALL tasks in Phase N-1
+    for i, phase in enumerate(phases):
+        if i > 0:
+            prev_phase = phases[i - 1]
+            prev_phase_task_ids = tuple(phase_tasks[prev_phase])
+            for task_id in phase_tasks[phase]:
+                # Replace task with updated dependencies
+                old_task = tasks[task_id]
+                tasks[task_id] = SpecTaskDefinition(
+                    description=old_task.description,
+                    status=old_task.status,
+                    parallel=old_task.parallel,
+                    user_story=old_task.user_story,
+                    phase=old_task.phase,
+                    file_path=old_task.file_path,
+                    dependencies=prev_phase_task_ids,
+                )
 
     return SpecTaskList(tasks=tasks, phases=tuple(phases))

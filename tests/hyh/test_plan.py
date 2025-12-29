@@ -411,3 +411,26 @@ Mark completed tasks with [x].
     # Verify file_path is correctly extracted
     assert result.tasks["T003"].file_path == "src/models/user.py"
     assert result.tasks["T004"].file_path == "src/services/auth.py"
+
+
+def test_parse_speckit_tasks_phase_dependencies():
+    """Tasks in Phase N depend on all tasks in Phase N-1."""
+    from hyh.plan import parse_speckit_tasks
+
+    content = """\
+## Phase 1: Setup
+
+- [ ] T001 Setup task A
+- [ ] T002 [P] Setup task B
+
+## Phase 2: Core
+
+- [ ] T003 Core task (depends on Phase 1)
+"""
+    result = parse_speckit_tasks(content)
+
+    # Phase 1 tasks have no dependencies
+    assert result.tasks["T001"].dependencies == ()
+    assert result.tasks["T002"].dependencies == ()
+    # Phase 2 tasks depend on all Phase 1 tasks
+    assert set(result.tasks["T003"].dependencies) == {"T001", "T002"}
