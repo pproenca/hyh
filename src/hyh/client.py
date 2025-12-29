@@ -552,6 +552,13 @@ def main() -> None:
     worktree_switch = worktree_sub.add_parser("switch", help="Show path to switch to worktree")
     worktree_switch.add_argument("branch", help="Branch name to switch to")
 
+    workflow_parser = subparsers.add_parser("workflow", help="Workflow state management")
+    workflow_sub = workflow_parser.add_subparsers(dest="workflow_command", required=True)
+
+    workflow_status = workflow_sub.add_parser("status", help="Show current workflow phase")
+    workflow_status.add_argument("--json", action="store_true", help="Output JSON")
+    workflow_status.add_argument("--quiet", action="store_true", help="Minimal output")
+
     args = parser.parse_args()
 
     if args.project:
@@ -620,6 +627,13 @@ def main() -> None:
                     _cmd_worktree_list()
                 case "switch":
                     _cmd_worktree_switch(args.branch)
+        case "workflow":
+            match args.workflow_command:
+                case "status":
+                    _cmd_workflow_status(
+                        json_output=getattr(args, "json", False),
+                        quiet=getattr(args, "quiet", False),
+                    )
 
 
 def _cmd_ping(socket_path: str, worktree_root: str) -> None:
@@ -915,6 +929,56 @@ def _cmd_worktree_switch(branch: str) -> None:
         sys.exit(1)
 
     print(f"cd {wt.worktree_path}")
+
+
+def _cmd_workflow_status(json_output: bool = False, quiet: bool = False) -> None:
+    import json as json_module
+
+    from hyh.workflow import detect_phase
+
+    worktree = Path(_get_git_root())
+    phase = detect_phase(worktree)
+
+    if json_output:
+        print(
+            json_module.dumps(
+                {
+                    "phase": phase.phase,
+                    "next_action": phase.next_action,
+                    "spec_exists": phase.spec_exists,
+                    "plan_exists": phase.plan_exists,
+                    "tasks_total": phase.tasks_total,
+                    "tasks_complete": phase.tasks_complete,
+                }
+            )
+        )
+        return
+
+    if quiet:
+        if phase.next_action:
+            print(f"Next: /hyh {phase.next_action}")
+        else:
+            print("Complete")
+        return
+
+    print("=" * 50)
+    print(" WORKFLOW STATUS")
+    print("=" * 50)
+    print()
+    print(f" Phase:      {phase.phase}")
+    print(f" Spec:       {'yes' if phase.spec_exists else 'no'}")
+    print(f" Plan:       {'yes' if phase.plan_exists else 'no'}")
+
+    if phase.tasks_total > 0:
+        pct = int((phase.tasks_complete / phase.tasks_total) * 100)
+        print(f" Tasks:      {phase.tasks_complete}/{phase.tasks_total} ({pct}%)")
+
+    print()
+    if phase.next_action:
+        print(f" Next:       /hyh {phase.next_action}")
+    else:
+        print(" Status:     All tasks complete!")
+    print()
 
 
 if __name__ == "__main__":

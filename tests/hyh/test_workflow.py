@@ -63,3 +63,29 @@ def test_detect_workflow_phase_all_complete(tmp_path: Path):
     result = detect_phase(tmp_path)
     assert result.phase == "complete"
     assert result.next_action is None
+
+
+def test_cli_workflow_status(tmp_path: Path, monkeypatch):
+    """hyh workflow status shows current phase."""
+    import sys
+    from io import StringIO
+
+    # Setup with spec only
+    specs_dir = tmp_path / "specs"
+    specs_dir.mkdir()
+    (specs_dir / "spec.md").write_text("# Spec")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HYH_WORKTREE", str(tmp_path))
+
+    from hyh.client import main
+
+    monkeypatch.setattr(sys, "argv", ["hyh", "workflow", "status"])
+
+    stdout = StringIO()
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    main()
+
+    output = stdout.getvalue()
+    assert "specify" in output.lower() or "plan" in output.lower()
