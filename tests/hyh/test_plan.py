@@ -375,3 +375,32 @@ Body dotted.
     assert "auth-service" in plan.tasks
     assert "1.1" in plan.tasks
     assert len(plan.tasks) == 5
+
+
+def test_parse_speckit_checkbox_basic():
+    """parse_speckit_tasks extracts tasks from checkbox format."""
+    from hyh.plan import parse_speckit_tasks
+
+    content = """\
+## Progress Management
+
+Mark completed tasks with [x].
+
+## Phase 1: Setup
+
+- [ ] T001 Create project structure
+- [x] T002 Initialize git repository
+
+## Phase 2: Core
+
+- [ ] T003 [P] Implement user model in src/models/user.py
+- [ ] T004 [P] [US1] Add auth service in src/services/auth.py
+"""
+    result = parse_speckit_tasks(content)
+
+    assert len(result.tasks) == 4
+    assert result.tasks["T001"].status == "pending"
+    assert result.tasks["T002"].status == "completed"
+    assert result.tasks["T003"].parallel is True
+    assert result.tasks["T004"].user_story == "US1"
+    assert "src/services/auth.py" in result.tasks["T004"].description
