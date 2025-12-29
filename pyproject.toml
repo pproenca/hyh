@@ -128,6 +128,8 @@ ignore = [
 "src/hyh/daemon.py" = ["T201", "S603"]
 # Runtime is the subprocess execution layer - S603/S607 are intentional
 "src/hyh/runtime.py" = ["S603", "S607"]
+# Worktree module executes git worktree commands - S603/S607 are intentional
+"src/hyh/worktree.py" = ["S603", "S607"]
 # State uses **kwargs: Any for Pydantic model_copy (legitimate Any usage)
 "src/hyh/state.py" = ["ANN401"]
 # Scripts: libcst visitor methods require specific naming (leave_Module, etc.) and unused args
