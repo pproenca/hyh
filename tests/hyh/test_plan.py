@@ -404,3 +404,10 @@ Mark completed tasks with [x].
     assert result.tasks["T003"].parallel is True
     assert result.tasks["T004"].user_story == "US1"
     assert "src/services/auth.py" in result.tasks["T004"].description
+
+    # Verify phases are correctly extracted
+    assert result.phases == ("Setup", "Core")
+
+    # Verify file_path is correctly extracted
+    assert result.tasks["T003"].file_path == "src/models/user.py"
+    assert result.tasks["T004"].file_path == "src/services/auth.py"

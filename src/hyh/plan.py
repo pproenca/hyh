@@ -7,6 +7,12 @@ from .state import Task, TaskStatus, WorkflowState, detect_cycle
 
 _SAFE_TASK_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-\.]*$")
 
+_CHECKBOX_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"^- \[([ xX])\] (T\d+)(?: \[P\])?(?: \[([A-Z]+\d+)\])? (.+)$"
+)
+
+_PHASE_PATTERN: Final[re.Pattern[str]] = re.compile(r"^## Phase \d+: (.+)$")
+
 
 def _validate_task_id(task_id: str) -> None:
     if not task_id:
@@ -24,6 +30,25 @@ class _TaskData(Struct, frozen=True, forbid_unknown_fields=True):
     description: str
     instructions: str
     dependencies: tuple[str, ...]
+
+
+class SpecTaskDefinition(Struct, frozen=True, forbid_unknown_fields=True, omit_defaults=True):
+    """Task definition from speckit checkbox format."""
+
+    description: str
+    status: str = "pending"  # "pending" or "completed"
+    parallel: bool = False
+    user_story: str | None = None
+    phase: str | None = None
+    file_path: str | None = None
+    dependencies: tuple[str, ...] = ()
+
+
+class SpecTaskList(Struct, frozen=True, forbid_unknown_fields=True):
+    """Parsed speckit tasks.md content."""
+
+    tasks: dict[str, SpecTaskDefinition]
+    phases: tuple[str, ...]
 
 
 class PlanTaskDefinition(Struct, frozen=True, forbid_unknown_fields=True, omit_defaults=True):
@@ -235,3 +260,49 @@ Test registration, login, protected routes.
 - Tasks in Group N depend on ALL tasks in Group N-1
 - Tasks within the same group are independent (can run in parallel)
 """
+
+
+def parse_speckit_tasks(content: str) -> SpecTaskList:
+    """Parse speckit checkbox format into task list.
+
+    Format:
+    ## Phase N: Phase Name
+    - [ ] T001 [P] [US1] Description with path/to/file.py
+    - [x] T002 Completed task
+
+    Markers:
+    - [ ] = pending, [x] = completed
+    - [P] = parallel (can run concurrently)
+    - [US1] = user story reference
+    """
+    tasks: dict[str, SpecTaskDefinition] = {}
+    phases: list[str] = []
+    current_phase: str | None = None
+
+    for line in content.split("\n"):
+        phase_match = _PHASE_PATTERN.match(line.strip())
+        if phase_match:
+            current_phase = phase_match.group(1)
+            phases.append(current_phase)
+            continue
+
+        checkbox_match = _CHECKBOX_PATTERN.match(line.strip())
+        if checkbox_match:
+            check, task_id, user_story, description = checkbox_match.groups()
+            parallel = "[P]" in line
+
+            file_path = None
+            path_match = re.search(r"(\S+\.\w+)$", description)
+            if path_match:
+                file_path = path_match.group(1)
+
+            tasks[task_id] = SpecTaskDefinition(
+                description=description.strip(),
+                status="completed" if check.lower() == "x" else "pending",
+                parallel=parallel,
+                user_story=user_story,
+                phase=current_phase,
+                file_path=file_path,
+            )
+
+    return SpecTaskList(tasks=tasks, phases=tuple(phases))
