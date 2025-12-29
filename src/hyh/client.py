@@ -541,6 +541,17 @@ def main() -> None:
         help="List all registered projects",
     )
 
+    worktree_parser = subparsers.add_parser("worktree", help="Git worktree management")
+    worktree_sub = worktree_parser.add_subparsers(dest="worktree_command", required=True)
+
+    worktree_create = worktree_sub.add_parser("create", help="Create a new worktree")
+    worktree_create.add_argument("branch", help="Branch name (e.g., 42-user-auth)")
+
+    worktree_sub.add_parser("list", help="List all worktrees")
+
+    worktree_switch = worktree_sub.add_parser("switch", help="Show path to switch to worktree")
+    worktree_switch.add_argument("branch", help="Branch name to switch to")
+
     args = parser.parse_args()
 
     if args.project:
@@ -601,6 +612,14 @@ def main() -> None:
             demo.run()
         case "status":
             _cmd_status(args, socket_path, worktree_root)
+        case "worktree":
+            match args.worktree_command:
+                case "create":
+                    _cmd_worktree_create(args.branch)
+                case "list":
+                    _cmd_worktree_list()
+                case "switch":
+                    _cmd_worktree_switch(args.branch)
 
 
 def _cmd_ping(socket_path: str, worktree_root: str) -> None:
@@ -858,6 +877,44 @@ def _cmd_plan_reset(socket_path: str, worktree_root: str) -> None:
         print(f"Error: {response.get('message')}", file=sys.stderr)
         sys.exit(1)
     print("Workflow state cleared")
+
+
+def _cmd_worktree_create(branch: str) -> None:
+    from hyh.worktree import create_worktree
+
+    main_repo = Path(_get_git_root())
+    result = create_worktree(main_repo, branch)
+    print(f"Created worktree: {result.worktree_path}")
+    print(f"Branch: {result.branch_name}")
+    print(f"\nTo switch: cd {result.worktree_path}")
+
+
+def _cmd_worktree_list() -> None:
+    from hyh.worktree import list_worktrees
+
+    main_repo = Path(_get_git_root())
+    worktrees = list_worktrees(main_repo)
+
+    if not worktrees:
+        print("No worktrees found.")
+        return
+
+    print("Worktrees:")
+    for wt in worktrees:
+        print(f"  {wt.branch_name}: {wt.worktree_path}")
+
+
+def _cmd_worktree_switch(branch: str) -> None:
+    from hyh.worktree import get_worktree
+
+    main_repo = Path(_get_git_root())
+    wt = get_worktree(main_repo, branch)
+
+    if wt is None:
+        print(f"Worktree not found: {branch}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"cd {wt.worktree_path}")
 
 
 if __name__ == "__main__":

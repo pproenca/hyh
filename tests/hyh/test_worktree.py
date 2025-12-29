@@ -132,3 +132,53 @@ def test_get_worktree_for_branch(tmp_path: Path):
     assert result is not None
     assert result.branch_name == "42-user-auth"
     assert result.worktree_path == tmp_path / "myproject--42-user-auth"
+
+
+def test_cli_worktree_create(tmp_path: Path, monkeypatch):
+    """hyh worktree create creates worktree via CLI."""
+    import sys
+    from io import StringIO
+
+    # Setup main repo
+    main_repo = tmp_path / "myproject"
+    main_repo.mkdir()
+    subprocess.run(["git", "init"], cwd=main_repo, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=main_repo,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=main_repo,
+        capture_output=True,
+        check=True,
+    )
+    (main_repo / "README.md").write_text("# Project")
+    subprocess.run(["git", "add", "-A"], cwd=main_repo, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=main_repo,
+        capture_output=True,
+        check=True,
+    )
+
+    # Mock cwd to main_repo
+    monkeypatch.chdir(main_repo)
+    monkeypatch.setenv("HYH_WORKTREE", str(main_repo))
+
+    # Run CLI
+    from hyh.client import main
+
+    monkeypatch.setattr(sys, "argv", ["hyh", "worktree", "create", "42-feature"])
+
+    stdout = StringIO()
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    main()
+
+    # Verify
+    expected_path = tmp_path / "myproject--42-feature"
+    assert expected_path.exists()
+    assert "Created" in stdout.getvalue() or "42-feature" in stdout.getvalue()
