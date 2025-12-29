@@ -50,6 +50,19 @@ class SpecTaskList(Struct, frozen=True, forbid_unknown_fields=True):
     tasks: dict[str, SpecTaskDefinition]
     phases: tuple[str, ...]
 
+    def to_workflow_state(self) -> WorkflowState:
+        """Convert to WorkflowState for daemon execution."""
+        tasks = {}
+        for tid, spec_task in self.tasks.items():
+            status = TaskStatus.COMPLETED if spec_task.status == "completed" else TaskStatus.PENDING
+            tasks[tid] = Task(
+                id=tid,
+                description=spec_task.description,
+                status=status,
+                dependencies=spec_task.dependencies,
+            )
+        return WorkflowState(tasks=tasks)
+
 
 class PlanTaskDefinition(Struct, frozen=True, forbid_unknown_fields=True, omit_defaults=True):
     description: str

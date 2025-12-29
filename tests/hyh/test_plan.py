@@ -434,3 +434,27 @@ def test_parse_speckit_tasks_phase_dependencies():
     assert result.tasks["T002"].dependencies == ()
     # Phase 2 tasks depend on all Phase 1 tasks
     assert set(result.tasks["T003"].dependencies) == {"T001", "T002"}
+
+
+def test_spec_task_list_to_workflow_state():
+    """SpecTaskList converts to WorkflowState for daemon."""
+    from hyh.plan import parse_speckit_tasks
+    from hyh.state import TaskStatus
+
+    content = """\
+## Phase 1: Setup
+
+- [ ] T001 Create project
+- [x] T002 Init git
+
+## Phase 2: Core
+
+- [ ] T003 [P] Build feature
+"""
+    spec_tasks = parse_speckit_tasks(content)
+    state = spec_tasks.to_workflow_state()
+
+    assert len(state.tasks) == 3
+    assert state.tasks["T001"].status == TaskStatus.PENDING
+    assert state.tasks["T002"].status == TaskStatus.COMPLETED
+    assert state.tasks["T003"].dependencies == ("T001", "T002")
