@@ -1,0 +1,14 @@
+{
+  "name": "hyh",
+  "description": "Hold Your Horses - spec-driven development workflow",
+  "version": "0.2.0",
+  "author": {
+    "name": "Pedro Proenca",
+    "email": "pedro@10xengs.com"
+  },
+  "repository": "https://github.com/pproenca/hyh",
+  "license": "MIT",
+  "commands": ["./commands/"],
+  "skills": ["./skills/"],
+  "hooks": "./hooks/hooks.json"
+}
