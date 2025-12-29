@@ -525,6 +525,8 @@ def main() -> None:
 
     subparsers.add_parser("demo", help="Interactive tour of hyh features")
 
+    subparsers.add_parser("init", help="Initialize hyh in current project")
+
     status_parser = subparsers.add_parser("status", help="Show workflow status and recent events")
     status_parser.add_argument("--json", action="store_true", help="Output raw JSON")
     status_parser.add_argument(
@@ -617,6 +619,8 @@ def main() -> None:
             _cmd_worker_id()
         case "demo":
             demo.run()
+        case "init":
+            _cmd_init()
         case "status":
             _cmd_status(args, socket_path, worktree_root)
         case "worktree":
@@ -855,6 +859,23 @@ def _cmd_exec(
 
 def _cmd_worker_id() -> None:
     print(get_worker_id())
+
+
+def _cmd_init() -> None:
+    from hyh.init import init_project
+
+    project_root = Path(_get_git_root())
+    result = init_project(project_root)
+
+    print("hyh initialized!")
+    print()
+    print(f"Plugin:    {result.plugin_dir}")
+    print(f"Config:    {result.hyh_dir}")
+    print(f"Branch:    {result.main_branch}")
+    print()
+    print("Next steps:")
+    print("  1. Commit the .claude/ and .hyh/ directories")
+    print("  2. In Claude Code, run: /hyh specify <your feature idea>")
 
 
 def _cmd_plan_import(socket_path: str, worktree_root: str, file_path: str) -> None:
