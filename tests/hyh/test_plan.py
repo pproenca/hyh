@@ -669,3 +669,132 @@ def test_xml_plan_definition_validate_dag_missing_dep():
 
     with pytest.raises(ValueError, match="Missing dependency: T999"):
         plan.validate_dag()
+
+
+def test_parse_xml_plan_basic():
+    """parse_xml_plan parses minimal XML plan."""
+    from hyh.plan import AgentModel, parse_xml_plan
+
+    xml_content = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<plan goal="Test feature">
+  <task id="T001" role="implementer" model="sonnet">
+    <description>Create service</description>
+    <instructions>Write the code</instructions>
+    <success>Tests pass</success>
+  </task>
+</plan>
+"""
+
+    plan = parse_xml_plan(xml_content)
+
+    assert plan.goal == "Test feature"
+    assert "T001" in plan.tasks
+    assert plan.tasks["T001"].description == "Create service"
+    assert plan.tasks["T001"].role == "implementer"
+    assert plan.tasks["T001"].model == AgentModel.SONNET
+    assert plan.tasks["T001"].instructions == "Write the code"
+    assert plan.tasks["T001"].success_criteria == "Tests pass"
+
+
+def test_parse_xml_plan_full():
+    """parse_xml_plan parses complete XML plan with all fields."""
+    from hyh.plan import AgentModel, parse_xml_plan
+
+    xml_content = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<plan goal="Implement authentication">
+  <dependencies>
+    <dep from="T002" to="T001"/>
+  </dependencies>
+
+  <task id="T001" role="implementer" model="opus">
+    <description>Create token service</description>
+    <tools>Read, Edit, Bash</tools>
+    <scope>
+      <include>src/auth/token.py</include>
+      <include>tests/auth/test_token.py</include>
+      <exclude>src/auth/session.py</exclude>
+    </scope>
+    <interface>
+      <input>User credentials</input>
+      <output>JWT token</output>
+    </interface>
+    <instructions><![CDATA[
+1. Write failing test
+2. Implement
+    ]]></instructions>
+    <constraints>Use existing jwt library</constraints>
+    <verification>
+      <command>pytest tests/auth/</command>
+      <command>ruff check src/auth/</command>
+    </verification>
+    <success>All tests pass</success>
+    <artifacts>
+      <write>.claude/artifacts/T001-api.md</write>
+    </artifacts>
+  </task>
+
+  <task id="T002" role="reviewer" model="haiku">
+    <description>Review token service</description>
+    <tools>Read, Grep</tools>
+    <scope>
+      <include>src/auth/token.py</include>
+    </scope>
+    <instructions>Review the implementation</instructions>
+    <success>Report written</success>
+    <artifacts>
+      <read>.claude/artifacts/T001-api.md</read>
+      <write>.claude/artifacts/T002-review.md</write>
+    </artifacts>
+  </task>
+</plan>
+"""
+
+    plan = parse_xml_plan(xml_content)
+
+    # Check goal
+    assert plan.goal == "Implement authentication"
+
+    # Check dependencies
+    assert plan.dependencies["T002"] == ("T001",)
+
+    # Check T001
+    t001 = plan.tasks["T001"]
+    assert t001.role == "implementer"
+    assert t001.model == AgentModel.OPUS
+    assert t001.files_in_scope == ("src/auth/token.py", "tests/auth/test_token.py")
+    assert t001.files_out_of_scope == ("src/auth/session.py",)
+    assert t001.input_context == "User credentials"
+    assert t001.output_contract == "JWT token"
+    assert "Write failing test" in t001.instructions
+    assert t001.constraints == "Use existing jwt library"
+    assert t001.tools == ("Read", "Edit", "Bash")
+    assert t001.verification_commands == ("pytest tests/auth/", "ruff check src/auth/")
+    assert t001.artifacts_to_write == (".claude/artifacts/T001-api.md",)
+
+    # Check T002
+    t002 = plan.tasks["T002"]
+    assert t002.model == AgentModel.HAIKU
+    assert t002.artifacts_to_read == (".claude/artifacts/T001-api.md",)
+
+
+def test_parse_plan_content_detects_xml():
+    """parse_plan_content detects and parses XML format."""
+    from hyh.plan import parse_plan_content
+
+    xml_content = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<plan goal="Test">
+  <task id="T001">
+    <description>Task one</description>
+    <instructions>Do it</instructions>
+    <success>Done</success>
+  </task>
+</plan>
+"""
+
+    plan = parse_plan_content(xml_content)
+
+    assert plan.goal == "Test"
+    assert "T001" in plan.tasks

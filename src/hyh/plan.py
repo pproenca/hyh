@@ -1,7 +1,9 @@
 import re
 from enum import Enum
 from typing import Final
+from xml.etree.ElementTree import Element
 
+from defusedxml import ElementTree
 from msgspec import Struct
 
 from .state import Task, TaskStatus, WorkflowState, detect_cycle
@@ -92,6 +94,148 @@ class XMLPlanDefinition(Struct, frozen=True, forbid_unknown_fields=True):
 
 
 _SAFE_TASK_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-\.]*$")
+
+
+def _get_element_text(elem: Element, tag: str, default: str = "") -> str:
+    """Get text content of a child element, stripped."""
+    child = elem.find(tag)
+    return (child.text or "").strip() if child is not None else default
+
+
+def _get_child_texts(elem: Element, parent_tag: str, child_tag: str) -> tuple[str, ...]:
+    """Get tuple of text contents from nested child elements."""
+    parent = elem.find(parent_tag)
+    if parent is None:
+        return ()
+    return tuple((e.text or "").strip() for e in parent.findall(child_tag) if e.text)
+
+
+def parse_xml_plan(content: str) -> XMLPlanDefinition:
+    """Parse XML plan format into XMLPlanDefinition with TaskPackets.
+
+    Args:
+        content: XML string containing plan definition
+
+    Returns:
+        XMLPlanDefinition with TaskPackets and dependencies
+
+    Raises:
+        ValueError: If XML is malformed or required fields are missing
+    """
+    try:
+        root = ElementTree.fromstring(content)
+    except ElementTree.ParseError as e:
+        raise ValueError(f"Invalid XML: {e}") from e
+
+    if root.tag != "plan":
+        raise ValueError(f"Root element must be 'plan', got '{root.tag}'")
+
+    goal = root.get("goal", "Goal not specified")
+
+    # Parse dependencies section
+    dependencies: dict[str, tuple[str, ...]] = {}
+    deps_elem = root.find("dependencies")
+    if deps_elem is not None:
+        for dep in deps_elem.findall("dep"):
+            from_task = dep.get("from")
+            to_tasks = dep.get("to", "")
+            if from_task and to_tasks:
+                dependencies[from_task] = tuple(t.strip() for t in to_tasks.split(","))
+
+    # Parse tasks
+    tasks: dict[str, TaskPacket] = {}
+    for task_elem in root.findall(".//task"):
+        task_id = task_elem.get("id")
+        if not task_id:
+            raise ValueError("Task element missing 'id' attribute")
+
+        _validate_task_id(task_id)
+
+        # Get model enum
+        model_str = task_elem.get("model", "sonnet")
+        try:
+            model = AgentModel(model_str)
+        except ValueError as e:
+            raise ValueError(f"Invalid model '{model_str}' for task {task_id}") from e
+
+        # Parse scope
+        scope_elem = task_elem.find("scope")
+        files_in_scope: tuple[str, ...] = ()
+        files_out_of_scope: tuple[str, ...] = ()
+        if scope_elem is not None:
+            files_in_scope = tuple(
+                (e.text or "").strip() for e in scope_elem.findall("include") if e.text
+            )
+            files_out_of_scope = tuple(
+                (e.text or "").strip() for e in scope_elem.findall("exclude") if e.text
+            )
+
+        # Parse interface
+        interface_elem = task_elem.find("interface")
+        input_context = ""
+        output_contract = ""
+        if interface_elem is not None:
+            input_elem = interface_elem.find("input")
+            output_elem = interface_elem.find("output")
+            input_context = (input_elem.text or "").strip() if input_elem is not None else ""
+            output_contract = (output_elem.text or "").strip() if output_elem is not None else ""
+
+        # Parse tools (comma-separated or individual elements)
+        tools_elem = task_elem.find("tools")
+        tools: tuple[str, ...] = ()
+        if tools_elem is not None and tools_elem.text:
+            tools = tuple(t.strip() for t in tools_elem.text.split(",") if t.strip())
+
+        # Parse verification commands
+        verification_commands = _get_child_texts(task_elem, "verification", "command")
+
+        # Parse artifacts
+        artifacts_elem = task_elem.find("artifacts")
+        artifacts_to_read: tuple[str, ...] = ()
+        artifacts_to_write: tuple[str, ...] = ()
+        if artifacts_elem is not None:
+            artifacts_to_read = tuple(
+                (e.text or "").strip() for e in artifacts_elem.findall("read") if e.text
+            )
+            artifacts_to_write = tuple(
+                (e.text or "").strip() for e in artifacts_elem.findall("write") if e.text
+            )
+
+        # Get required fields
+        description = _get_element_text(task_elem, "description")
+        instructions = _get_element_text(task_elem, "instructions")
+        success_criteria = _get_element_text(task_elem, "success")
+
+        if not description:
+            raise ValueError(f"Task {task_id} missing <description>")
+        if not instructions:
+            raise ValueError(f"Task {task_id} missing <instructions>")
+        if not success_criteria:
+            raise ValueError(f"Task {task_id} missing <success>")
+
+        tasks[task_id] = TaskPacket(
+            id=task_id,
+            description=description,
+            role=task_elem.get("role"),
+            model=model,
+            files_in_scope=files_in_scope,
+            files_out_of_scope=files_out_of_scope,
+            input_context=input_context,
+            output_contract=output_contract,
+            instructions=instructions,
+            constraints=_get_element_text(task_elem, "constraints"),
+            tools=tools,
+            verification_commands=verification_commands,
+            success_criteria=success_criteria,
+            artifacts_to_read=artifacts_to_read,
+            artifacts_to_write=artifacts_to_write,
+        )
+
+    if not tasks:
+        raise ValueError("No valid tasks found in XML plan")
+
+    return XMLPlanDefinition(goal=goal, tasks=tasks, dependencies=dependencies)
+
 
 _CHECKBOX_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"^- \[([ xX])\] (T\d+)(?: \[P\])?(?: \[([A-Z]+\d+)\])? (.+)$",
@@ -282,9 +426,18 @@ def parse_markdown_plan(content: str) -> PlanDefinition:
     return PlanDefinition(goal=goal, tasks=final_tasks)
 
 
-def parse_plan_content(content: str) -> PlanDefinition:
+def parse_plan_content(content: str) -> PlanDefinition | XMLPlanDefinition:
     if not content or not content.strip():
         raise ValueError("No valid plan found: content is empty or whitespace-only")
+
+    # Format 0: XML plan (new primary format)
+    stripped = content.strip()
+    if stripped.startswith("<?xml") or stripped.startswith("<plan"):
+        xml_plan = parse_xml_plan(content)
+        if not xml_plan.tasks:
+            raise ValueError("No valid plan found: no tasks defined in XML plan")
+        xml_plan.validate_dag()
+        return xml_plan
 
     # Format 1: Task Groups markdown (legacy)
     if "**Goal:**" in content and "| Task Group |" in content:
@@ -294,7 +447,7 @@ def parse_plan_content(content: str) -> PlanDefinition:
         plan.validate_dag()
         return plan
 
-    # Format 2: Speckit checkbox format (primary)
+    # Format 2: Speckit checkbox format
     if _CHECKBOX_PATTERN.search(content):
         spec_tasks = parse_speckit_tasks(content)
         if not spec_tasks.tasks:
@@ -305,8 +458,9 @@ def parse_plan_content(content: str) -> PlanDefinition:
 
     raise ValueError(
         "No valid plan found. Supported formats:\n"
-        "  1. Speckit: - [ ] T001 checkbox tasks (recommended)\n"
-        "  2. Task Groups: **Goal:** + | Task Group | table (legacy)\n"
+        '  1. XML: <?xml ...> or <plan goal="..."> (recommended)\n'
+        "  2. Speckit: - [ ] T001 checkbox tasks\n"
+        "  3. Task Groups: **Goal:** + | Task Group | table (legacy)\n"
         "Run 'hyh plan template' for format reference."
     )
 

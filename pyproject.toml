@@ -23,6 +23,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "defusedxml>=0.7.1",
     "msgspec>=0.18",
 ]
 
