@@ -528,6 +528,8 @@ def main() -> None:
 
     subparsers.add_parser("worker-id", help="Print stable worker ID")
 
+    subparsers.add_parser("context-preserve", help="Write workflow state to progress file")
+
     subparsers.add_parser("demo", help="Interactive tour of hyh features")
 
     subparsers.add_parser("init", help="Initialize hyh in current project")
@@ -622,6 +624,8 @@ def main() -> None:
             _cmd_shutdown(socket_path, worktree_root)
         case "worker-id":
             _cmd_worker_id()
+        case "context-preserve":
+            _cmd_context_preserve(socket_path, worktree_root)
         case "demo":
             demo.run()
         case "init":
@@ -871,6 +875,19 @@ def _cmd_exec(
 
 def _cmd_worker_id() -> None:
     print(get_worker_id())
+
+
+def _cmd_context_preserve(socket_path: str, worktree_root: str) -> None:
+    response = send_rpc(socket_path, {"command": "context_preserve"}, worktree_root)
+    if response["status"] != "ok":
+        print(f"Error: {response.get('message')}", file=sys.stderr)
+        sys.exit(1)
+    data = response["data"]
+    if data.get("path"):
+        print(f"Progress saved to {data['path']}")
+        print(f"Completed: {data['completed']}/{data['total']} tasks")
+    else:
+        print(data.get("message", "Done"))
 
 
 def _cmd_init() -> None:

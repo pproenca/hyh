@@ -423,7 +423,7 @@ def test_plan_import_file_not_found():
 
 
 def test_plan_template_outputs_markdown():
-    """hyh plan template prints Markdown with template and example."""
+    """hyh plan template prints Markdown with speckit as recommended format."""
     import subprocess
     import sys
 
@@ -435,9 +435,9 @@ def test_plan_template_outputs_markdown():
 
     assert result.returncode == 0
     assert "# Plan Template" in result.stdout
-    assert "## Recommended: Structured Markdown" in result.stdout
-
-    assert "## Legacy:" not in result.stdout
+    assert "## Recommended: Speckit Checkbox Format" in result.stdout
+    # Legacy Task Groups format should be included
+    assert "## Legacy: Task Groups Format" in result.stdout
 
 
 def test_client_plan_template_does_not_break_import_constraints():
@@ -544,3 +544,50 @@ def test_status_all_flag_lists_projects(tmp_path: Path, monkeypatch: pytest.Monk
     paths = [p["path"] for p in projects.values()]
     assert str(project_a) in paths
     assert str(project_b) in paths
+
+
+def test_context_preserve_writes_progress_file(daemon_manager, socket_path):
+    """context_preserve command writes .claude/progress.txt."""
+    from hyh.client import send_rpc
+
+    _daemon, worktree = daemon_manager
+
+    # Import a plan first
+    xml_plan = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<plan goal="Test feature">
+  <task id="T001">
+    <description>First task</description>
+    <instructions>Do it</instructions>
+    <success>Done</success>
+  </task>
+  <task id="T002">
+    <description>Second task</description>
+    <instructions>Do it too</instructions>
+    <success>Done</success>
+  </task>
+</plan>
+"""
+
+    send_rpc(socket_path, {"command": "plan_import", "content": xml_plan}, str(worktree))
+
+    # Claim and complete T001
+    send_rpc(socket_path, {"command": "task_claim", "worker_id": "w1"}, str(worktree))
+    send_rpc(
+        socket_path,
+        {"command": "task_complete", "task_id": "T001", "worker_id": "w1"},
+        str(worktree),
+    )
+
+    # Call context_preserve
+    response = send_rpc(socket_path, {"command": "context_preserve"}, str(worktree))
+
+    assert response["status"] == "ok"
+
+    # Check progress file exists
+    progress_file = worktree / ".claude" / "progress.txt"
+    assert progress_file.exists()
+
+    content = progress_file.read_text()
+    assert "T001" in content
+    assert "completed" in content.lower() or "Completed" in content

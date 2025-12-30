@@ -110,6 +110,14 @@ class PlanResetRequest(
     pass
 
 
+class ContextPreserveRequest(
+    Struct, forbid_unknown_fields=True, frozen=True, tag="context_preserve", tag_field="command"
+):
+    """Request to preserve context for PreCompact hook."""
+
+    pass
+
+
 type Request = (
     GetStateRequest
     | StatusRequest
@@ -122,6 +130,7 @@ type Request = (
     | ExecRequest
     | PlanImportRequest
     | PlanResetRequest
+    | ContextPreserveRequest
 )
 
 
@@ -235,6 +244,15 @@ class PlanImportData(Struct, forbid_unknown_fields=True, frozen=True):
     task_count: int
 
 
+class ContextPreserveData(Struct, forbid_unknown_fields=True, frozen=True):
+    """Response data for context_preserve."""
+
+    path: str | None = None
+    completed: int = 0
+    total: int = 0
+    message: str | None = None
+
+
 class HarnessHandler(socketserver.StreamRequestHandler):
     server: HarnessDaemon
 
@@ -290,6 +308,8 @@ class HarnessHandler(socketserver.StreamRequestHandler):
                 result = self._handle_plan_import(request, server)
             case PlanResetRequest():
                 result = self._handle_plan_reset(request, server)
+            case ContextPreserveRequest():
+                result = self._handle_context_preserve(request, server)
 
         return msgspec.json.encode(result)
 
@@ -569,6 +589,46 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             server.acp_emitter.emit({"event_type": "plan_reset"})
 
         return Ok(data=PlanResetData(message="Workflow state cleared"))
+
+    def _handle_context_preserve(
+        self, _request: ContextPreserveRequest, server: HarnessDaemon
+    ) -> Ok | Err:
+        """Write current workflow state to .claude/progress.txt for PreCompact."""
+        from .state import TaskStatus
+
+        state = server.state_manager.load()
+        if state is None:
+            return Ok(data=ContextPreserveData(message="No active workflow"))
+
+        # Build progress summary
+        tasks = state.tasks
+        total = len(tasks)
+        completed = sum(1 for t in tasks.values() if t.status == TaskStatus.COMPLETED)
+        running = [t.id for t in tasks.values() if t.status == TaskStatus.RUNNING]
+        pending = [t.id for t in tasks.values() if t.status == TaskStatus.PENDING]
+
+        lines = [
+            "## Current State",
+            f"- Progress: {completed}/{total} tasks completed",
+            f"- Running: {', '.join(running) if running else 'None'}",
+            f"- Pending: {', '.join(pending[:5])}{'...' if len(pending) > 5 else ''}",
+            "",
+            "## Completed Tasks",
+        ]
+
+        for task in tasks.values():
+            if task.status == TaskStatus.COMPLETED:
+                lines.append(f"- {task.id}: {task.description}")
+
+        # Write to progress file
+        progress_dir = server.worktree_root / ".claude"
+        progress_dir.mkdir(parents=True, exist_ok=True)
+        progress_file = progress_dir / "progress.txt"
+        progress_file.write_text("\n".join(lines))
+
+        return Ok(
+            data=ContextPreserveData(path=str(progress_file), completed=completed, total=total)
+        )
 
 
 class HarnessDaemon(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
