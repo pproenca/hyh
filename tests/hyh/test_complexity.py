@@ -7,14 +7,28 @@ that critical functions meet their documented complexity guarantees.
 
 These tests are slower than unit tests (~10s each) but provide
 empirical evidence that algorithms scale as expected.
+
+NOTE: These tests are skipped on CI because Big-O estimation is
+timing-sensitive and CI runners have unpredictable performance.
+Run locally with: pytest tests/hyh/test_complexity.py -v
 """
 
+import os
 from datetime import UTC, datetime
 
 import big_o
 import pytest
 
 from hyh.state import Task, TaskStatus, WorkflowState, detect_cycle
+
+# Skip all complexity tests on CI - timing is too unpredictable
+pytestmark = [
+    pytest.mark.slow,
+    pytest.mark.skipif(
+        os.environ.get("CI") == "true",
+        reason="Big-O complexity tests are flaky on CI due to variable runner performance",
+    ),
+]
 
 
 class TestDetectCycleComplexity:

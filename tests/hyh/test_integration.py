@@ -51,6 +51,10 @@ def integration_worktree(tmp_path):
     cleanup_daemon_subprocess(socket_path)
 
 
+@pytest.mark.skipif(
+    hasattr(__import__("sys"), "_is_gil_enabled") and not __import__("sys")._is_gil_enabled(),
+    reason="Segfaults on freethreaded Python due to socketserver threading issues (CPython bug)",
+)
 def test_parallel_git_operations_no_race(integration_worktree):
     """Multiple parallel git operations should not cause index.lock errors.
 
