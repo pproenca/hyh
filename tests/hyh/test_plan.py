@@ -590,3 +590,82 @@ def test_task_packet_struct_full():
     assert packet.model == AgentModel.OPUS
     assert len(packet.files_in_scope) == 2
     assert len(packet.tools) == 3
+
+
+def test_xml_plan_definition_struct():
+    """XMLPlanDefinition holds goal, tasks, and dependencies."""
+    from hyh.plan import TaskPacket, XMLPlanDefinition
+
+    packet = TaskPacket(
+        id="T001",
+        description="Test",
+        instructions="Do it",
+        success_criteria="Done",
+    )
+
+    plan = XMLPlanDefinition(
+        goal="Test goal",
+        tasks={"T001": packet},
+        dependencies={"T002": ("T001",)},
+    )
+
+    assert plan.goal == "Test goal"
+    assert "T001" in plan.tasks
+    assert plan.dependencies["T002"] == ("T001",)
+
+
+def test_xml_plan_definition_to_workflow_state():
+    """XMLPlanDefinition converts to WorkflowState correctly."""
+    from hyh.plan import TaskPacket, XMLPlanDefinition
+    from hyh.state import TaskStatus
+
+    packet1 = TaskPacket(
+        id="T001",
+        description="First task",
+        instructions="Do first",
+        success_criteria="Done",
+        role="implementer",
+    )
+    packet2 = TaskPacket(
+        id="T002",
+        description="Second task",
+        instructions="Do second",
+        success_criteria="Done",
+    )
+
+    plan = XMLPlanDefinition(
+        goal="Test goal",
+        tasks={"T001": packet1, "T002": packet2},
+        dependencies={"T002": ("T001",)},
+    )
+
+    state = plan.to_workflow_state()
+
+    assert len(state.tasks) == 2
+    assert state.tasks["T001"].description == "First task"
+    assert state.tasks["T001"].role == "implementer"
+    assert state.tasks["T001"].status == TaskStatus.PENDING
+    assert state.tasks["T002"].dependencies == ("T001",)
+
+
+def test_xml_plan_definition_validate_dag_missing_dep():
+    """validate_dag raises on missing dependency."""
+    import pytest
+
+    from hyh.plan import TaskPacket, XMLPlanDefinition
+
+    packet = TaskPacket(
+        id="T001",
+        description="Task",
+        instructions="Do it",
+        success_criteria="Done",
+    )
+
+    plan = XMLPlanDefinition(
+        goal="Test",
+        tasks={"T001": packet},
+        dependencies={"T001": ("T999",)},  # T999 doesn't exist
+    )
+
+    with pytest.raises(ValueError, match="Missing dependency: T999"):
+        plan.validate_dag()

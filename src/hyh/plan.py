@@ -50,6 +50,47 @@ class TaskPacket(Struct, frozen=True, forbid_unknown_fields=True, omit_defaults=
     artifacts_to_write: tuple[str, ...] = ()
 
 
+class XMLPlanDefinition(Struct, frozen=True, forbid_unknown_fields=True):
+    """Plan parsed from XML format with TaskPackets."""
+
+    goal: str
+    tasks: dict[str, TaskPacket]
+    dependencies: dict[str, tuple[str, ...]] = {}
+
+    def to_workflow_state(self) -> WorkflowState:
+        """Convert to WorkflowState for daemon execution."""
+        from .state import Task, TaskStatus, WorkflowState
+
+        state_tasks = {}
+        for tid, packet in self.tasks.items():
+            state_tasks[tid] = Task(
+                id=tid,
+                description=packet.description,
+                status=TaskStatus.PENDING,
+                dependencies=self.dependencies.get(tid, ()),
+                instructions=packet.instructions,
+                role=packet.role,
+            )
+        return WorkflowState(tasks=state_tasks)
+
+    def validate_dag(self) -> None:
+        """Validate task dependencies form a valid DAG."""
+        from .state import detect_cycle
+
+        # Check all dependencies exist
+        for task_id, deps in self.dependencies.items():
+            if task_id not in self.tasks:
+                raise ValueError(f"Dependency declared for unknown task: {task_id}")
+            for dep in deps:
+                if dep not in self.tasks:
+                    raise ValueError(f"Missing dependency: {dep} (in {task_id})")
+
+        # Check for cycles
+        graph = {tid: self.dependencies.get(tid, ()) for tid in self.tasks}
+        if cycle_node := detect_cycle(graph):
+            raise ValueError(f"Cycle detected at {cycle_node}")
+
+
 _SAFE_TASK_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-\.]*$")
 
 _CHECKBOX_PATTERN: Final[re.Pattern[str]] = re.compile(
