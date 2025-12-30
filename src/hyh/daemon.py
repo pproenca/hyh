@@ -77,6 +77,7 @@ class TaskCompleteRequest(
 ):
     task_id: str
     worker_id: str
+    force: bool = False
 
     def __post_init__(self) -> None:
         if not self.task_id or not self.task_id.strip():
@@ -431,6 +432,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
     def _handle_task_complete(self, request: TaskCompleteRequest, server: HarnessDaemon) -> Result:
         task_id = request.task_id
         worker_id = request.worker_id
+        force = request.force
 
         if not task_id:
             return Err(message="task_id is required")
@@ -438,7 +440,7 @@ class HarnessHandler(socketserver.StreamRequestHandler):
             return Err(message="worker_id is required")
 
         try:
-            server.state_manager.complete_task(task_id, worker_id)
+            server.state_manager.complete_task(task_id, worker_id, force=force)
 
             server.trajectory_logger.log(
                 {
