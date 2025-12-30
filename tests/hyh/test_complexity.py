@@ -22,10 +22,13 @@ import pytest
 from hyh.state import Task, TaskStatus, WorkflowState, detect_cycle
 
 # Skip all complexity tests on CI - timing is too unpredictable
+# Note: Using bool() to handle both "true" string and truthy values
+_is_ci = bool(os.environ.get("CI"))
+
 pytestmark = [
     pytest.mark.slow,
     pytest.mark.skipif(
-        os.environ.get("CI") == "true",
+        _is_ci,
         reason="Big-O complexity tests are flaky on CI due to variable runner performance",
     ),
 ]
@@ -256,7 +259,3 @@ class TestValidateDagComplexity:
             big_o.complexities.Polynomial,  # x^1 is linear
         )
         assert isinstance(best, acceptable), f"Expected O(V + E) ≈ O(n), got {best}"
-
-
-# Mark all tests in this module as slow
-pytestmark = pytest.mark.slow
