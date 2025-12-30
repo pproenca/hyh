@@ -1,0 +1,282 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4A90A4', 'primaryTextColor': '#fff', 'primaryBorderColor': '#2C5F6E', 'lineColor': '#5C6BC0', 'secondaryColor': '#81C784', 'tertiaryColor': '#FFB74D', 'background': '#FAFAFA', 'mainBkg': '#E3F2FD', 'nodeBorder': '#1976D2', 'clusterBkg': '#F5F5F5', 'clusterBorder': '#BDBDBD', 'titleColor': '#212121', 'edgeLabelBackground': '#FFFFFF'}}}%%
+
+flowchart TB
+    subgraph UserInput["📋 USER INPUT"]
+        US[/"User Spec / Feature Request"/]
+        US --> COMPLEXITY{{"🔍 Complexity<br/>Assessment"}}
+    end
+
+    subgraph ScalingRules["⚖️ SCALING RULES"]
+        COMPLEXITY -->|"Trivial<br/>(< 1 hour)"| DIRECT["Direct Guidance<br/>No Subagent"]
+        COMPLEXITY -->|"Small<br/>(1-3 hours)"| SMALL["1 Subagent<br/>+ Verification"]
+        COMPLEXITY -->|"Medium<br/>(hours-day)"| MEDIUM["2-3 Subagents<br/>+ Integration Review"]
+        COMPLEXITY -->|"Large<br/>(multi-day)"| LARGE["5+ Subagents<br/>+ Staged Milestones"]
+        COMPLEXITY -->|"Huge<br/>(multi-week)"| HUGE["10+ Subagents<br/>+ Phased Delivery"]
+    end
+
+    subgraph Orchestrator["🎯 LEAD AGENT / ORCHESTRATOR (IC7)"]
+        direction TB
+        
+        subgraph ExplorePhase["Phase 1: EXPLORE (No Coding)"]
+            E1["📖 Read relevant files"]
+            E2["🔍 Grep/Glob for patterns"]
+            E3["📝 Document current architecture"]
+            E4["🎯 Identify integration points"]
+            E1 --> E2 --> E3 --> E4
+        end
+
+        subgraph PlanPhase["Phase 2: PLAN"]
+            P1["📋 Create plan.md"]
+            P2["📊 Define task decomposition"]
+            P3["🔗 Map dependencies"]
+            P4["✅ Define success criteria"]
+            P5["🤝 Get human approval"]
+            P1 --> P2 --> P3 --> P4 --> P5
+        end
+
+        subgraph DelegatePhase["Phase 3: DELEGATE"]
+            D1["🎫 Create task packets"]
+            D2["📦 Minimal context per agent"]
+            D3["🚀 Spawn subagents"]
+            D1 --> D2 --> D3
+        end
+
+        E4 --> P1
+        P5 -->|"Approved"| D1
+        P5 -->|"Rejected"| E1
+    end
+
+    DIRECT --> ExplorePhase
+    SMALL --> ExplorePhase
+    MEDIUM --> ExplorePhase
+    LARGE --> ExplorePhase
+    HUGE --> ExplorePhase
+
+    subgraph TaskPacket["📦 TASK PACKET STRUCTURE"]
+        TP1["<b>Objective</b><br/>Single clear goal"]
+        TP2["<b>Scope</b><br/>Exact files/modules"]
+        TP3["<b>Interface</b><br/>Inputs/Outputs contract"]
+        TP4["<b>Constraints</b><br/>What NOT to do"]
+        TP5["<b>Success Criteria</b><br/>Measurable completion"]
+        TP6["<b>Tool Allowlist</b><br/>Read, Edit, Bash, Grep"]
+    end
+
+    D3 --> TaskPacket
+
+    subgraph SubagentPool["👥 SUBAGENT POOL (IC6 - Parallel Execution)"]
+        direction LR
+        
+        subgraph SA1["Subagent A<br/>(Feature Implementation)"]
+            SA1_CTX["Load minimal context"]
+            SA1_TDD["TDD Cycle"]
+            SA1_IMPL["Implement"]
+            SA1_ART["Write artifact"]
+            SA1_CTX --> SA1_TDD --> SA1_IMPL --> SA1_ART
+        end
+
+        subgraph SA2["Subagent B<br/>(Service Layer)"]
+            SA2_CTX["Load minimal context"]
+            SA2_TDD["TDD Cycle"]
+            SA2_IMPL["Implement"]
+            SA2_ART["Write artifact"]
+            SA2_CTX --> SA2_TDD --> SA2_IMPL --> SA2_ART
+        end
+
+        subgraph SA3["Subagent C<br/>(API Endpoints)"]
+            SA3_CTX["Load minimal context"]
+            SA3_TDD["TDD Cycle"]
+            SA3_IMPL["Implement"]
+            SA3_ART["Write artifact"]
+            SA3_CTX --> SA3_TDD --> SA3_IMPL --> SA3_ART
+        end
+    end
+
+    TaskPacket --> SA1_CTX
+    TaskPacket --> SA2_CTX
+    TaskPacket --> SA3_CTX
+
+    subgraph TDDCycle["🔴🟢🔵 TDD CYCLE (Per Subagent)"]
+        direction TB
+        TDD1["📝 Write failing tests<br/>(RED)"]
+        TDD2["▶️ Run tests - confirm failure"]
+        TDD3["💾 Commit tests"]
+        TDD4["💻 Implement to pass<br/>(GREEN)"]
+        TDD5["▶️ Run tests - confirm pass"]
+        TDD6{{"All tests<br/>pass?"}}
+        TDD7["🔧 Refactor<br/>(BLUE)"]
+        TDD8["▶️ Run tests - confirm still pass"]
+        
+        TDD1 --> TDD2 --> TDD3 --> TDD4 --> TDD5 --> TDD6
+        TDD6 -->|"No"| TDD4
+        TDD6 -->|"Yes"| TDD7 --> TDD8
+    end
+
+    SA1_TDD -.-> TDDCycle
+    SA2_TDD -.-> TDDCycle
+    SA3_TDD -.-> TDDCycle
+
+    subgraph ContextMgmt["🧠 CONTEXT MANAGEMENT"]
+        direction TB
+        
+        subgraph JIT["Just-In-Time Loading"]
+            JIT1["Maintain file path references"]
+            JIT2["Load only when needed"]
+            JIT3["Grep before full read"]
+        end
+
+        subgraph Compression["Context Compression"]
+            C1["Monitor context usage"]
+            C2{{"Context > 80%?"}}
+            C3["Trigger compaction"]
+            C4["Preserve: decisions, bugs, paths"]
+            C5["Discard: exploration, superseded"]
+            C1 --> C2
+            C2 -->|"Yes"| C3 --> C4 --> C5
+            C2 -->|"No"| C1
+        end
+
+        subgraph Persistence["Persistent State"]
+            PS1["todo.md - task tracking"]
+            PS2["progress.txt - session state"]
+            PS3["NOTES.md - decisions log"]
+            PS4[".claude/artifacts/ - handoffs"]
+        end
+    end
+
+    subgraph ArtifactSystem["📄 ARTIFACT HANDOFF SYSTEM"]
+        ART1["Subagent writes to<br/>.claude/artifacts/"]
+        ART2["Interface specs"]
+        ART3["API contracts"]
+        ART4["Compressed summaries<br/>(1-2K tokens max)"]
+        ART1 --> ART2
+        ART1 --> ART3
+        ART1 --> ART4
+    end
+
+    SA1_ART --> ART1
+    SA2_ART --> ART1
+    SA3_ART --> ART1
+
+    subgraph Verification["✅ VERIFICATION LAYER (IC5)"]
+        direction TB
+        
+        subgraph CodeReview["Code Review Agent"]
+            CR1["Fresh context load"]
+            CR2["Security review"]
+            CR3["Performance review"]
+            CR4["Pattern consistency"]
+            CR5["Test coverage gaps"]
+            CR1 --> CR2 --> CR3 --> CR4 --> CR5
+        end
+
+        subgraph OverfitCheck["Anti-Overfit Agent"]
+            OF1["Review implementation vs tests"]
+            OF2["Check for hardcoded values"]
+            OF3["Verify general-purpose solution"]
+            OF4["Edge case coverage"]
+            OF1 --> OF2 --> OF3 --> OF4
+        end
+
+        subgraph IntegrationTest["Integration Test Agent"]
+            IT1["Run full test suite"]
+            IT2["Type checking"]
+            IT3["Linting"]
+            IT4["Cross-module testing"]
+            IT1 --> IT2 --> IT3 --> IT4
+        end
+    end
+
+    ART4 --> CR1
+    ART4 --> OF1
+    TDD8 --> IT1
+
+    subgraph HooksSystem["🪝 CLAUDE CODE HOOKS"]
+        direction TB
+        
+        H1["<b>SessionStart</b><br/>Load CLAUDE.md, install deps"]
+        H2["<b>PostToolUse</b><br/>Auto-run typecheck/lint after Write/Edit"]
+        H3["<b>PreCompact</b><br/>Custom preservation logic"]
+        H4["<b>SubagentStop</b><br/>Verify subagent completion"]
+        H5["<b>Stop</b><br/>Block premature termination"]
+    end
+
+    subgraph StopHook["🛑 STOP HOOK VERIFICATION"]
+        SH1{{"All checklist<br/>items done?"}}
+        SH2{{"All tests<br/>pass?"}}
+        SH3{{"No TypeScript<br/>errors?"}}
+        SH4{{"Linting<br/>clean?"}}
+        SH5["✅ Allow completion"]
+        SH6["🔄 Continue working"]
+        
+        SH1 -->|"Yes"| SH2
+        SH1 -->|"No"| SH6
+        SH2 -->|"Yes"| SH3
+        SH2 -->|"No"| SH6
+        SH3 -->|"Yes"| SH4
+        SH3 -->|"No"| SH6
+        SH4 -->|"Yes"| SH5
+        SH4 -->|"No"| SH6
+    end
+
+    H5 --> SH1
+
+    subgraph Synthesis["🔄 SYNTHESIS (Back to Orchestrator)"]
+        SY1["Collect all artifacts"]
+        SY2["Review verification results"]
+        SY3{{"Issues<br/>found?"}}
+        SY4["Create remediation tasks"]
+        SY5["Synthesize final implementation"]
+        SY6["Update todo.md"]
+        
+        SY1 --> SY2 --> SY3
+        SY3 -->|"Yes"| SY4 --> D3
+        SY3 -->|"No"| SY5 --> SY6
+    end
+
+    CR5 --> SY1
+    OF4 --> SY1
+    IT4 --> SY1
+
+    subgraph FinalOutput["📤 FINAL OUTPUT"]
+        FOUT1["Create PR description"]
+        FOUT2["Final test run"]
+        FOUT3{{"Human<br/>review?"}}
+        FOUT4["🎉 Commit / Merge"]
+        FOUT5["📝 Update progress.txt<br/>for next session"]
+        
+        SY6 --> FOUT1 --> FOUT2 --> FOUT3
+        FOUT3 -->|"Approved"| FOUT4 --> FOUT5
+        FOUT3 -->|"Changes requested"| SY4
+    end
+
+    subgraph ReinjectionLoop["🔁 RE-INJECTION PATTERN"]
+        RI1["Every 5-10 turns"]
+        RI2["Re-inject original checklist"]
+        RI3["Review uncompleted items"]
+        RI4["Continue execution"]
+        RI1 --> RI2 --> RI3 --> RI4
+    end
+
+    SH6 --> RI1
+    RI4 --> SA1_CTX
+
+    %% Styling
+    classDef userInput fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
+    classDef orchestrator fill:#FFF3E0,stroke:#F57C00,stroke-width:2px
+    classDef subagent fill:#E8F5E9,stroke:#388E3C,stroke-width:2px
+    classDef tdd fill:#FCE4EC,stroke:#C2185B,stroke-width:2px
+    classDef verification fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px
+    classDef hooks fill:#ECEFF1,stroke:#455A64,stroke-width:2px
+    classDef artifact fill:#E0F7FA,stroke:#00838F,stroke-width:2px
+    classDef decision fill:#FFF9C4,stroke:#F9A825,stroke-width:2px
+    classDef final fill:#C8E6C9,stroke:#2E7D32,stroke-width:3px
+
+    class US,COMPLEXITY userInput
+    class E1,E2,E3,E4,P1,P2,P3,P4,P5,D1,D2,D3 orchestrator
+    class SA1_CTX,SA1_TDD,SA1_IMPL,SA1_ART,SA2_CTX,SA2_TDD,SA2_IMPL,SA2_ART,SA3_CTX,SA3_TDD,SA3_IMPL,SA3_ART subagent
+    class TDD1,TDD2,TDD3,TDD4,TDD5,TDD7,TDD8 tdd
+    class CR1,CR2,CR3,CR4,CR5,OF1,OF2,OF3,OF4,IT1,IT2,IT3,IT4 verification
+    class H1,H2,H3,H4,H5,SH1,SH2,SH3,SH4,SH5,SH6 hooks
+    class ART1,ART2,ART3,ART4,TP1,TP2,TP3,TP4,TP5,TP6 artifact
+    class TDD6,SY3,FOUT3 decision
+    class FOUT4,FOUT5 final

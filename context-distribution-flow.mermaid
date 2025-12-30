@@ -1,0 +1,213 @@
+flowchart TB
+    subgraph SpecDecomposition["SPEC TO TASK DECOMPOSITION"]
+        direction TB
+        
+        SPEC[/"Complex Feature Spec"/]
+        
+        subgraph Investigation["INVESTIGATION PHASE"]
+            INV1["Read existing code patterns"]
+            INV2["Map module dependencies"]
+            INV3["Identify shared interfaces"]
+            INV4["Document constraints"]
+        end
+        
+        subgraph Planning["PLANNING PHASE"]
+            PLAN1["Identify parallelizable units"]
+            PLAN2["Define interface contracts FIRST"]
+            PLAN3["Create dependency graph"]
+            PLAN4["Estimate complexity per unit"]
+        end
+        
+        SPEC --> INV1 --> INV2 --> INV3 --> INV4
+        INV4 --> PLAN1 --> PLAN2 --> PLAN3 --> PLAN4
+    end
+
+    subgraph TaskPacketFactory["TASK PACKET FACTORY"]
+        direction TB
+        
+        TPF1["Orchestrator creates packets"]
+        
+        subgraph PacketA["Packet A: Token Service"]
+            PA1["Objective: JWT token generation"]
+            PA2["Files: src/auth/token.ts"]
+            PA3["Interface IN: UserCredentials"]
+            PA4["Interface OUT: SignedToken"]
+            PA5["Tests: tests/auth/token.test.ts"]
+            PA6["NO: Session handling, HTTP layer"]
+        end
+        
+        subgraph PacketB["Packet B: Session Manager"]
+            PB1["Objective: Session lifecycle"]
+            PB2["Files: src/auth/session.ts"]
+            PB3["Interface IN: SignedToken"]
+            PB4["Interface OUT: SessionObject"]
+            PB5["Tests: tests/auth/session.test.ts"]
+            PB6["NO: Token generation, API routes"]
+        end
+        
+        subgraph PacketC["Packet C: Auth API"]
+            PC1["Objective: HTTP endpoints"]
+            PC2["Files: src/api/auth.ts"]
+            PC3["Interface IN: HTTP Request"]
+            PC4["Interface OUT: HTTP Response"]
+            PC5["Depends: Token + Session interfaces"]
+            PC6["NO: Business logic implementation"]
+        end
+        
+        TPF1 --> PacketA
+        TPF1 --> PacketB
+        TPF1 --> PacketC
+    end
+
+    PLAN4 --> TPF1
+
+    subgraph ContextIsolation["CONTEXT ISOLATION PER SUBAGENT"]
+        direction LR
+        
+        subgraph AgentA_Ctx["Agent A Context ~15K tokens"]
+            A_SYS["System prompt"]
+            A_TASK["Task packet A only"]
+            A_IFACE["Interface contracts"]
+            A_EXIST["Existing token.ts if exists"]
+            A_TEST["Test file template"]
+        end
+        
+        subgraph AgentB_Ctx["Agent B Context ~15K tokens"]
+            B_SYS["System prompt"]
+            B_TASK["Task packet B only"]
+            B_IFACE["Interface contracts"]
+            B_EXIST["Existing session.ts if exists"]
+            B_TEST["Test file template"]
+        end
+        
+        subgraph AgentC_Ctx["Agent C Context ~20K tokens"]
+            C_SYS["System prompt"]
+            C_TASK["Task packet C only"]
+            C_IFACE["Both A+B interfaces"]
+            C_EXIST["Existing auth.ts if exists"]
+            C_TEST["Integration test template"]
+        end
+    end
+
+    PacketA --> A_TASK
+    PacketB --> B_TASK
+    PacketC --> C_TASK
+
+    subgraph NotIncluded["NOT IN SUBAGENT CONTEXT"]
+        NI1["Full codebase"]
+        NI2["Other task packets"]
+        NI3["Previous conversation history"]
+        NI4["Unrelated modules"]
+        NI5["Full plan.md"]
+    end
+
+    subgraph ParallelExecution["PARALLEL EXECUTION"]
+        direction TB
+        
+        subgraph ExecA["Agent A Execution"]
+            EA1["Load packet A context"]
+            EA2["Write token.test.ts RED"]
+            EA3["Implement token.ts GREEN"]
+            EA4["Run tests locally"]
+            EA5["Write artifact summary"]
+            EA1 --> EA2 --> EA3 --> EA4 --> EA5
+        end
+        
+        subgraph ExecB["Agent B Execution"]
+            EB1["Load packet B context"]
+            EB2["Write session.test.ts RED"]
+            EB3["Implement session.ts GREEN"]
+            EB4["Run tests locally"]
+            EB5["Write artifact summary"]
+            EB1 --> EB2 --> EB3 --> EB4 --> EB5
+        end
+        
+        subgraph ExecC["Agent C Execution - Waits for A+B"]
+            EC1["Load packet C context"]
+            EC2["Read A+B artifacts"]
+            EC3["Write auth.test.ts RED"]
+            EC4["Implement auth.ts GREEN"]
+            EC5["Run integration tests"]
+            EC6["Write artifact summary"]
+            EC1 --> EC2 --> EC3 --> EC4 --> EC5 --> EC6
+        end
+    end
+
+    A_TASK --> EA1
+    B_TASK --> EB1
+    C_TASK --> EC1
+    EA5 -.->|"Artifact"| EC2
+    EB5 -.->|"Artifact"| EC2
+
+    subgraph ArtifactFormat["ARTIFACT FORMAT - Compressed Output"]
+        direction TB
+        AF_HEADER["Token Service Implementation"]
+        AF_STATUS["Status: Complete"]
+        AF_FILES["Files Modified: src/auth/token.ts, tests/auth/token.test.ts"]
+        AF_INTERFACE["Exported Interface: generateToken, validateToken"]
+        AF_TESTS["Test Coverage: 8 passing, edge cases covered"]
+        AF_NOTES["Integration Notes: Requires JWT_SECRET env var"]
+        AF_SIZE["Total: ~800 tokens vs 15K+ full context"]
+        
+        AF_HEADER --> AF_STATUS --> AF_FILES --> AF_INTERFACE --> AF_TESTS --> AF_NOTES --> AF_SIZE
+    end
+
+    EA5 --> AF_HEADER
+
+    subgraph DependencyOrdering["DEPENDENCY-AWARE SCHEDULING"]
+        direction TB
+        
+        DO1["Orchestrator analyzes dependency graph"]
+        
+        subgraph Wave1["Wave 1 - Parallel"]
+            W1A["Token Service"]
+            W1B["Session Manager"]
+        end
+        
+        subgraph Wave2["Wave 2 - After Wave 1"]
+            W2A["Auth API depends on Token + Session"]
+        end
+        
+        subgraph Wave3["Wave 3 - After Wave 2"]
+            W3A["Integration Tests"]
+            W3B["E2E Tests"]
+        end
+        
+        DO1 --> Wave1
+        Wave1 --> Wave2
+        Wave2 --> Wave3
+    end
+
+    subgraph OrchestratorSynthesis["ORCHESTRATOR SYNTHESIS"]
+        direction TB
+        
+        OS1["Collect all artifacts"]
+        OS2["Verify interface compatibility"]
+        OS3["Run full test suite"]
+        OS4{{"Conflicts?"}}
+        OS5["Create remediation packet"]
+        OS6["Merge implementations"]
+        OS7["Final verification"]
+        
+        OS1 --> OS2 --> OS3 --> OS4
+        OS4 -->|"Yes"| OS5 --> ParallelExecution
+        OS4 -->|"No"| OS6 --> OS7
+    end
+
+    EC6 --> OS1
+    EA5 --> OS1
+    EB5 --> OS1
+
+    subgraph ContextBudget["CONTEXT BUDGET ALLOCATION"]
+        CB1["Orchestrator: Full plan + all artifacts ~50K tokens"]
+        CB2["Implementation Agent: Single packet + interface ~15-20K tokens"]
+        CB3["Verification Agent: Implementation + tests ~25K tokens"]
+        CB4["Integration Agent: All interfaces + API layer ~30K tokens"]
+        CB5["80% Rule: Never exceed 80% of context window"]
+    end
+
+    subgraph TokenEfficiency["TOKEN EFFICIENCY COMPARISON"]
+        TE1["Single Agent: Full codebase + full plan per task = 100K+ tokens x N tasks"]
+        TE2["Multi-Agent: Minimal packet per agent = 15-20K tokens x N agents + overhead"]
+        TE3["Savings: 60-80% token reduction, 90% quality improvement"]
+    end

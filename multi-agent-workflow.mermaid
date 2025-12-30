@@ -1,0 +1,258 @@
+flowchart TB
+    subgraph UserInput["USER INPUT"]
+        US[/"User Spec / Feature Request"/]
+        US --> COMPLEXITY{{"Complexity Assessment"}}
+    end
+
+    subgraph ScalingRules["SCALING RULES"]
+        COMPLEXITY -->|"Trivial < 1 hour"| DIRECT["Direct Guidance - No Subagent"]
+        COMPLEXITY -->|"Small 1-3 hours"| SMALL["1 Subagent + Verification"]
+        COMPLEXITY -->|"Medium hours-day"| MEDIUM["2-3 Subagents + Integration Review"]
+        COMPLEXITY -->|"Large multi-day"| LARGE["5+ Subagents + Staged Milestones"]
+        COMPLEXITY -->|"Huge multi-week"| HUGE["10+ Subagents + Phased Delivery"]
+    end
+
+    subgraph Orchestrator["LEAD AGENT / ORCHESTRATOR IC7"]
+        direction TB
+        
+        subgraph ExplorePhase["Phase 1: EXPLORE - No Coding"]
+            E1["Read relevant files"]
+            E2["Grep/Glob for patterns"]
+            E3["Document current architecture"]
+            E4["Identify integration points"]
+            E1 --> E2 --> E3 --> E4
+        end
+
+        subgraph PlanPhase["Phase 2: PLAN"]
+            P1["Create plan.md"]
+            P2["Define task decomposition"]
+            P3["Map dependencies"]
+            P4["Define success criteria"]
+            P5["Get human approval"]
+            P1 --> P2 --> P3 --> P4 --> P5
+        end
+
+        subgraph DelegatePhase["Phase 3: DELEGATE"]
+            D1["Create task packets"]
+            D2["Minimal context per agent"]
+            D3["Spawn subagents"]
+            D1 --> D2 --> D3
+        end
+
+        E4 --> P1
+        P5 -->|"Approved"| D1
+        P5 -->|"Rejected"| E1
+    end
+
+    DIRECT --> ExplorePhase
+    SMALL --> ExplorePhase
+    MEDIUM --> ExplorePhase
+    LARGE --> ExplorePhase
+    HUGE --> ExplorePhase
+
+    subgraph TaskPacket["TASK PACKET STRUCTURE"]
+        TP1["Objective: Single clear goal"]
+        TP2["Scope: Exact files/modules"]
+        TP3["Interface: Inputs/Outputs contract"]
+        TP4["Constraints: What NOT to do"]
+        TP5["Success Criteria: Measurable completion"]
+        TP6["Tool Allowlist: Read, Edit, Bash, Grep"]
+    end
+
+    D3 --> TaskPacket
+
+    subgraph SubagentPool["SUBAGENT POOL IC6 - Parallel Execution"]
+        direction LR
+        
+        subgraph SA1["Subagent A - Feature Implementation"]
+            SA1_CTX["Load minimal context"]
+            SA1_TDD["TDD Cycle"]
+            SA1_IMPL["Implement"]
+            SA1_ART["Write artifact"]
+            SA1_CTX --> SA1_TDD --> SA1_IMPL --> SA1_ART
+        end
+
+        subgraph SA2["Subagent B - Service Layer"]
+            SA2_CTX["Load minimal context"]
+            SA2_TDD["TDD Cycle"]
+            SA2_IMPL["Implement"]
+            SA2_ART["Write artifact"]
+            SA2_CTX --> SA2_TDD --> SA2_IMPL --> SA2_ART
+        end
+
+        subgraph SA3["Subagent C - API Endpoints"]
+            SA3_CTX["Load minimal context"]
+            SA3_TDD["TDD Cycle"]
+            SA3_IMPL["Implement"]
+            SA3_ART["Write artifact"]
+            SA3_CTX --> SA3_TDD --> SA3_IMPL --> SA3_ART
+        end
+    end
+
+    TaskPacket --> SA1_CTX
+    TaskPacket --> SA2_CTX
+    TaskPacket --> SA3_CTX
+
+    subgraph TDDCycle["TDD CYCLE - Per Subagent"]
+        direction TB
+        TDD1["Write failing tests - RED"]
+        TDD2["Run tests - confirm failure"]
+        TDD3["Commit tests"]
+        TDD4["Implement to pass - GREEN"]
+        TDD5["Run tests - confirm pass"]
+        TDD6{{"All tests pass?"}}
+        TDD7["Refactor - BLUE"]
+        TDD8["Run tests - confirm still pass"]
+        
+        TDD1 --> TDD2 --> TDD3 --> TDD4 --> TDD5 --> TDD6
+        TDD6 -->|"No"| TDD4
+        TDD6 -->|"Yes"| TDD7 --> TDD8
+    end
+
+    SA1_TDD -.-> TDDCycle
+    SA2_TDD -.-> TDDCycle
+    SA3_TDD -.-> TDDCycle
+
+    subgraph ContextMgmt["CONTEXT MANAGEMENT"]
+        direction TB
+        
+        subgraph JIT["Just-In-Time Loading"]
+            JIT1["Maintain file path references"]
+            JIT2["Load only when needed"]
+            JIT3["Grep before full read"]
+        end
+
+        subgraph Compression["Context Compression"]
+            C1["Monitor context usage"]
+            C2{{"Context > 80%?"}}
+            C3["Trigger compaction"]
+            C4["Preserve: decisions, bugs, paths"]
+            C5["Discard: exploration, superseded"]
+            C1 --> C2
+            C2 -->|"Yes"| C3 --> C4 --> C5
+            C2 -->|"No"| C1
+        end
+
+        subgraph Persistence["Persistent State"]
+            PS1["todo.md - task tracking"]
+            PS2["progress.txt - session state"]
+            PS3["NOTES.md - decisions log"]
+            PS4[".claude/artifacts/ - handoffs"]
+        end
+    end
+
+    subgraph ArtifactSystem["ARTIFACT HANDOFF SYSTEM"]
+        ART1["Subagent writes to .claude/artifacts/"]
+        ART2["Interface specs"]
+        ART3["API contracts"]
+        ART4["Compressed summaries 1-2K tokens max"]
+        ART1 --> ART2
+        ART1 --> ART3
+        ART1 --> ART4
+    end
+
+    SA1_ART --> ART1
+    SA2_ART --> ART1
+    SA3_ART --> ART1
+
+    subgraph Verification["VERIFICATION LAYER IC5"]
+        direction TB
+        
+        subgraph CodeReview["Code Review Agent"]
+            CR1["Fresh context load"]
+            CR2["Security review"]
+            CR3["Performance review"]
+            CR4["Pattern consistency"]
+            CR5["Test coverage gaps"]
+            CR1 --> CR2 --> CR3 --> CR4 --> CR5
+        end
+
+        subgraph OverfitCheck["Anti-Overfit Agent"]
+            OF1["Review implementation vs tests"]
+            OF2["Check for hardcoded values"]
+            OF3["Verify general-purpose solution"]
+            OF4["Edge case coverage"]
+            OF1 --> OF2 --> OF3 --> OF4
+        end
+
+        subgraph IntegrationTest["Integration Test Agent"]
+            IT1["Run full test suite"]
+            IT2["Type checking"]
+            IT3["Linting"]
+            IT4["Cross-module testing"]
+            IT1 --> IT2 --> IT3 --> IT4
+        end
+    end
+
+    ART4 --> CR1
+    ART4 --> OF1
+    TDD8 --> IT1
+
+    subgraph HooksSystem["CLAUDE CODE HOOKS"]
+        direction TB
+        H1["SessionStart: Load CLAUDE.md, install deps"]
+        H2["PostToolUse: Auto-run typecheck/lint after Write/Edit"]
+        H3["PreCompact: Custom preservation logic"]
+        H4["SubagentStop: Verify subagent completion"]
+        H5["Stop: Block premature termination"]
+    end
+
+    subgraph StopHook["STOP HOOK VERIFICATION"]
+        SH1{{"All checklist items done?"}}
+        SH2{{"All tests pass?"}}
+        SH3{{"No TypeScript errors?"}}
+        SH4{{"Linting clean?"}}
+        SH5["Allow completion"]
+        SH6["Continue working"]
+        
+        SH1 -->|"Yes"| SH2
+        SH1 -->|"No"| SH6
+        SH2 -->|"Yes"| SH3
+        SH2 -->|"No"| SH6
+        SH3 -->|"Yes"| SH4
+        SH3 -->|"No"| SH6
+        SH4 -->|"Yes"| SH5
+        SH4 -->|"No"| SH6
+    end
+
+    H5 --> SH1
+
+    subgraph Synthesis["SYNTHESIS - Back to Orchestrator"]
+        SY1["Collect all artifacts"]
+        SY2["Review verification results"]
+        SY3{{"Issues found?"}}
+        SY4["Create remediation tasks"]
+        SY5["Synthesize final implementation"]
+        SY6["Update todo.md"]
+        
+        SY1 --> SY2 --> SY3
+        SY3 -->|"Yes"| SY4 --> D3
+        SY3 -->|"No"| SY5 --> SY6
+    end
+
+    CR5 --> SY1
+    OF4 --> SY1
+    IT4 --> SY1
+
+    subgraph FinalOutput["FINAL OUTPUT"]
+        FOUT1["Create PR description"]
+        FOUT2["Final test run"]
+        FOUT3{{"Human review?"}}
+        FOUT4["Commit / Merge"]
+        FOUT5["Update progress.txt for next session"]
+        
+        SY6 --> FOUT1 --> FOUT2 --> FOUT3
+        FOUT3 -->|"Approved"| FOUT4 --> FOUT5
+        FOUT3 -->|"Changes requested"| SY4
+    end
+
+    subgraph ReinjectionLoop["RE-INJECTION PATTERN"]
+        RI1["Every 5-10 turns"]
+        RI2["Re-inject original checklist"]
+        RI3["Review uncompleted items"]
+        RI4["Continue execution"]
+        RI1 --> RI2 --> RI3 --> RI4
+    end
+
+    SH6 --> RI1
+    RI4 --> SA1_CTX

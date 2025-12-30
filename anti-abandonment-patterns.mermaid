@@ -1,0 +1,141 @@
+flowchart TB
+    subgraph Problem["THE ABANDONMENT PROBLEM"]
+        direction TB
+        PR1["Claude receives complex task"]
+        PR2["Partial implementation"]
+        PR3["Premature summary: I have set up the basic structure..."]
+        PR4["Task incomplete"]
+        PR5["User frustrated"]
+        PR1 --> PR2 --> PR3 --> PR4 --> PR5
+    end
+
+    subgraph Solution["ANTI-ABANDONMENT ARCHITECTURE"]
+        direction TB
+        
+        subgraph ExplicitCriteria["1. EXPLICIT SUCCESS CRITERIA"]
+            EC1["Every task includes mandatory completion checklist"]
+            EC2["Task complete ONLY when: All tests pass, Linting clean, Types check, All todo items done, PR description created"]
+            EC3["Do NOT stop until ALL criteria verified"]
+            EC1 --> EC2 --> EC3
+        end
+
+        subgraph PersistentState["2. PERSISTENT TODO - External State"]
+            PS1["Claude internal todo DOES NOT persist across compaction"]
+            PS2["Solution: External todo.md"]
+            PS3["Create file: echo Progress header to todo.md"]
+            PS4["After each step: Update todo.md with checkmarks"]
+            PS5["Before stopping: Read todo.md, check incomplete items"]
+            PS1 --> PS2 --> PS3 --> PS4 --> PS5
+        end
+
+        subgraph Reinjection["3. RE-INJECTION PATTERN"]
+            RI1["Long tasks span 10+ conversation turns"]
+            RI2["Context drifts from original objective"]
+            RI3["Every 5-10 turns: Re-inject original checklist"]
+            RI4["Reminder: Here is our original task checklist. Continue with next incomplete item."]
+            RI1 --> RI2 --> RI3 --> RI4
+        end
+
+        subgraph VerificationAgents["4. VERIFICATION SUBAGENTS"]
+            VA1["Independent agent with FRESH context"]
+            VA2["Reviews implementation against requirements"]
+            VA3["Catches: Hardcoded test values, Missing edge cases, Incomplete features"]
+            VA4["Reports back to orchestrator"]
+            VA1 --> VA2 --> VA3 --> VA4
+        end
+
+        subgraph StopHooks["5. STOP HOOK ENFORCEMENT"]
+            SH1["Claude Code hooks.Stop"]
+            SH2["Intercepts before agent termination"]
+            SH3["Runs verification checks"]
+            SH4["Blocks if incomplete"]
+            SH1 --> SH2 --> SH3 --> SH4
+        end
+    end
+
+    subgraph StopHookDetail["STOP HOOK IMPLEMENTATION"]
+        direction TB
+        
+        SHD1["Agent signals completion"]
+        SHD2["Stop hook triggers"]
+        
+        subgraph Checks["Automated Checks"]
+            CHK1{{"todo.md all done?"}}
+            CHK2{{"npm test passes?"}}
+            CHK3{{"npm run typecheck passes?"}}
+            CHK4{{"npm run lint clean?"}}
+        end
+        
+        SHD3["All pass: Allow stop"]
+        SHD4["Any fail: Continue working"]
+        SHD5["Inject: Verification failed. Issues listed. Continue until resolved."]
+        
+        SHD1 --> SHD2 --> CHK1
+        CHK1 -->|"Yes"| CHK2
+        CHK1 -->|"No"| SHD4
+        CHK2 -->|"Yes"| CHK3
+        CHK2 -->|"No"| SHD4
+        CHK3 -->|"Yes"| CHK4
+        CHK3 -->|"No"| SHD4
+        CHK4 -->|"Yes"| SHD3
+        CHK4 -->|"No"| SHD4
+        SHD4 --> SHD5
+    end
+
+    subgraph HookConfig["HOOK CONFIGURATION"]
+        HC1["Stop Hook Config: type command, command ./verify-complete.sh, timeout 120"]
+        HC2["verify-complete.sh: Check todo for incomplete items, Run npm test, Run npm typecheck, Run npm lint, Exit 0 if all pass"]
+    end
+
+    subgraph PostToolUseHook["POST-TOOL-USE HOOKS"]
+        PTU1["After every Write/Edit"]
+        PTU2["Auto-run: typecheck, lint, relevant tests"]
+        PTU3["Immediate feedback loop"]
+        PTU4["Prevents accumulation of errors"]
+        PTU1 --> PTU2 --> PTU3 --> PTU4
+        PTU5["PostToolUse Config: matcher Write or Edit, type command, command npm run typecheck"]
+    end
+
+    subgraph SubagentStop["SUBAGENT STOP CONTROL"]
+        SS1["SubagentStop hook"]
+        SS2["Controls when subagents can report complete"]
+        SS3["Orchestrator defines completion criteria per subagent"]
+        SS4["Subagent blocked until criteria met"]
+        SS1 --> SS2 --> SS3 --> SS4
+    end
+
+    subgraph AntiOverfit["ANTI-OVERFITTING VERIFICATION"]
+        AO1["Implementation complete"]
+        AO2["Spawn verification subagent"]
+        AO3["Fresh context: Implementation code, Original requirements, NO test files"]
+        AO4["Check for: Hardcoded values, Magic numbers matching tests, Missing edge cases, Narrow solutions"]
+        AO5{{"Overfitting detected?"}}
+        AO6["Create remediation task: Generalize solution for all valid inputs"]
+        AO7["Pass to commit"]
+        
+        AO1 --> AO2 --> AO3 --> AO4 --> AO5
+        AO5 -->|"Yes"| AO6 --> AO1
+        AO5 -->|"No"| AO7
+    end
+
+    subgraph TodoFormat["TODO.MD FORMAT"]
+        TF1["Authentication Feature - Phase 1 Setup: DONE Read existing auth code, DONE Document patterns, DONE Create plan.md - Phase 2 Token Service: DONE Write token tests, DONE Implement token.ts, PENDING Run full test suite - Phase 3 Integration: PENDING Wire up API endpoints, PENDING Integration tests"]
+    end
+
+    subgraph ProgressFile["PROGRESS.TXT Cross-Session"]
+        PF1["Session State - Last completed: Token generation, Next task: Session management, Blockers: None - Key Decisions: JWT for tokens, 1h expiration default - Files Modified: src/auth/token.ts, tests/auth/token.test.ts"]
+    end
+
+    subgraph FailureModes["FAILURE MODES ADDRESSED"]
+        FM1["Internal todo lost - FIX: External todo.md"]
+        FM2["Context drift - FIX: Re-injection pattern"]
+        FM3["Premature done - FIX: Stop hooks"]
+        FM4["Tests pass but overfitted - FIX: Verification subagent"]
+        FM5["Errors accumulate - FIX: PostToolUse hooks"]
+        FM6["Cross-session amnesia - FIX: progress.txt"]
+    end
+
+    ExplicitCriteria --> StopHookDetail
+    PersistentState --> TodoFormat
+    VerificationAgents --> AntiOverfit
+    StopHooks --> HookConfig
