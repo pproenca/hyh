@@ -798,3 +798,114 @@ def test_parse_plan_content_detects_xml():
 
     assert plan.goal == "Test"
     assert "T001" in plan.tasks
+
+
+# =============================================================================
+# XML Parser Error Handling Tests
+# =============================================================================
+
+
+def test_parse_xml_plan_malformed_xml():
+    """parse_xml_plan raises ValueError for malformed XML."""
+    from hyh.plan import parse_xml_plan
+
+    with pytest.raises(ValueError, match="Invalid XML"):
+        parse_xml_plan("<not valid xml")
+
+
+def test_parse_xml_plan_wrong_root_element():
+    """parse_xml_plan raises ValueError for wrong root element."""
+    from hyh.plan import parse_xml_plan
+
+    with pytest.raises(ValueError, match="Root element must be 'plan'"):
+        parse_xml_plan("<workflow></workflow>")
+
+
+def test_parse_xml_plan_missing_task_id():
+    """parse_xml_plan raises ValueError for task without id."""
+    from hyh.plan import parse_xml_plan
+
+    xml = """\
+<plan>
+  <task>
+    <description>test</description>
+    <instructions>do</instructions>
+    <success>done</success>
+  </task>
+</plan>
+"""
+    with pytest.raises(ValueError, match="missing 'id' attribute"):
+        parse_xml_plan(xml)
+
+
+def test_parse_xml_plan_missing_description():
+    """parse_xml_plan raises ValueError for task without description."""
+    from hyh.plan import parse_xml_plan
+
+    xml = """\
+<plan>
+  <task id="T001">
+    <instructions>do</instructions>
+    <success>done</success>
+  </task>
+</plan>
+"""
+    with pytest.raises(ValueError, match="T001.*missing.*description"):
+        parse_xml_plan(xml)
+
+
+def test_parse_xml_plan_missing_instructions():
+    """parse_xml_plan raises ValueError for task without instructions."""
+    from hyh.plan import parse_xml_plan
+
+    xml = """\
+<plan>
+  <task id="T001">
+    <description>test</description>
+    <success>done</success>
+  </task>
+</plan>
+"""
+    with pytest.raises(ValueError, match="T001.*missing.*instructions"):
+        parse_xml_plan(xml)
+
+
+def test_parse_xml_plan_missing_success():
+    """parse_xml_plan raises ValueError for task without success criteria."""
+    from hyh.plan import parse_xml_plan
+
+    xml = """\
+<plan>
+  <task id="T001">
+    <description>test</description>
+    <instructions>do</instructions>
+  </task>
+</plan>
+"""
+    with pytest.raises(ValueError, match="T001.*missing.*success"):
+        parse_xml_plan(xml)
+
+
+def test_parse_xml_plan_invalid_model():
+    """parse_xml_plan raises ValueError for invalid model enum."""
+    from hyh.plan import parse_xml_plan
+
+    xml = """\
+<plan>
+  <task id="T001" model="gpt4">
+    <description>test</description>
+    <instructions>do</instructions>
+    <success>done</success>
+  </task>
+</plan>
+"""
+    with pytest.raises(ValueError, match="Invalid model 'gpt4'"):
+        parse_xml_plan(xml)
+
+
+def test_parse_xml_plan_empty_plan():
+    """parse_xml_plan raises ValueError for plan with no tasks."""
+    from hyh.plan import parse_xml_plan
+
+    with pytest.raises(ValueError, match="No valid tasks found"):
+        parse_xml_plan("<plan></plan>")
