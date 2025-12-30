@@ -288,7 +288,7 @@ class WorkflowStateStore:
 
             return ClaimResult(task=updated_task, is_retry=is_retry, is_reclaim=is_reclaim)
 
-    def complete_task(self, task_id: str, worker_id: str) -> None:
+    def complete_task(self, task_id: str, worker_id: str, *, force: bool = False) -> None:
         with self._state_lock:
             state = self._ensure_state_loaded()
 
@@ -296,7 +296,7 @@ class WorkflowStateStore:
             if task is None:
                 raise ValueError(f"Task not found: {task_id}")
 
-            if task.claimed_by != worker_id:
+            if not force and task.claimed_by != worker_id:
                 raise ValueError(
                     f"Task {task_id} not owned by {worker_id} "
                     f"(owned by {task.claimed_by or 'nobody'})"

@@ -482,6 +482,11 @@ def main() -> None:
     task_subparsers.add_parser("claim", help="Claim next available task")
     task_complete = task_subparsers.add_parser("complete", help="Mark task as complete")
     task_complete.add_argument("--id", required=True, help="Task ID to complete")
+    task_complete.add_argument(
+        "--force",
+        action="store_true",
+        help="Complete task regardless of ownership (for recovery)",
+    )
 
     plan_parser = subparsers.add_parser("plan", help="Plan management")
     plan_sub = plan_parser.add_subparsers(dest="plan_command", required=True)
@@ -586,7 +591,7 @@ def main() -> None:
                 case "claim":
                     _cmd_task_claim(socket_path, worktree_root)
                 case "complete":
-                    _cmd_task_complete(socket_path, worktree_root, args.id)
+                    _cmd_task_complete(socket_path, worktree_root, args.id, args.force)
         case "plan":
             match args.plan_command:
                 case "import":
@@ -804,16 +809,23 @@ def _cmd_task_claim(socket_path: str, worktree_root: str) -> None:
     print(json.dumps(response["data"], indent=2))
 
 
-def _cmd_task_complete(socket_path: str, worktree_root: str, task_id: str) -> None:
+def _cmd_task_complete(
+    socket_path: str, worktree_root: str, task_id: str, force: bool = False
+) -> None:
     response = send_rpc(
         socket_path,
-        {"command": "task_complete", "task_id": task_id, "worker_id": WORKER_ID},
+        {
+            "command": "task_complete",
+            "task_id": task_id,
+            "worker_id": WORKER_ID,
+            "force": force,
+        },
         worktree_root,
     )
     if response["status"] != "ok":
         print(f"Error: {response.get('message')}", file=sys.stderr)
         sys.exit(1)
-    print(f"Task {task_id} completed")
+    print(f"Task {task_id} completed" + (" (forced)" if force else ""))
 
 
 def _cmd_exec(
