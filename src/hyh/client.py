@@ -978,6 +978,7 @@ def _cmd_worktree_switch(branch: str) -> None:
         print(f"Worktree not found: {branch}", file=sys.stderr)
         sys.exit(1)
 
+    assert wt is not None  # Type narrowing for ty
     print(f"cd {wt.worktree_path}")
 
 
