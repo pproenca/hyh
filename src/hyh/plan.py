@@ -1,17 +1,66 @@
 import re
+from enum import Enum
 from typing import Final
 
 from msgspec import Struct
 
 from .state import Task, TaskStatus, WorkflowState, detect_cycle
 
+
+class AgentModel(str, Enum):
+    """Model tier for agent tasks."""
+
+    HAIKU = "haiku"
+    SONNET = "sonnet"
+    OPUS = "opus"
+
+
+class TaskPacket(Struct, frozen=True, forbid_unknown_fields=True, omit_defaults=True):
+    """Complete work packet for an agent. Agent receives ONLY this."""
+
+    # Required fields
+    id: str
+    description: str
+    instructions: str
+    success_criteria: str
+
+    # Optional identity
+    role: str | None = None
+    model: AgentModel = AgentModel.SONNET
+
+    # Scope boundaries
+    files_in_scope: tuple[str, ...] = ()
+    files_out_of_scope: tuple[str, ...] = ()
+
+    # Interface contract
+    input_context: str = ""
+    output_contract: str = ""
+
+    # Implementation
+    constraints: str = ""
+
+    # Tool permissions
+    tools: tuple[str, ...] = ()
+
+    # Verification
+    verification_commands: tuple[str, ...] = ()
+
+    # Artifacts
+    artifacts_to_read: tuple[str, ...] = ()
+    artifacts_to_write: tuple[str, ...] = ()
+
+
 _SAFE_TASK_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-\.]*$")
 
 _CHECKBOX_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"^- \[([ xX])\] (T\d+)(?: \[P\])?(?: \[([A-Z]+\d+)\])? (.+)$"
+    r"^- \[([ xX])\] (T\d+)(?: \[P\])?(?: \[([A-Z]+\d+)\])? (.+)$",
+    re.MULTILINE,
 )
 
 _PHASE_PATTERN: Final[re.Pattern[str]] = re.compile(r"^## Phase \d+: (.+)$")
+
+# Extract goal from "# Tasks: Feature Name" or "# Feature Name" headers
+_TITLE_PATTERN: Final[re.Pattern[str]] = re.compile(r"^# (?:Tasks:\s*)?(.+)$", re.MULTILINE)
 
 
 def _validate_task_id(task_id: str) -> None:
@@ -49,6 +98,20 @@ class SpecTaskList(Struct, frozen=True, forbid_unknown_fields=True):
 
     tasks: dict[str, SpecTaskDefinition]
     phases: tuple[str, ...]
+    goal: str = "Implementation tasks"
+
+    def to_plan_definition(self) -> PlanDefinition:
+        """Convert to PlanDefinition for daemon import."""
+        plan_tasks = {}
+        for tid, spec_task in self.tasks.items():
+            plan_tasks[tid] = PlanTaskDefinition(
+                description=spec_task.description,
+                dependencies=spec_task.dependencies,
+                timeout_seconds=600,
+                instructions=None,
+                role=None,
+            )
+        return PlanDefinition(goal=self.goal, tasks=plan_tasks)
 
     def to_workflow_state(self) -> WorkflowState:
         """Convert to WorkflowState for daemon execution."""
@@ -182,6 +245,7 @@ def parse_plan_content(content: str) -> PlanDefinition:
     if not content or not content.strip():
         raise ValueError("No valid plan found: content is empty or whitespace-only")
 
+    # Format 1: Task Groups markdown (legacy)
     if "**Goal:**" in content and "| Task Group |" in content:
         plan = parse_markdown_plan(content)
         if not plan.tasks:
@@ -189,36 +253,67 @@ def parse_plan_content(content: str) -> PlanDefinition:
         plan.validate_dag()
         return plan
 
-    raise ValueError("No valid plan found. Use `hyh plan template` for format reference.")
+    # Format 2: Speckit checkbox format (primary)
+    if _CHECKBOX_PATTERN.search(content):
+        spec_tasks = parse_speckit_tasks(content)
+        if not spec_tasks.tasks:
+            raise ValueError("No valid plan found: no tasks defined in speckit format")
+        plan = spec_tasks.to_plan_definition()
+        plan.validate_dag()
+        return plan
+
+    raise ValueError(
+        "No valid plan found. Supported formats:\n"
+        "  1. Speckit: - [ ] T001 checkbox tasks (recommended)\n"
+        "  2. Task Groups: **Goal:** + | Task Group | table (legacy)\n"
+        "Run 'hyh plan template' for format reference."
+    )
 
 
 def get_plan_template() -> str:
     return """\
 # Plan Template
 
-## Recommended: Structured Markdown
+## Recommended: Speckit Checkbox Format
 
 ```markdown
-# Implementation Plan Title
+# Tasks: [Feature Name]
 
-> **Execution:** Use `/dev-workflow:execute-plan path/to/plan.md` to implement.
+## Phase 1: Setup
 
-**Goal:** One sentence description of the objective
+- [ ] T001 Create project structure
+- [ ] T002 [P] Initialize configuration
 
-**Architecture:** Brief architectural summary
-**Tech Stack:** Python 3.13t, etc.
+## Phase 2: Core
+
+- [ ] T003 Implement main feature
+- [ ] T004 [P] [US1] Add user model in src/models/user.py
+
+## Phase 3: Tests
+
+- [ ] T005 Add integration tests
+```
+
+**Format:**
+- `- [ ]` = pending, `- [x]` = completed
+- `[P]` = can run in parallel (no file conflicts)
+- `[US1]` = user story reference (optional)
+- Task IDs: T001, T002, etc.
+- Phase N tasks depend on ALL Phase N-1 tasks
 
 ---
+
+## Legacy: Task Groups Format
+
+```markdown
+**Goal:** One sentence description
 
 ## Task Groups
 
 | Task Group | Tasks | Rationale |
 |------------|-------|-----------|
-| Group 1    | 1, 2  | Core infrastructure (parallel) |
-| Group 2    | 3     | Feature (depends on Group 1) |
-| Group 3    | 4     | Tests (depends on Group 2) |
-
----
+| Group 1    | 1, 2  | Core (parallel) |
+| Group 2    | 3     | Depends on 1 |
 
 ### Task 1: Create User Model
 
@@ -226,52 +321,12 @@ def get_plan_template() -> str:
 - Create: `src/models/user.py`
 
 **Step 1: Write failing test**
-```python
-def test_user_model():
-    user = User(email="test@example.com")
-    assert user.email == "test@example.com"
+...
 ```
 
-**Step 2: Run test to verify failure**
-```bash
-pytest tests/test_user.py::test_user_model -v
-```
-
-**Step 3: Implement minimal code**
-```python
-class User:
-    def __init__(self, email: str):
-        self.email = email
-```
-
-### Task 2: Add Password Hashing
-
-**Files:**
-- Modify: `src/models/user.py`
-
-**Step 1: Write failing test**
-Test password hashing with bcrypt.
-
-### Task 3: Create Login Endpoint
-
-**Files:**
-- Create: `src/routes/auth.py`
-
-**Step 1: Implement /login**
-Return JWT on success.
-
-### Task 4: Integration Tests
-
-**Files:**
-- Create: `tests/test_auth_integration.py`
-
-**Step 1: Test full auth flow**
-Test registration, login, protected routes.
-```
-
-**Dependency Rules:**
-- Tasks in Group N depend on ALL tasks in Group N-1
-- Tasks within the same group are independent (can run in parallel)
+**Dependency Rules (both formats):**
+- Tasks in Group/Phase N depend on ALL tasks in Group/Phase N-1
+- Tasks within the same group/phase are independent (can run in parallel)
 """
 
 
@@ -279,6 +334,7 @@ def parse_speckit_tasks(content: str) -> SpecTaskList:
     """Parse speckit checkbox format into task list.
 
     Format:
+    # Tasks: Feature Name  (optional, used as goal)
     ## Phase N: Phase Name
     - [ ] T001 [P] [US1] Description with path/to/file.py
     - [x] T002 Completed task
@@ -291,6 +347,10 @@ def parse_speckit_tasks(content: str) -> SpecTaskList:
     Dependencies:
     - Tasks in Phase N automatically depend on ALL tasks in Phase N-1
     """
+    # Extract goal from first # heading (e.g., "# Tasks: Feature Name" -> "Feature Name")
+    title_match = _TITLE_PATTERN.search(content)
+    goal = title_match.group(1).strip() if title_match else "Implementation tasks"
+
     tasks: dict[str, SpecTaskDefinition] = {}
     phases: list[str] = []
     phase_tasks: dict[str, list[str]] = {}
@@ -345,4 +405,4 @@ def parse_speckit_tasks(content: str) -> SpecTaskList:
                     dependencies=prev_phase_task_ids,
                 )
 
-    return SpecTaskList(tasks=tasks, phases=tuple(phases))
+    return SpecTaskList(tasks=tasks, phases=tuple(phases), goal=goal)

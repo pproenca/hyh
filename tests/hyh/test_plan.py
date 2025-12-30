@@ -4,6 +4,10 @@ import pytest
 
 from hyh.plan import PlanDefinition, PlanTaskDefinition, parse_plan_content
 
+# =============================================================================
+# PlanTaskDefinition and PlanDefinition Tests
+# =============================================================================
+
 
 def test_plan_task_definition_basic():
     """PlanTaskDefinition should validate required fields."""
@@ -57,21 +61,27 @@ def test_plan_validate_dag_rejects_missing_dep():
         plan.validate_dag()
 
 
+# =============================================================================
+# Task Groups Format Tests (Legacy Format)
+# =============================================================================
+
+
 def test_get_plan_template_returns_markdown():
-    """Template generation produces Markdown with structure and example."""
+    """Template generation produces Markdown with speckit as recommended format."""
     from hyh.plan import get_plan_template
 
     template = get_plan_template()
 
     assert "# Plan Template" in template
-    assert "## Recommended: Structured Markdown" in template
-    # Legacy JSON section should NOT exist
-    assert "## Legacy:" not in template
+    assert "## Recommended: Speckit Checkbox Format" in template
+    # Legacy Task Groups section should exist
+    assert "## Legacy: Task Groups Format" in template
+    # JSON section should NOT exist
     assert "JSON Format" not in template
 
 
 def test_parse_markdown_plan_basic():
-    """parse_markdown_plan extracts goal, tasks, and dependencies from Markdown."""
+    """parse_markdown_plan extracts goal, tasks, and dependencies from Markdown (legacy format)."""
     from hyh.plan import parse_markdown_plan
 
     content = """\
@@ -285,16 +295,21 @@ Instructions.
     assert plan.goal == "Cycle test"
 
 
-def test_get_plan_template_includes_markdown_format():
-    """get_plan_template should show Markdown format as recommended."""
+def test_get_plan_template_includes_speckit_format():
+    """get_plan_template should show speckit format as recommended."""
     from hyh.plan import get_plan_template
 
     template = get_plan_template()
 
+    # Speckit format (primary/recommended)
+    assert "## Recommended: Speckit Checkbox Format" in template
+    assert "# Tasks: [Feature Name]" in template
+    assert "- [ ] T001" in template
+    assert "## Phase 1:" in template
+
+    # Task Groups format (legacy) should still be included
     assert "**Goal:**" in template
     assert "| Task Group |" in template
-    assert "### Task" in template
-    assert "(Recommended)" in template or "Markdown" in template
 
 
 def test_parse_markdown_plan_rejects_phantom_tasks():
@@ -375,6 +390,58 @@ Body dotted.
     assert "auth-service" in plan.tasks
     assert "1.1" in plan.tasks
     assert len(plan.tasks) == 5
+
+
+# =============================================================================
+# Speckit Checkbox Format Tests (Primary Format)
+# =============================================================================
+
+
+def test_parse_plan_content_detects_speckit_format():
+    """parse_plan_content auto-detects speckit checkbox format."""
+    content = """\
+# Tasks: My Feature
+
+## Phase 1: Setup
+
+- [ ] T001 First task
+- [ ] T002 [P] Second task
+
+## Phase 2: Core
+
+- [ ] T003 Third task
+"""
+    plan = parse_plan_content(content)
+
+    assert plan.goal == "My Feature"
+    assert len(plan.tasks) == 3
+    assert plan.tasks["T001"].description == "First task"
+    assert plan.tasks["T003"].dependencies == ("T001", "T002")
+
+
+def test_speckit_to_plan_definition_preserves_dependencies():
+    """SpecTaskList.to_plan_definition() preserves phase dependencies."""
+    from hyh.plan import parse_speckit_tasks
+
+    content = """\
+# Tasks: Conversion Test
+
+## Phase 1: Setup
+
+- [ ] T001 Task one
+- [x] T002 Task two
+
+## Phase 2: Core
+
+- [ ] T003 Task three
+"""
+    spec_tasks = parse_speckit_tasks(content)
+    plan = spec_tasks.to_plan_definition()
+
+    assert plan.goal == "Conversion Test"
+    assert len(plan.tasks) == 3
+    assert plan.tasks["T001"].description == "Task one"
+    assert plan.tasks["T003"].dependencies == ("T001", "T002")
 
 
 def test_parse_speckit_checkbox_basic():
@@ -458,3 +525,68 @@ def test_spec_task_list_to_workflow_state():
     assert state.tasks["T001"].status == TaskStatus.PENDING
     assert state.tasks["T002"].status == TaskStatus.COMPLETED
     assert state.tasks["T003"].dependencies == ("T001", "T002")
+
+
+def test_agent_model_enum_values():
+    """AgentModel enum has haiku, sonnet, opus values."""
+    from hyh.plan import AgentModel
+
+    assert AgentModel.HAIKU.value == "haiku"
+    assert AgentModel.SONNET.value == "sonnet"
+    assert AgentModel.OPUS.value == "opus"
+
+
+def test_task_packet_struct_defaults():
+    """TaskPacket has correct default values."""
+    from hyh.plan import AgentModel, TaskPacket
+
+    packet = TaskPacket(
+        id="T001",
+        description="Test task",
+        instructions="Do the thing",
+        success_criteria="Tests pass",
+    )
+
+    assert packet.id == "T001"
+    assert packet.description == "Test task"
+    assert packet.role is None
+    assert packet.model == AgentModel.SONNET  # default
+    assert packet.files_in_scope == ()
+    assert packet.files_out_of_scope == ()
+    assert packet.input_context == ""
+    assert packet.output_contract == ""
+    assert packet.instructions == "Do the thing"
+    assert packet.constraints == ""
+    assert packet.tools == ()
+    assert packet.verification_commands == ()
+    assert packet.success_criteria == "Tests pass"
+    assert packet.artifacts_to_read == ()
+    assert packet.artifacts_to_write == ()
+
+
+def test_task_packet_struct_full():
+    """TaskPacket accepts all fields."""
+    from hyh.plan import AgentModel, TaskPacket
+
+    packet = TaskPacket(
+        id="T001",
+        description="Create token service",
+        role="implementer",
+        model=AgentModel.OPUS,
+        files_in_scope=("src/auth/token.py", "tests/auth/test_token.py"),
+        files_out_of_scope=("src/auth/session.py",),
+        input_context="User credentials schema",
+        output_contract="TokenService with generate()",
+        instructions="1. Write test\n2. Implement",
+        constraints="Use existing jwt library",
+        tools=("Read", "Edit", "Bash"),
+        verification_commands=("pytest tests/auth/", "ruff check"),
+        success_criteria="All tests pass",
+        artifacts_to_read=(),
+        artifacts_to_write=(".claude/artifacts/T001-api.md",),
+    )
+
+    assert packet.role == "implementer"
+    assert packet.model == AgentModel.OPUS
+    assert len(packet.files_in_scope) == 2
+    assert len(packet.tools) == 3
