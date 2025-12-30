@@ -1227,3 +1227,28 @@ def test_claim_task_returns_none_result_when_no_tasks(tmp_path) -> None:
     assert result.task is None
     assert result.is_retry is False
     assert result.is_reclaim is False
+
+
+def test_task_extended_fields():
+    """Task supports TaskPacket-like extended fields."""
+    from hyh.state import Task
+
+    task = Task(
+        id="T001",
+        description="Test task",
+        files_in_scope=("src/a.py", "src/b.py"),
+        files_out_of_scope=("src/c.py",),
+        input_context="Input data",
+        output_contract="Output spec",
+        constraints="No new deps",
+        tools=("Read", "Edit"),
+        verification_commands=("pytest",),
+        success_criteria="Tests pass",
+        artifacts_to_read=(),
+        artifacts_to_write=(".claude/artifacts/T001.md",),
+        model="sonnet",
+    )
+
+    assert task.files_in_scope == ("src/a.py", "src/b.py")
+    assert task.tools == ("Read", "Edit")
+    assert task.model == "sonnet"

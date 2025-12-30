@@ -72,6 +72,17 @@ class XMLPlanDefinition(Struct, frozen=True, forbid_unknown_fields=True):
                 dependencies=self.dependencies.get(tid, ()),
                 instructions=packet.instructions,
                 role=packet.role,
+                model=packet.model.value if packet.model else None,
+                files_in_scope=packet.files_in_scope,
+                files_out_of_scope=packet.files_out_of_scope,
+                input_context=packet.input_context,
+                output_contract=packet.output_contract,
+                constraints=packet.constraints,
+                tools=packet.tools,
+                verification_commands=packet.verification_commands,
+                success_criteria=packet.success_criteria,
+                artifacts_to_read=packet.artifacts_to_read,
+                artifacts_to_write=packet.artifacts_to_write,
             )
         return WorkflowState(tasks=state_tasks)
 

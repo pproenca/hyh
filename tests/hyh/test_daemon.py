@@ -1059,3 +1059,53 @@ def test_dispatch_returns_typed_error_for_invalid_json():
     decoded = msgspec.json.decode(result)
     assert decoded["status"] == "error"
     assert "message" in decoded
+
+
+def test_task_claim_returns_extended_fields(daemon_manager):
+    """task_claim returns full TaskPacket fields."""
+    daemon, worktree = daemon_manager
+
+    # Import XML plan with full fields
+    xml_plan = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<plan goal="Test">
+  <task id="T001" role="implementer" model="opus">
+    <description>Test task</description>
+    <tools>Read, Edit</tools>
+    <scope>
+      <include>src/a.py</include>
+    </scope>
+    <instructions>Do the thing</instructions>
+    <constraints>No new deps</constraints>
+    <verification>
+      <command>pytest</command>
+    </verification>
+    <success>Tests pass</success>
+    <artifacts>
+      <write>.claude/out.md</write>
+    </artifacts>
+  </task>
+</plan>
+"""
+
+    # Import plan
+    send_command(daemon.socket_path, {"command": "plan_import", "content": xml_plan})
+
+    # Claim task
+    response = send_command(
+        daemon.socket_path,
+        {"command": "task_claim", "worker_id": "test-worker"},
+    )
+
+    assert response["status"] == "ok"
+    task = response["data"]["task"]
+
+    # Verify extended fields are present
+    assert task["role"] == "implementer"
+    assert task["model"] == "opus"
+    assert task["files_in_scope"] == ["src/a.py"]
+    assert task["tools"] == ["Read", "Edit"]
+    assert task["constraints"] == "No new deps"
+    assert task["verification_commands"] == ["pytest"]
+    assert task["success_criteria"] == "Tests pass"
+    assert task["artifacts_to_write"] == [".claude/out.md"]

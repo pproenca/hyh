@@ -77,6 +77,19 @@ class Task(Struct, frozen=True, forbid_unknown_fields=True):
     instructions: str | None = None
     role: str | None = None
 
+    # TaskPacket extended fields
+    model: str | None = None
+    files_in_scope: tuple[str, ...] = ()
+    files_out_of_scope: tuple[str, ...] = ()
+    input_context: str = ""
+    output_contract: str = ""
+    constraints: str = ""
+    tools: tuple[str, ...] = ()
+    verification_commands: tuple[str, ...] = ()
+    success_criteria: str = ""
+    artifacts_to_read: tuple[str, ...] = ()
+    artifacts_to_write: tuple[str, ...] = ()
+
     _clock: ClassVar[Callable[[], datetime]] = lambda: datetime.now(UTC)
 
     @classmethod
