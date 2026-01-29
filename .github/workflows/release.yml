@@ -46,7 +46,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@45cfcb3be5323e8be48c8a1849f80be7e5152a90
         with:
-          version: "0.9.18"
+          version: "0.9.28"
           enable-cache: false
 
       - name: Install Python 3.13
@@ -78,7 +78,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@45cfcb3be5323e8be48c8a1849f80be7e5152a90
         with:
-          version: "0.9.18"
+          version: "0.9.28"
           enable-cache: false
 
       - name: Download artifacts
@@ -116,7 +116,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@45cfcb3be5323e8be48c8a1849f80be7e5152a90
         with:
-          version: "0.9.18"
+          version: "0.9.28"
           enable-cache: false
 
       - name: Download artifacts
