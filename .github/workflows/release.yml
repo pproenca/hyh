@@ -141,7 +141,7 @@ jobs:
           fetch-depth: 0 # Full history for git-cliff
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@4c6723ec9c638cccae824b8957c5085b695c8085 # v2.65.7
+        uses: taiki-e/install-action@650c5ca14212efbbf3e580844b04bdccf68dac31 # v2.67.18
         with:
           tool: git-cliff
 
